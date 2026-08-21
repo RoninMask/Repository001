@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 f1_visibility_audit.py -- Project Hoover / Live AI Race Broadcast
-                          Phase 0, Step 0.4.2
+                          Phase 0, Step 0.4.1
 
 WHAT THIS ANSWERS
     When spectating a public F1 25 lobby, how much telemetry actually
@@ -13,17 +13,7 @@ WHAT THIS ANSWERS
     spread across the whole field. Nineteen strangers is nineteen
     independent samples. THE VARIANCE BETWEEN CAR SLOTS IS THE MEASUREMENT.
 
-    THE CONTROL CAR (0.4.2). The audit needs one car it can trust as a
-    reference -- a slot where a field demonstrably carries live values, so
-    that the same field reading flat everywhere else means something. Our
-    own car is the ideal control because it always reports fully, but the
-    production system spectates permanently and a spectator has no car. So
-    the control is resolved in priority order: --control-car N if the
-    operator nominated one, else m_playerCarIndex if the game gave us one,
-    else the single car declaring m_yourTelemetry=Public if there is exactly
-    one. A nominated control proves a field is READABLE and that our offsets
-    are right; it does not prove that car is unrestricted, so the verdict is
-    read as "relative to car N" rather than as an absolute ceiling.
+    Our own car is the control sample: it always reports fully.
 
 HOW IT DECIDES "RESTRICTED" vs "LEGITIMATELY ZERO"
     This is the part that is easy to get wrong. Tyre wear starts at zero
@@ -77,27 +67,10 @@ USAGE
     python3 f1_visibility_audit.py --port 20777      # override port
     python3 f1_visibility_audit.py --analyze cap.bin # offline replay
     python3 f1_visibility_audit.py --duration 600    # auto-stop after 600s
-    python3 f1_visibility_audit.py --control-car 6   # spectator: nominate a control
 
     Ctrl-C to stop. Three files land next to this script: .txt (paste this
     one into a message), .json (structured, for later analysis) and .bin
     (the raw capture).
-
-WHAT CHANGED IN 0.4.2
-    1. The control car no longer has to be our own car. --control-car N
-       nominates one, and a lobby with exactly one Public car resolves
-       itself. Both 0.4 runs returned D purely because a spectator has no
-       m_playerCarIndex.
-    2. The `zero` bucket is split three ways. Fuel and ERS cannot honestly
-       read zero on a running car, so zero there means restricted. Pit
-       status and DRS legitimately read zero all session, so zero there
-       means nothing happened. Only the first class scores.
-    3. m_yourTelemetry is treated as an independent oracle. If the game
-       reports different settings for different players, that IS the
-       finding, and it does not depend on either inspection layer.
-
-    v0.4.2 reads v0.4.1 captures unchanged -- the capture format, the .bin
-    reader, the stride derivation and Layer B are untouched.
 
 REQUIREMENTS
     Python 3.8+, standard library only. Installs nothing, sends nothing
@@ -118,21 +91,7 @@ import time
 from collections import Counter, OrderedDict
 
 SCRIPT_NAME = "f1_visibility_audit.py"
-SCRIPT_VERSION = "0.4.2"
-
-# Named in the JSON meta so a report can be traced back to the instrument
-# that produced it, rather than to a version number alone.
-CHANGES_FROM_V041 = [
-    "control car is resolved by nomination (--control-car N), then "
-    "m_playerCarIndex, then the sole car declaring m_yourTelemetry=Public; "
-    "a spectator run no longer bails to verdict D for want of a driver seat",
-    "the 'zero' bucket is split into zero_impossible / zero_meaningful / "
-    "zero_ambiguous, and only fields that cannot honestly read zero on a "
-    "running car count toward the restriction verdict",
-    "m_yourTelemetry is used as an independent verdict oracle: settings "
-    "that differ between players state per-player gating outright, "
-    "regardless of what either inspection layer measured",
-]
+SCRIPT_VERSION = "0.4.1"
 
 # ===========================================================================
 # SECTION 1 -- 2025 PACKET SPEC CONSTANTS
@@ -1173,9 +1132,6 @@ class Auditor(object):
         self.lapdata_stride_ok = 0
 
         # session state
-        # 0.4.2: what the live status block should call the control, before
-        # the analysis resolves it properly at the end of the run.
-        self.control_hint = None
         self.player_car_index = None
         self.player_index_history = Counter()
         self.game_version = None
@@ -1208,14 +1164,6 @@ class Auditor(object):
         self.markers = []
 
     # -- helpers -----------------------------------------------------------
-    def control_index_hint(self):
-        """Best guess at the control car DURING a run: an operator nomination
-        if there is one, otherwise our own car. The authoritative resolution
-        (including the sole-Public-car route) happens in Analysis."""
-        if self.control_hint is not None:
-            return self.control_hint
-        return self.player_car_index
-
     def player_car(self):
         if self.player_car_index is None:
             return None
@@ -1663,8 +1611,8 @@ PLATFORM_NAMES = {1: "Steam", 3: "PlayStation", 4: "Xbox", 6: "Origin",
 #               call every one of them missing.
 #
 # Either way the control car sets the bar: a field only becomes comparable if
-# THE CONTROL proves it can be populated (presence) or can move (variance). A
-# field that reads zero on the control car -- m_aiControlled for a human driver,
+# OUR car proves it can be populated (presence) or can move (variance). A
+# field that reads zero on our own car -- m_aiControlled for a human driver,
 # team id 0 for Mercedes -- is excluded automatically, which is what stops
 # "legitimately zero" being mistaken for "restricted".
 SCORE_VARIANCE = "variance"
@@ -1701,287 +1649,6 @@ AVAIL_FULL = "FULL"
 AVAIL_PARTIAL = "PARTIAL"
 AVAIL_RESTRICTED = "RESTRICTED"
 AVAIL_UNKNOWN = "UNKNOWN"
-
-
-# --- v0.4.2: control car resolution -------------------------------------------------
-#
-# 0.4.1 required m_playerCarIndex and bailed to verdict D without it. The
-# production system spectates permanently and a spectator has no car, so
-# requiring a driver seat was wrong. What the audit actually needs is any car
-# it can trust as a reference -- nominated by hand, or inferred from the
-# game's own privacy field.
-
-class ControlCar(object):
-    """Which car slot the audit measures every other car against."""
-    __slots__ = ("index", "source", "note")
-
-    def __init__(self, index, source, note=""):
-        self.index = index          # int or None
-        self.source = source        # nominated | player_car_index | sole_public_car | none
-        self.note = note
-
-    @property
-    def resolved(self):
-        return self.index is not None
-
-    @property
-    def is_own_car(self):
-        return self.source == "player_car_index"
-
-    def describe(self):
-        if not self.resolved:
-            return "NEVER IDENTIFIED"
-        labels = {
-            "nominated":        "car {} (nominated via --control-car)",
-            "player_car_index": "car {} (our own car, from Session packet)",
-            "sole_public_car":  "car {} (auto: only car declaring m_yourTelemetry=Public)",
-        }
-        return labels.get(self.source, "car {}").format(self.index)
-
-    def to_json(self):
-        return {"index": self.index, "source": self.source,
-                "note": self.note or None}
-
-
-def resolve_control_car(args, player_car_index, per_car_privacy, max_cars):
-    """
-    per_car_privacy: dict {car_index: m_yourTelemetry}  (0 Restricted, 1 Public, None unknown)
-    Returns ControlCar.
-    """
-    nominated = getattr(args, "control_car", None)
-    if nominated is not None:
-        if not (0 <= nominated < max_cars):
-            raise SystemExit(
-                f"--control-car {nominated} is out of range (0..{max_cars - 1})"
-            )
-        return ControlCar(nominated, "nominated")
-
-    if player_car_index is not None:
-        return ControlCar(player_car_index, "player_car_index")
-
-    public = [i for i, v in per_car_privacy.items() if v == 1]
-    restricted = [i for i, v in per_car_privacy.items() if v == 0]
-    if len(public) == 1 and restricted:
-        idx = public[0]
-        return ControlCar(
-            idx, "sole_public_car",
-            note=("auto-selected: the game reports this as the only car with "
-                  "m_yourTelemetry=Public, so it is the only slot that can prove "
-                  "a field is readable at all"),
-        )
-
-    return ControlCar(None, "none")
-
-
-CONTROL_CAR_CAVEAT = [
-    "CONTROL CAR CAVEAT",
-    "  The control was not our own car. A nominated control proves a field is READABLE",
-    "  and that our offsets are right, because the same offsets produce live values on",
-    "  it. It does not prove that car is unrestricted. Read the verdict as \"relative to",
-    "  car N\", not as an absolute ceiling.",
-]
-
-
-# --- v0.4.2: zero semantics ----------------------------------------------------------
-#
-# 0.4.1 classified a field as `zero` when it never moved off zero all session,
-# which conflated two different things. Fuel and ERS store cannot honestly read
-# zero on a running car -- zero there means restricted. Pit status and DRS
-# legitimately read zero for a car that never pitted and never opened DRS --
-# zero there means nothing happened. Both landed in the same bucket and made
-# the blacklist look worse than it was.
-
-ZERO_IMPOSSIBLE = "zero_impossible"   # zero on a running car == restricted
-ZERO_MEANINGFUL = "zero_meaningful"   # zero is a legitimate value
-ZERO_AMBIGUOUS  = "zero_ambiguous"    # constant by nature; variance proves nothing
-
-ZERO_SEMANTICS = {
-    # A running car always carries fuel and always has some ERS charge.
-    ("CarStatus", "fuel in tank"):            ZERO_IMPOSSIBLE,
-    ("CarStatus", "fuel remaining laps"):     ZERO_IMPOSSIBLE,
-    ("CarStatus", "ERS store energy"):        ZERO_IMPOSSIBLE,
-    ("CarStatus", "ERS deploy mode"):         ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "engine RPM"):           ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "engine temp"):          ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre surface temp RL"): ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre surface temp RR"): ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre surface temp FL"): ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre surface temp FR"): ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre inner temp RL"):   ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre inner temp RR"):   ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre inner temp FL"):   ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre inner temp FR"):   ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre pressure RL"):     ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre pressure RR"):     ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre pressure FL"):     ZERO_IMPOSSIBLE,
-    ("CarTelemetry", "tyre pressure FR"):     ZERO_IMPOSSIBLE,
-    ("Motion", "world position X"):           ZERO_IMPOSSIBLE,
-    ("Motion", "world position Y"):           ZERO_IMPOSSIBLE,
-    ("Motion", "world position Z"):           ZERO_IMPOSSIBLE,
-
-    # Legitimately zero: never pitted, never opened DRS, stationary, lap 0.
-    ("LapData", "pit status"):                ZERO_MEANINGFUL,
-    ("CarTelemetry", "DRS"):                  ZERO_MEANINGFUL,
-    ("CarTelemetry", "speed (kph)"):          ZERO_MEANINGFUL,
-    ("CarTelemetry", "throttle"):             ZERO_MEANINGFUL,
-    ("CarTelemetry", "brake"):                ZERO_MEANINGFUL,
-    ("CarTelemetry", "gear"):                 ZERO_MEANINGFUL,
-    ("LapData", "current lap"):               ZERO_MEANINGFUL,
-    ("LapData", "last lap time (ms)"):        ZERO_MEANINGFUL,
-    ("LapData", "sector 1 (ms part)"):        ZERO_MEANINGFUL,
-    ("LapData", "sector 2 (ms part)"):        ZERO_MEANINGFUL,
-    ("LapData", "lap distance"):              ZERO_MEANINGFUL,
-    ("CarStatus", "tyres age laps"):          ZERO_MEANINGFUL,
-
-    # Constant by nature. 'static' is the expected reading; it proves nothing either way.
-    ("CarStatus", "actual tyre compound"):    ZERO_AMBIGUOUS,
-    ("CarStatus", "visual tyre compound"):    ZERO_AMBIGUOUS,
-    ("LapData", "race position"):             ZERO_AMBIGUOUS,
-    ("LapData", "result status"):             ZERO_AMBIGUOUS,
-}
-
-def zero_semantics(group, field):
-    return ZERO_SEMANTICS.get((group, field), ZERO_AMBIGUOUS)
-
-
-# What each class means in the report, and whether it can score.
-ZERO_MEANS_LABEL = {
-    ZERO_IMPOSSIBLE: "RESTRICTED",
-    ZERO_MEANINGFUL: "no-event",
-    ZERO_AMBIGUOUS: "n/a",
-}
-
-# Import-time self-check: every entry in the table above must name a field
-# that actually exists, or a rename would silently stop it scoring.
-_KNOWN_LABELS = set()
-for _pid, _fields in NAMED_FIELDS.items():
-    for _f in _fields:
-        _KNOWN_LABELS.add((GROUP_FOR_PID[_pid], _f.label))
-for _key in ZERO_SEMANTICS:
-    if _key not in _KNOWN_LABELS:
-        raise AssertionError(
-            "ZERO_SEMANTICS names %r, which is not a field in SECTION 3. "
-            "Fix the table or the field label." % (_key,))
-del _KNOWN_LABELS, _pid, _fields, _f, _key
-
-
-# --- v0.4.2: privacy oracle ----------------------------------------------------------
-#
-# 0.4.1 parsed and printed m_yourTelemetry and then ignored it in the verdict.
-# When the game declares one Public car and nineteen Restricted, that is a
-# direct statement of per-player gating and it depends on neither layer.
-
-PRIVACY_VARIES      = "varies"        # both 0 and 1 present -> per-player gating, stated
-PRIVACY_ALL_PUBLIC  = "all_public"
-PRIVACY_ALL_RESTR   = "all_restricted"
-PRIVACY_UNPOPULATED = "unpopulated"   # identical across all slots incl. empty ones
-
-def classify_privacy_oracle(per_car_privacy, slots_carrying_data, max_cars):
-    """
-    Identical across EVERY slot including ones with no car is the signature of an
-    unpopulated field, not of a uniformly-configured lobby. Distinguish the two by
-    checking whether empty slots agree with populated ones.
-    """
-    populated = {i: v for i, v in per_car_privacy.items()
-                 if i in slots_carrying_data and v is not None}
-    if not populated:
-        return PRIVACY_UNPOPULATED
-
-    values = set(populated.values())
-    if len(values) > 1:
-        return PRIVACY_VARIES
-
-    only = values.pop()
-    empty_slots = [per_car_privacy.get(i) for i in range(max_cars)
-                   if i not in slots_carrying_data]
-    if empty_slots and all(v == only for v in empty_slots):
-        return PRIVACY_UNPOPULATED
-
-    return PRIVACY_ALL_PUBLIC if only == 1 else PRIVACY_ALL_RESTR
-
-
-PRIVACY_ORACLE_VERDICT = {
-    PRIVACY_VARIES: (
-        "VARIES BETWEEN PLAYERS. The game is stating per-player gating directly. "
-        "This is the strongest single piece of evidence in the report and it is "
-        "independent of both inspection layers."),
-    PRIVACY_ALL_PUBLIC: (
-        "Every car in the lobby declares Public. Consistent with a lobby in which "
-        "nobody restricted anything; it says nothing about what Restricted would "
-        "look like."),
-    PRIVACY_ALL_RESTR: (
-        "Every car in the lobby declares Restricted. Consistent with a uniformly "
-        "restricted public lobby; contains no information about what Public looks "
-        "like."),
-    PRIVACY_UNPOPULATED: (
-        "Identical across every slot including empty ones. Treat as unpopulated on "
-        "this build, not as a finding."),
-}
-
-
-def choose_verdict(control, oracle, layer_a, layer_b, live_window_s,
-                   measured_cars, extra_thin=()):
-    """Returns (letter, headline, reasons: list[str])."""
-    reasons = []
-
-    if oracle == PRIVACY_VARIES:
-        reasons.append(
-            "the game's own m_yourTelemetry field reports different settings for "
-            "different players, which states per-player gating outright and does "
-            "not depend on either inspection layer"
-        )
-        return ("A", "MIXED AVAILABILITY -- per-player gating confirmed", reasons)
-
-    if not control.resolved:
-        reasons.append(
-            "no control car could be resolved, so no field can be shown to be "
-            "readable in the first place -- pass --control-car N to nominate one"
-        )
-        return ("D", "INSUFFICIENT DATA -- test needs re-running", reasons)
-
-    if live_window_s < MIN_SESSION_SECONDS:
-        reasons.append("live window was %.0fs, under the %.0fs minimum"
-                       % (live_window_s, MIN_SESSION_SECONDS))
-        return ("D", "INSUFFICIENT DATA -- test needs re-running", reasons)
-
-    # Control resolved, oracle uniform: fall through to the measured layers as
-    # before, scoring only ZERO_IMPOSSIBLE fields (SCORE_ZERO_AS_RESTRICTED is
-    # applied upstream, in Analysis._score). The remaining sample-size gates
-    # are unchanged from 0.4.1 and still send a thin run to D.
-    if extra_thin:
-        reasons.extend(extra_thin)
-        return ("D", "INSUFFICIENT DATA -- test needs re-running", reasons)
-
-    full_a = layer_a[AVAIL_FULL]
-    part_a = layer_a[AVAIL_PARTIAL]
-    rest_a = layer_a[AVAIL_RESTRICTED]
-    full_b = layer_b[AVAIL_FULL]
-    part_b = layer_b[AVAIL_PARTIAL]
-    rest_b = layer_b[AVAIL_RESTRICTED]
-
-    mixed_a = (full_a > 0 or part_a > 0) and (rest_a > 0 or part_a > 0)
-    mixed_b = (full_b > 0 or part_b > 0) and (rest_b > 0 or part_b > 0)
-
-    if mixed_a or mixed_b:
-        reasons.append(
-            "the two measured layers put the %d measured car(s) in different "
-            "availability buckets: Layer A %d full / %d partial / %d restricted, "
-            "Layer B %d / %d / %d"
-            % (measured_cars, full_a, part_a, rest_a, full_b, part_b, rest_b))
-        return ("A", "MIXED AVAILABILITY -- per-player gating confirmed", reasons)
-
-    if rest_a == 0 and rest_b == 0 and part_a == 0 and part_b == 0:
-        reasons.append(
-            "every one of the %d measured car(s) returned the same audited "
-            "fields as the control car, on both layers" % measured_cars)
-        return ("B", "EVERYTHING ARRIVES FOR EVERYONE", reasons)
-
-    reasons.append(
-        "all %d measured car(s) were restricted on both layers while the "
-        "control car reported fully, with no variance to attribute to "
-        "per-player choice" % measured_cars)
-    return ("C", "UNIFORMLY RESTRICTED for others, present for the control car",
-            reasons)
 
 
 def fmt_result_status(value):
@@ -2051,21 +1718,12 @@ class CarAnalysis(object):
 
 class Analysis(object):
 
-    def __init__(self, auditor, args=None):
+    def __init__(self, auditor):
         self.a = auditor
-        self.args = args
         self.active = auditor.active_slots()
-        # 0.4.2: the control car is resolved in _run(), because two of the
-        # three routes to it depend on parsed per-car data.
-        self.per_car_privacy = OrderedDict()
-        self.control = ControlCar(None, "none")
-        self.control_index = None
-        self.control_in_active = False
-        self.oracle = PRIVACY_UNPOPULATED
-        self.boundaries = {"greenlit": [], "blacklisted": [], "unresolved": []}
-        self.measured_cars = 0
-        self.verdict_reasons = []
-        self.sample_caveats = []
+        self.control_index = auditor.player_car_index
+        self.control_in_active = (self.control_index is not None
+                                  and self.control_index in self.active)
         self.cars = OrderedDict()
         self.thin_reasons = []
         self.verdict_code = "D"
@@ -2090,37 +1748,22 @@ class Analysis(object):
         return st.classify()
 
     @staticmethod
-    def _score(group, label, cls):
+    def _score(group, cls):
         """Turn a raw classification into present / restricted / ambiguous /
-        missing, according to how this group is scored and -- new in 0.4.2 --
-        what a zero in this PARTICULAR field would mean.
-
-        Only a field that cannot honestly read zero on a running car counts as
-        restricted when it reads zero. A car that never pitted reports pit
-        status zero all session; that is the game being accurate, not the game
-        withholding, so it scores ambiguous and stays out of the verdict."""
+        missing, according to how this group is scored."""
         if cls == "nodata":
             return "missing"
-        presence = GROUP_SCORING.get(group, SCORE_VARIANCE) == SCORE_PRESENCE
         if cls == "zero":
-            if presence:
-                # Metadata is scored on being populated at all, which is
-                # exactly what a zero/empty reading fails.
-                return "restricted"
-            if zero_semantics(group, label) == ZERO_IMPOSSIBLE:
-                return "restricted"
-            return "ambiguous"
-        if presence:
+            return "restricted"
+        if GROUP_SCORING.get(group, SCORE_VARIANCE) == SCORE_PRESENCE:
             return "present"                # live or static: it is populated
         return "present" if cls == "live" else "ambiguous"
 
     def _control_comparable_keys(self):
-        """Fields the control car proves are usable, as (group, key, label).
-
-        Only these can tell us anything about anybody else: a field that is
-        frozen on the CONTROL car carries no information about a stranger's
-        varying, and a field that reads zero on the control car carries no
-        information at all."""
+        """Fields our own car proves are usable. Only these can tell us
+        anything about anybody else: a field that is frozen on OUR car
+        carries no information about a stranger's varying, and a field that
+        reads zero on our own car carries no information at all."""
         out = []
         if self.control_index is None:
             return out
@@ -2131,56 +1774,16 @@ class Analysis(object):
             for field in NAMED_FIELDS[pid]:
                 cls = self._classify_field(self.control_index, group,
                                            field.key)
-                if self._score(group, field.label, cls) == "present":
-                    out.append((group, field.key, field.label))
-        return out
-
-    def _collect_privacy(self):
-        """{car_index: m_yourTelemetry} for EVERY slot, empty seats included.
-
-        The oracle needs the empty ones: a value identical across all 22 slots
-        including seats nobody is sitting in is an unpopulated field, not a
-        uniformly-configured lobby."""
-        out = OrderedDict()
-        for idx in range(MAX_CARS):
-            value = self._last(idx, GROUP_PARTICIPANT, "your_telemetry")
-            if value is None:
-                value = self._last(idx, GROUP_LOBBY, "your_telemetry")
-            out[idx] = value
+                if self._score(group, cls) == "present":
+                    out.append((group, field.key))
         return out
 
     # -- main --------------------------------------------------------------
     def _run(self):
-        # -- 0.4.2: resolve the control car before anything is scored -------
-        self.per_car_privacy = self._collect_privacy()
-        self.control = resolve_control_car(self.args, self.a.player_car_index,
-                                           self.per_car_privacy, MAX_CARS)
-        self.control_index = self.control.index
-        self.control_in_active = (self.control_index is not None
-                                  and self.control_index in self.active)
-        self.oracle = classify_privacy_oracle(self.per_car_privacy,
-                                              set(self.active), MAX_CARS)
-        if self.control.source == "sole_public_car":
-            print("")
-            print(">> CONTROL CAR AUTO-SELECTED: car %d is the only slot in "
-                  "this capture declaring" % self.control.index)
-            print(">> m_yourTelemetry=Public, so it is the only slot that can "
-                  "prove a field is")
-            print(">> readable at all. Override with --control-car N.")
-            print("")
-        if self.control.resolved and not self.control_in_active:
-            print("")
-            print("!! control car %d carried no data in this capture -- it is "
-                  "not one of the" % self.control.index)
-            print("!! slots the game listed. Nothing can be compared against "
-                  "it.")
-            print("")
-
         control_live = self._control_comparable_keys()
-        audit_live = [(g, k, lb) for (g, k, lb) in control_live
-                      if g in AUDIT_GROUPS]
+        audit_live = [(g, k) for (g, k) in control_live if g in AUDIT_GROUPS]
         self.control_live_fields = len(audit_live)
-        live_lookup = set((g, k) for (g, k, lb) in control_live)
+        live_lookup = set(control_live)
 
         control_bytes = self._layer_b_bytes(self.control_index) \
             if self.control_index is not None else 0
@@ -2221,14 +1824,13 @@ class Analysis(object):
                     counts["total"] += 1
                     if (group, field.key) in live_lookup:
                         counts["comparable"] += 1
-                        if self._score(group, field.label,
-                                       cls) == "restricted":
+                        if self._score(group, cls) == "restricted":
                             counts["restricted"] += 1
                 ca.groups[group] = counts
 
             # overall Layer A availability, on the audited groups only
-            for (group, key, label) in audit_live:
-                score = self._score(group, label,
+            for (group, key) in audit_live:
+                score = self._score(group,
                                     self._classify_field(idx, group, key))
                 ca.comparable += 1
                 if score == "present":
@@ -2261,7 +1863,7 @@ class Analysis(object):
                     for value, count in st.counts.items():
                         self.name_counts[group][value] += count
 
-        # buckets, excluding the control car -- it is not a data point
+        # buckets, excluding our own car -- the control is not a data point
         for idx, ca in self.cars.items():
             if ca.is_control:
                 continue
@@ -2270,7 +1872,6 @@ class Analysis(object):
 
         self._agreement()
         self._privacy()
-        self._boundaries()
         self._verdict()
 
     def _last(self, idx, group, key):
@@ -2353,145 +1954,41 @@ class Analysis(object):
                 }
             self.privacy_summary[key] = per_source
 
-    # -- 0.4.2: scoring boundaries -----------------------------------------
-    def _boundaries(self):
-        """Three lists derived from THIS run, for the commentary layer:
-
-            greenlit    -- live on the control and live on most measured cars
-            blacklisted -- cannot honestly read zero, yet flat on every
-                           measured car
-            unresolved  -- everything else, each with a one-line reason
-
-        Only the variance-scored telemetry groups appear here. Name and
-        identity fields are a separate question and are answered in the name
-        section rather than folded in as if they were scoreable telemetry."""
-        measured = [i for i in self.active if i != self.control_index]
-        n = len(measured)
-        greenlit = []
-        blacklisted = []
-        unresolved = []
-
-        for group in GROUP_ORDER:
-            if GROUP_SCORING.get(group, SCORE_VARIANCE) != SCORE_VARIANCE:
-                continue
-            pid = PID_FOR_GROUP[group]
-            enabled = self.a.layer_a_enabled.get(pid, True)
-            spec = ARRAY_SPECS.get(pid)
-            for field in NAMED_FIELDS[pid]:
-                name = "%s / %s" % (group, field.label)
-                zsem = zero_semantics(group, field.label)
-
-                if not enabled:
-                    got = self.a.strides.get(pid)
-                    unresolved.append((name,
-                        "Layer A disabled for %s (stride %s, documented %d); "
-                        "see the Car Damage line in section 5"
-                        % (PACKET_NAMES.get(pid, pid),
-                           "?" if got is None else got[0],
-                           spec.expected_stride if spec else 0)))
-                    continue
-
-                if self.control_index is None:
-                    unresolved.append((name,
-                        "no control car: nothing proves this field is readable "
-                        "at all"))
-                    continue
-
-                tally = Counter()
-                for idx in measured:
-                    tally[self._classify_field(idx, group, field.key)] += 1
-                live_n = tally["live"]
-                zero_n = tally["zero"]
-                ctrl = self._classify_field(self.control_index, group,
-                                            field.key)
-
-                if ctrl == "live" and n and live_n * 2 >= n:
-                    greenlit.append((name,
-                        "live on the control car and on %d of %d measured cars"
-                        % (live_n, n)))
-                elif zsem == ZERO_IMPOSSIBLE and n and zero_n == n:
-                    if ctrl == "live":
-                        blacklisted.append((name,
-                            "live on the control car, flat at zero on all %d "
-                            "measured cars" % n))
-                    else:
-                        blacklisted.append((name,
-                            "flat at zero on all %d measured cars -- and not "
-                            "live on the control either, so suspect the offset "
-                            "as well as the lobby" % n))
-                elif zsem == ZERO_MEANINGFUL:
-                    unresolved.append((name,
-                        "zero is a legitimate value for this field, so a flat "
-                        "reading proves nothing either way"))
-                elif zsem == ZERO_AMBIGUOUS:
-                    unresolved.append((name,
-                        "constant by nature; variance proves nothing either "
-                        "way"))
-                elif ctrl != "live":
-                    unresolved.append((name,
-                        "%s on the control car too, so this run cannot show it "
-                        "is readable" % ctrl))
-                else:
-                    unresolved.append((name,
-                        "live on only %d of %d measured cars -- neither uniform "
-                        "nor comparable" % (live_n, n)))
-
-        self.boundaries = {"greenlit": greenlit,
-                           "blacklisted": blacklisted,
-                           "unresolved": unresolved}
-
     # -- verdict -----------------------------------------------------------
-    def _privacy_spread_phrase(self):
-        pub = [i for i in self.active if self.per_car_privacy.get(i) == 1]
-        res = [i for i in self.active if self.per_car_privacy.get(i) == 0]
-        return ("%d car(s) declare Public (%s) and %d declare Restricted"
-                % (len(pub),
-                   ", ".join("slot %d" % i for i in pub) or "none",
-                   len(res)))
-
     def _verdict(self):
         a = self.a
+        duration = a.live_window
         n_active = len(self.active)
         others = n_active - (1 if self.control_in_active else 0)
-        self.measured_cars = others
 
-        # Sample-size gates, unchanged from 0.4.1 except for the two the
-        # verdict function now owns (control resolution and live window).
-        extra = []
+        if duration < MIN_SESSION_SECONDS:
+            self.thin_reasons.append(
+                "live window was %.0fs, under the %.0fs minimum"
+                % (duration, MIN_SESSION_SECONDS))
         if n_active < MIN_ACTIVE_CARS:
-            extra.append("only %d car slot(s) carried data, under the %d "
-                         "minimum" % (n_active, MIN_ACTIVE_CARS))
-        if self.control.resolved and not self.control_in_active:
-            extra.append("the control car (%s) never carried any data, so "
-                         "nothing can be compared against it"
-                         % self.control.describe())
+            self.thin_reasons.append(
+                "only %d car slot(s) carried data, under the %d minimum"
+                % (n_active, MIN_ACTIVE_CARS))
+        if not self.control_in_active:
+            self.thin_reasons.append(
+                "our own car was never identified in the field, so there is "
+                "no control sample to compare anyone against")
         elif self.control_live_fields < MIN_CONTROL_LIVE_FIELDS:
-            extra.append("only %d audited field(s) were live on the control "
-                         "car, under the %d needed for a usable control"
-                         % (self.control_live_fields,
-                            MIN_CONTROL_LIVE_FIELDS))
+            self.thin_reasons.append(
+                "only %d audited field(s) were live on our own car, under the "
+                "%d needed for a usable control"
+                % (self.control_live_fields, MIN_CONTROL_LIVE_FIELDS))
         thin_pids = [PACKET_NAMES.get(p, str(p)) for p in AUDIT_PIDS
                      if a.analysis_samples.get(p, 0) < MIN_SAMPLES_PER_PID]
         if thin_pids:
-            extra.append("fewer than %d analysed samples for: %s"
-                         % (MIN_SAMPLES_PER_PID, ", ".join(thin_pids)))
+            self.thin_reasons.append(
+                "fewer than %d analysed samples for: %s"
+                % (MIN_SAMPLES_PER_PID, ", ".join(thin_pids)))
         if others < 1:
-            extra.append("no cars other than the control carried data -- there "
-                         "was nothing to measure the variance of")
+            self.thin_reasons.append(
+                "no cars other than our own carried data -- there was nothing "
+                "to measure the variance of")
 
-        letter, headline, reasons = choose_verdict(
-            self.control, self.oracle, self.buckets_a, self.buckets_b,
-            a.live_window, others, extra_thin=extra)
-
-        self.verdict_code = letter
-        self.verdict_title = headline
-        self.verdict_reasons = reasons
-        self.sample_caveats = list(extra)
-        # thin_reasons keeps its 0.4.1 meaning: why this is NOT a result.
-        self.thin_reasons = list(reasons) if letter == "D" else []
-        self.verdict_text = self._verdict_text(letter, others)
-
-    def _verdict_text(self, letter, others):
         full_a = self.buckets_a[AVAIL_FULL]
         part_a = self.buckets_a[AVAIL_PARTIAL]
         rest_a = self.buckets_a[AVAIL_RESTRICTED]
@@ -2499,21 +1996,26 @@ class Analysis(object):
         part_b = self.buckets_b[AVAIL_PARTIAL]
         rest_b = self.buckets_b[AVAIL_RESTRICTED]
 
-        if letter == "A" and self.oracle == PRIVACY_VARIES:
-            return (
-                "The game itself reports different telemetry privacy settings "
-                "for different players in this lobby: %s. m_yourTelemetry is "
-                "the game stating per-player gating outright, not something "
-                "either inspection layer inferred, so this verdict does not "
-                "depend on our offsets, our stride derivation or the length of "
-                "the sample. For the record the measured layers put %d car(s) "
-                "at full, %d partial and %d restricted on Layer A, and %d / %d "
-                "/ %d on Layer B."
-                % (self._privacy_spread_phrase(), full_a, part_a, rest_a,
-                   full_b, part_b, rest_b))
+        if self.thin_reasons:
+            self.verdict_code = "D"
+            self.verdict_title = "INSUFFICIENT DATA -- test needs re-running"
+            self.verdict_text = (
+                "The sample is too thin to support any claim about telemetry "
+                "visibility. %s. What was collected is reported above and is "
+                "not wrong, it is just not enough to generalise from -- so no "
+                "result is declared here. Re-run against a fuller lobby for "
+                "longer before the Pit Wall design leans on any of it."
+                % ("; ".join(self.thin_reasons).capitalize()))
+            return
 
-        if letter == "A":
-            return (
+        mixed_a = (full_a > 0 or part_a > 0) and (rest_a > 0 or part_a > 0)
+        mixed_b = (full_b > 0 or part_b > 0) and (rest_b > 0 or part_b > 0)
+
+        if mixed_a or mixed_b:
+            self.verdict_code = "A"
+            self.verdict_title = ("MIXED AVAILABILITY -- per-player gating "
+                                  "confirmed")
+            self.verdict_text = (
                 "Telemetry availability was NOT uniform across the field. "
                 "Layer A put %d car(s) at full, %d partial and %d restricted; "
                 "Layer B, which depends on no field offsets at all, put %d "
@@ -2523,37 +2025,29 @@ class Analysis(object):
                 "per-player gating looks like and is hard to explain any "
                 "other way."
                 % (full_a, part_a, rest_a, full_b, part_b, rest_b))
-
-        if letter == "B":
-            return (
-                "Every one of the %d measured car(s) returned the same audited "
-                "fields as the control car, on both layers. No evidence of "
-                "per-player gating in this session. Note the scope: this says "
-                "the %d players present tonight were all broadcasting fully, "
-                "not that the setting cannot restrict anyone."
+        elif rest_a == 0 and rest_b == 0 and part_a == 0 and part_b == 0:
+            self.verdict_code = "B"
+            self.verdict_title = "EVERYTHING ARRIVES FOR EVERYONE"
+            self.verdict_text = (
+                "Every one of the %d other car(s) returned the same audited "
+                "fields as our own control car, on both layers. No evidence "
+                "of per-player gating in this session. Note the scope: this "
+                "says the %d players present tonight were all broadcasting "
+                "fully, not that the setting cannot restrict anyone."
                 % (others, others))
-
-        if letter == "C":
-            return (
-                "All %d measured car(s) were restricted on both layers while "
-                "the control car reported fully -- counting only fields that "
-                "cannot honestly read zero on a running car. That is "
-                "consistent with a global default rather than per-player "
-                "choice, but with zero variance in the field we cannot tell a "
-                "game-wide default from %d players who all happen to share one "
-                "setting. The Lap Data control group %s, which is what rules "
-                "out this being a parser fault rather than a real restriction."
+        else:
+            self.verdict_code = "C"
+            self.verdict_title = ("UNIFORMLY RESTRICTED for others, present "
+                                  "for our own car")
+            self.verdict_text = (
+                "All %d other car(s) were restricted on both layers while our "
+                "own car reported fully. That is consistent with a global "
+                "default rather than per-player choice -- but with zero "
+                "variance in the field we cannot tell a game-wide default "
+                "from %d players who all happen to share one setting. "
+                "The Lap Data control group %s, which is what rules out this "
+                "being a parser fault rather than a real restriction."
                 % (others, others, self._lapdata_verdict_phrase()))
-
-        why = "; ".join(self.thin_reasons)
-        why = why[:1].upper() + why[1:]     # .capitalize() would lower "N"
-        return (
-            "The sample is too thin to support any claim about telemetry "
-            "visibility. %s. What was collected is reported above and is not "
-            "wrong, it is just not enough to generalise from -- so no result "
-            "is declared here. Re-run against a fuller lobby for longer, or "
-            "re-analyse this capture with --control-car N, before the Pit Wall "
-            "design leans on any of it." % why)
 
     def _lapdata_verdict_phrase(self):
         ok = 0
@@ -2693,7 +2187,7 @@ class Report(object):
     def _banner(self):
         m = self.meta
         self.rule("=")
-        self.w("F1 25 TELEMETRY VISIBILITY AUDIT -- Project Hoover, Step 0.4.2")
+        self.w("F1 25 TELEMETRY VISIBILITY AUDIT -- Project Hoover, Step 0.4.1")
         self.rule("=")
         self.w("script            : %s v%s" % (SCRIPT_NAME, SCRIPT_VERSION))
         self.w("mode              : %s" % m["mode"])
@@ -2732,17 +2226,9 @@ class Report(object):
                % (a.total_packets, fmt_bytes(a.total_bytes)))
         self.w("game / packet format   : year %s, version %s, format %d"
                % (a.game_year, a.game_version, EXPECTED_PACKET_FORMAT))
-        control = self.an.control
-        self.w("control car            : %s" % control.describe())
-        if control.note:
-            for chunk in _wrap(control.note, 88):
-                self.w("     %s" % chunk)
-        # Kept as its own line: null here is a real observation, not a gap.
-        # It is what a spectator run looks like, and 0.4.1 treated it as fatal.
-        self.w("player_car_index       : %s"
+        self.w("our own car (control)  : %s"
                % (a.player_car_index if a.player_car_index is not None
-                  else "NOT POPULATED (no player car -- spectator, or the game "
-                       "never sent one)"))
+                  else "NEVER IDENTIFIED"))
         if len(a.player_index_history) > 1:
             self.w("   (player car index changed during the session: %s)"
                    % ", ".join("%d x%d" % (k, v) for k, v
@@ -2884,9 +2370,9 @@ class Report(object):
                              if GROUP_SCORING.get(g) == mode)
 
         for line in _wrap(
-                "A group is scored ONLY against fields THE CONTROL CAR proves "
-                "are usable, because a field that reads zero on the control "
-                "carries no information about a stranger's. Telemetry groups (%s) are "
+                "A group is scored ONLY against fields our own car proves are "
+                "usable, because a field that reads zero on OUR car carries no "
+                "information about a stranger's. Telemetry groups (%s) are "
                 "scored on VARIANCE: the field has to move to count, since "
                 "fuel, speed and wear all move on a live car. Metadata groups "
                 "(%s) are scored on PRESENCE: a name or a race number is "
@@ -2903,8 +2389,8 @@ class Report(object):
             self.w(line)
         self.w("")
 
-        self.w("A star against the index marks THE CONTROL CAR -- the "
-               "reference, not a data point.")
+        self.w("A star against the index marks OUR OWN CAR -- the control, "
+               "not a data point.")
         self.w("")
         cols = "".join("%-7s" % GROUP_SHORT[g] for g in GROUP_ORDER)
         self.w("  IDX  POS  NAME              RESULT      %sLAYER-A     "
@@ -2955,8 +2441,8 @@ class Report(object):
         self.heading("3. VARIANCE ANALYSIS -- THE ACTUAL FINDING")
         others = len(an.active) - (1 if an.control_in_active else 0)
         self.w("")
-        self.w("The control car is excluded from these counts: it is the "
-               "reference, not a data point.")
+        self.w("Our own car is excluded from these counts: it is the control, "
+               "not a data point.")
         self.w("Cars measured: %d" % others)
         self.w("")
 
@@ -3014,8 +2500,8 @@ class Report(object):
             mean = sum(vals) / float(len(vals))
             self.w("")
             self.w("  Layer B varying-byte spread across measured cars:")
-            self.w("     min %d   median %d   mean %.1f   max %d   (the "
-                   "control car: %d)"
+            self.w("     min %d   median %d   mean %.1f   max %d   (control "
+                   "car: %d)"
                    % (vals_sorted[0], vals_sorted[len(vals_sorted) // 2],
                       mean, vals_sorted[-1],
                       an._layer_b_bytes(an.control_index)))
@@ -3035,27 +2521,19 @@ class Report(object):
         a = self.a
         self.heading("3b. FIELD-LEVEL DETAIL -- THE THREE SIGNALS, PER FIELD")
         self.w("")
-        self.w("For each named field: how the measured cars (the control "
-               "car excluded) classified, and")
-        self.w("what the control car did. 'zero' means zero all session, one "
-               "distinct value, never")
-        self.w("changed. 'static' means non-zero but frozen (a parked car, or "
-               "a genuinely constant")
-        self.w("field): real data, but it proves nothing.")
-        self.w("")
-        self.w("'zero-means' is what a zero READING would mean for that "
-               "particular field (0.4.2):")
-        self.w("   RESTRICTED  a running car cannot honestly read zero here, "
-               "so zero == withheld")
-        self.w("   no-event    zero is a legitimate value -- never pitted, "
-               "never opened DRS, stood still")
-        self.w("   n/a         constant by nature; a flat reading proves "
-               "nothing either way")
+        self.w("For each named field: how the measured cars (our own car "
+               "excluded) classified, and")
+        self.w("what our own control car did. 'zero' means zero all session, "
+               "one distinct value,")
+        self.w("never changed -- the shape of a restricted field. 'static' "
+               "means non-zero but frozen")
+        self.w("(a parked car, or a genuinely constant field): real data, but "
+               "it proves nothing.")
         self.w("")
         self.w("  group         field                      "
-               "live static  zero nodata  zero-means  CONTROL  distinct(ctl)")
+               "live static  zero nodata   OUR CAR   distinct(ours)")
         self.w("  ------------  -------------------------  "
-               "---- ------ ----- ------  ----------  -------  -------------")
+               "---- ------ ----- ------   -------   --------------")
 
         measured = [idx for idx in an.active if idx != an.control_index]
         for group in GROUP_ORDER:
@@ -3077,19 +2555,10 @@ class Report(object):
                     st = a.cars[an.control_index].fields.get(
                         (group, field.key))
                     dist = st.distinct_str() if st else "-"
-                zmeans = ZERO_MEANS_LABEL[zero_semantics(group,
-                                                          field.label)]
-                self.w("  %-12s  %-25s  %4d %6d %5d %6d  %-10s  %-7s  %s"
+                self.w("  %-12s  %-25s  %4d %6d %5d %6d   %-7s   %s"
                        % (group, truncate(field.label, 25), tally["live"],
                           tally["static"], tally["zero"], tally["nodata"],
-                          zmeans, ours, dist))
-
-        self.w("")
-        self.w("  Only fields that cannot honestly read zero on a running car "
-               "count toward the")
-        self.w("  restriction verdict. A car that never pitted reports pit "
-               "status zero all session;")
-        self.w("  that is the game being accurate, not the game withholding.")
+                          ours, dist))
 
     # -- 4. name field result ----------------------------------------------
     def _names(self):
@@ -3179,59 +2648,7 @@ class Report(object):
                       truncate('"%s"' % ca.lobby_name
                                if ca.lobby_name is not None else "-", 26),
                       fmt_platform(ca.platform),
-                      "  <-- control" if ca.is_control else ""))
-
-        self._boundaries_block()
-
-    # -- 4. scoring boundaries (0.4.2) -------------------------------------
-    def _boundaries_block(self):
-        """The block that gets copied into the commentary prompt.
-
-        Printed in a form that can be pasted without editing: what the Pit
-        Wall may score on, what it must not, and what this run could not
-        settle either way -- each with the reason it landed there."""
-        an = self.an
-        b = an.boundaries
-        self.w("")
-        self.rule("-")
-        self.w("  SCORING BOUNDARIES -- paste this block into the commentary "
-               "prompt as-is")
-        self.rule("-")
-        for i, chunk in enumerate(_wrap(
-                "Derived from this run: control %s; %d measured car(s); live "
-                "window %s." % (an.control.describe(), an.measured_cars,
-                                fmt_hms(self.a.live_window)), 112)):
-            self.w("  %s%s" % ("" if i == 0 else "     ", chunk))
-        self.w("  Telemetry fields only. Name and identity fields are answered "
-               "in section 4 above.")
-
-        def block(title, rows, empty):
-            self.w("")
-            self.w("  %s" % title)
-            if not rows:
-                self.w("     (%s)" % empty)
-                return
-            for name, reason in rows:
-                lead = "     %-38s  " % truncate(name, 38)
-                pad = " " * len(lead)
-                for i, chunk in enumerate(_wrap(reason,
-                                                RULE_WIDTH - len(lead))):
-                    self.w("%s%s" % (lead if i == 0 else pad, chunk))
-
-        block("GREENLIT -- safe to score on:", b["greenlit"],
-              "nothing cleared this bar in this run")
-        block("BLACKLISTED -- do not score on these, they did not arrive:",
-              b["blacklisted"], "nothing was proven withheld in this run")
-        block("UNRESOLVED -- reported, but this run cannot settle them:",
-              b["unresolved"], "none")
-        self.w("")
-        self.w("  Greenlit means: live on the control car AND live on at least "
-               "half the measured")
-        self.w("  cars. Blacklisted means: a field that cannot honestly read "
-               "zero on a running car,")
-        self.w("  flat at zero on every measured car. Everything else is "
-               "unresolved by construction.")
-        self.rule("-")
+                      "  <-- ours" if ca.is_control else ""))
 
     # -- 4b. the game's own privacy fields ---------------------------------
     def _privacy(self):
@@ -3248,26 +2665,7 @@ class Report(object):
                "two layers infer.")
         self.w("Treat a field that is identical for all 22 slots including "
                "empty ones as unpopulated")
-        self.w("rather than as a finding -- which is exactly what the oracle "
-               "below tests for.")
-
-        an_oracle = self.an.oracle
-        pub = [i for i in self.an.active
-               if self.an.per_car_privacy.get(i) == 1]
-        res = [i for i in self.an.active
-               if self.an.per_car_privacy.get(i) == 0]
-        unk = [i for i in self.an.active
-               if self.an.per_car_privacy.get(i) is None]
-        self.w("")
-        self.rule("-")
-        self.w("  PRIVACY ORACLE (m_yourTelemetry) : %s"
-               % an_oracle.replace("_", " ").upper())
-        self.w("  across the %d slot(s) carrying data: %d Public, %d "
-               "Restricted, %d unknown"
-               % (len(self.an.active), len(pub), len(res), len(unk)))
-        for line in _wrap(PRIVACY_ORACLE_VERDICT[an_oracle], 94):
-            self.w("     " + line)
-        self.rule("-")
+        self.w("rather than as a finding.")
 
         for key in PRIVACY_FIELDS:
             self.w("")
@@ -3281,10 +2679,6 @@ class Report(object):
                           "-" if per["control_value"] is None
                           else per["control_value"], dist_str or "(none)"))
                 if not per["cars_measured"]:
-                    continue
-                if key == "your_telemetry":
-                    # 0.4.2: the interpretation of this field is stated once,
-                    # by the oracle above, instead of per source here.
                     continue
                 if per["varies_across_measured_cars"]:
                     self.w("        -> VARIES BETWEEN OTHER PLAYERS. This is "
@@ -3321,7 +2715,7 @@ class Report(object):
                       else "%d (%s)" % (ca.show_online_names,
                                         "shown" if ca.show_online_names
                                         else "hidden"),
-                      "  <-- control" if ca.is_control else ""))
+                      "  <-- ours" if ca.is_control else ""))
 
     # -- 5. layer B fingerprints -------------------------------------------
     def _layer_b(self):
@@ -3340,7 +2734,7 @@ class Report(object):
         self.w("")
 
         pids = [p for p in ARRAY_SPECS if p in a.strides]
-        self.w("A star against the index marks the control car.")
+        self.w("A star against the index marks our own car.")
         self.w("")
         header = "  IDX "
         under = "  ----"
@@ -3389,90 +2783,17 @@ class Report(object):
         for i, chunk in enumerate(_wrap("Column keys: " + keys, 100)):
             self.w("  %s%s" % ("" if i == 0 else "   ", chunk))
 
-        self._car_damage_line()
-
-    # -- 5b. Car Damage, called out (0.4.2) --------------------------------
-    def _car_damage_line(self):
-        """Car Damage gets its own line rather than one column in the table
-        above. 0 of 46 bytes varying for every car is a finding in its own
-        right, and tyre wear lives in this packet: if it is empty, the Pit
-        Wall cannot score on wear at all, for anyone."""
-        a = self.a
-        an = self.an
-        pid = PKT_CAR_DAMAGE
-        spec = ARRAY_SPECS[pid]
-        self.w("")
-        self.rule("-")
-        self.w("  CAR DAMAGE (packet 10) -- STATED EXPLICITLY")
-        self.rule("-")
-        got = a.strides.get(pid)
-        if got is None:
-            self.w("     No Car Damage packets arrived at all in this "
-                   "session. Tyre wear, tyre")
-            self.w("     damage and component damage are unavailable for "
-                   "every car, ours included.")
-            return
-        stride = got[0]
-        enabled = a.layer_a_enabled.get(pid, True)
-        self.w("     derived stride    : %d  (this spec year documents %d)"
-               % (stride, spec.expected_stride))
-        self.w("     Layer A           : %s%s"
-               % ("on" if enabled else "OFF",
-                  "" if enabled else " -- offsets are NOT guessed for a "
-                                     "struct that moved"))
-        rows = []
-        for idx in an.active:
-            fp = a.cars[idx].fingerprints.get(pid)
-            rows.append((idx, 0 if fp is None else fp.bytes_varying(),
-                         stride if fp is None else fp.stride))
-        empty = [i for i, v, _s in rows if v == 0]
-        carrying = [(i, v, s) for i, v, s in rows if v > 0]
-        self.w("     Layer B varying bytes per car (offset-agnostic, so this "
-               "holds whatever EA")
-        self.w("     did to the struct):")
-        for i, v, s in rows:
-            self.w("        car %-3d %2d/%d%s"
-                   % (i, v, s, "   <-- control" if i == an.control_index
-                      else ""))
-        self.w("     summary           : %d car(s) at 0/%d, %d car(s) "
-               "carrying data%s"
-               % (len(empty), stride, len(carrying),
-                  (" (" + ", ".join("car %d -> %d/%d" % (i, v, s)
-                                    for i, v, s in carrying) + ")")
-                  if carrying else ""))
-        self.w("")
-        self.w("     Tyre wear lives in this packet. A car at 0 of %d varying "
-               "bytes sent nothing" % stride)
-        self.w("     for wear, tyre damage or component damage all session, "
-               "and no offset fix")
-        self.w("     changes that -- Layer B uses no offsets. THE PIT WALL "
-               "CANNOT SCORE ON WEAR")
-        self.w("     FOR THOSE CARS.")
-        self.rule("-")
-
     # -- 6. markers --------------------------------------------------------
     def _markers(self):
         a = self.a
         self.heading("6. SESSION MARKERS")
         self.w("")
         if not a.markers:
-            self.w("  CAVEAT: NO MARKERS WERE RECORDED. The feature exists and "
-                   "was not used.")
-            self.w("")
-            self.w("  Markers are the operator's null test. Press Enter during "
-                   "a live run at every")
-            self.w("  privacy change and at every notable event -- a car pits, "
-                   "DRS opens, a driver")
-            self.w("  joins or leaves -- and the moment is stamped precisely "
-                   "into both the report")
-            self.w("  and the capture. Without them, nothing in this report "
-                   "can be correlated to a")
-            self.w("  moment in the session: the per-field 'first change at' "
-                   "timestamps in the JSON")
-            self.w("  have nothing to be compared against, and a privacy "
-                   "change mid-session cannot")
-            self.w("  be distinguished from a car simply driving out of "
-                   "range.")
+            self.w("  No markers were recorded.")
+            self.w("  (Press Enter during a live run to drop one -- use it "
+                   "when you change the")
+            self.w("   telemetry privacy setting, so the change can be "
+                   "correlated precisely.)")
             return
         self.w("  Markers are the operator's null test: the moment the "
                "privacy setting changed.")
@@ -3493,8 +2814,7 @@ class Report(object):
         self.w("  Candidate answers:")
         self.w("     A -- mixed availability, per-player gating confirmed")
         self.w("     B -- everything arrives for everyone")
-        self.w("     C -- uniformly restricted for others, present for the "
-               "control car")
+        self.w("     C -- uniformly restricted for others, present for own car")
         self.w("     D -- insufficient data, test needs re-running")
         self.w("")
         self.rule("-")
@@ -3505,27 +2825,18 @@ class Report(object):
         for line in _wrap(an.verdict_text, 96):
             self.w("  " + line)
 
-        if an.control.source in ("nominated", "sole_public_car"):
-            self.w("")
-            for line in CONTROL_CAR_CAVEAT:
-                self.w(line.replace("car N", "car %d" % an.control.index)
-                       if "car N" in line else line)
-
         self.w("")
         self.w("  Evidence this verdict rests on:")
         a = self.a
         others = len(an.active) - (1 if an.control_in_active else 0)
-        self.w("     - control car: %s" % an.control.describe())
-        self.w("     - privacy oracle (m_yourTelemetry): %s"
-               % an.oracle.replace("_", " ").upper())
-        self.w("     - %d car slot(s) carried data; %d measured against the "
-               "control car" % (len(an.active), others))
+        self.w("     - %d car slot(s) carried data; %d measured against our "
+               "own car as control" % (len(an.active), others))
         self.w("     - live window %s (traffic only, %d stall(s) excluded)"
                % (fmt_hms(a.live_window), len(a.stalls)))
         self.w("     - %d packets analysed out of %d received"
                % (sum(a.analysis_samples.values()), a.total_packets))
-        self.w("     - %d field(s) were live on the control car and "
-               "therefore usable as comparisons"
+        self.w("     - %d field(s) were live on our own car and therefore "
+               "usable as comparisons"
                % an.control_live_fields)
         agree, total = an.agreement
         if total:
@@ -3534,10 +2845,6 @@ class Report(object):
         self.w("     - Lap Data parse-sanity control %s"
                % an._lapdata_verdict_phrase())
         for key in PRIVACY_FIELDS:
-            if key == "your_telemetry":
-                # Already stated above, by the oracle, which is the form of
-                # this field the verdict actually used.
-                continue
             summary = list(an.privacy_summary[key].values())
             varies = any(p["varies_across_measured_cars"] for p in summary)
             differs = any(p["differs_from_control"] for p in summary)
@@ -3549,11 +2856,11 @@ class Report(object):
                 self.w("     - %s VARIED between other players: the game "
                        "itself reports different settings" % key)
             elif differs:
-                self.w("     - %s was uniform across the measured cars but "
-                       "differs from the control car" % key)
+                self.w("     - %s was uniform across other players but "
+                       "differs from our own car" % key)
             else:
-                self.w("     - %s was identical for every car including the "
-                       "control" % key)
+                self.w("     - %s was identical for every car including ours"
+                       % key)
 
         if an.thin_reasons:
             self.w("")
@@ -3561,18 +2868,10 @@ class Report(object):
             for reason in an.thin_reasons:
                 for i, chunk in enumerate(_wrap(reason, 90)):
                     self.w("     %s %s" % ("-" if i == 0 else " ", chunk))
-        elif an.sample_caveats:
-            self.w("")
-            self.w("  Sample caveats. The verdict above does not rest on the "
-                   "measured layers, but")
-            self.w("  these would have sent a layer-driven verdict to D:")
-            for reason in an.sample_caveats:
-                for i, chunk in enumerate(_wrap(reason, 90)):
-                    self.w("     %s %s" % ("-" if i == 0 else " ", chunk))
 
         self.w("")
         for line in _wrap(
-                "Scope. This measures what %d measured car(s) in one lobby "
+                "Scope. This measures what %d other car(s) in one lobby "
                 "broadcast over one %s window, on game version %s. It does "
                 "not establish what the privacy setting CAN do, only what "
                 "this field DID. Anything the intelligence layer scores on, "
@@ -3669,7 +2968,6 @@ def build_json(auditor, analysis, meta, include_per_byte):
         "meta": {
             "script": SCRIPT_NAME,
             "script_version": SCRIPT_VERSION,
-            "changes_from_v0.4.1": CHANGES_FROM_V041,
             "mode": meta["mode"],
             "source_file": meta.get("source_file"),
             "capture_file": meta.get("capture_file"),
@@ -3701,7 +2999,6 @@ def build_json(auditor, analysis, meta, include_per_byte):
             "game_year": a.game_year,
             "game_version": a.game_version,
             "player_car_index": a.player_car_index,
-            "control_car": an.control.to_json(),
             "player_car_index_history": dict(
                 (str(k), v) for k, v in a.player_index_history.items()),
             "session_uid_changes": a.session_uid_changes,
@@ -3750,23 +3047,9 @@ def build_json(auditor, analysis, meta, include_per_byte):
         "markers": a.markers,
         "analysis": {
             "control_car_index": an.control_index,
-            "control_car": an.control.to_json(),
             "control_identified": an.control_in_active,
             "control_live_audited_fields": an.control_live_fields,
             "audited_groups": AUDIT_GROUPS,
-            "measured_cars": an.measured_cars,
-            "privacy_oracle": {
-                "classification": an.oracle,
-                "verdict": PRIVACY_ORACLE_VERDICT[an.oracle],
-                "per_car_your_telemetry": dict(
-                    (str(k), v) for k, v in an.per_car_privacy.items()),
-            },
-            "zero_semantics": dict(
-                ("%s/%s" % (g, f), v) for (g, f), v in ZERO_SEMANTICS.items()),
-            "scoring_boundaries": dict(
-                (bucket, [{"field": name, "reason": reason}
-                          for name, reason in rows])
-                for bucket, rows in an.boundaries.items()),
             "thresholds": {
                 "layer_a_restricted_at": LAYER_A_RESTRICTED_AT,
                 "layer_b_full_at": LAYER_B_FULL_AT,
@@ -3789,13 +3072,7 @@ def build_json(auditor, analysis, meta, include_per_byte):
                 "code": an.verdict_code,
                 "title": an.verdict_title,
                 "text": an.verdict_text,
-                "reasons": an.verdict_reasons,
                 "insufficiency_reasons": an.thin_reasons,
-                "sample_caveats": an.sample_caveats,
-                "control_car_caveat": (
-                    "\n".join(CONTROL_CAR_CAVEAT[1:]).strip()
-                    if an.control.source in ("nominated", "sole_public_car")
-                    else None),
             },
         },
         "cars": cars,
@@ -3825,16 +3102,15 @@ def print_status_block(auditor, elapsed, capture):
              len(a.markers)))
     drops = (a.drops_short_header + a.drops_short_payload
              + a.drops_bad_stride + a.drops_exception)
-    ctl = a.control_index_hint()
-    print("control=%-4s active=%-3d peak=%-3d malformed=%-6d layerA off: %s"
-          % (ctl if ctl is not None else "?",
+    print("own car=%-4s active=%-3d peak=%-3d malformed=%-6d layerA off: %s"
+          % (a.player_car_index if a.player_car_index is not None else "?",
              a.num_active_cars, a.max_num_active, drops,
              ",".join(PACKET_NAMES.get(p, str(p))
                       for p, on in sorted(a.layer_a_enabled.items())
                       if not on) or "none"))
     ref = _reference_groups(a)
     print("  idx  pos  name                  richness (vs %s)"
-          % ("the control car" if a.control_index_hint() is not None
+          % ("our car" if a.player_car_index is not None
              else "richest car seen"))
     for idx in active[:MAX_CARS]:
         car = a.cars[idx]
@@ -3845,7 +3121,7 @@ def print_status_block(auditor, elapsed, capture):
                  "-" if car.last_position is None else str(car.last_position),
                  truncate(car.last_name if car.last_name else "(empty)", 20),
                  varying, total, bar,
-                 "  <-- control" if idx == a.control_index_hint() else ""))
+                 "  <-- ours" if idx == a.player_car_index else ""))
     if not active:
         print("  (no car slot has carried data yet)")
 
@@ -3856,13 +3132,13 @@ def _group_varies(car, group):
 
 
 def _reference_groups(auditor):
-    """The field groups that are actually moving for the control car.
+    """The field groups that are actually moving for our own car.
 
     That -- not the full list of groups -- is the right denominator: name
     strings and race numbers never vary for anybody, so counting them would
     make a fully-reporting car read as partial. With no control identified
     yet, fall back to whatever the richest car in the field manages."""
-    idx = auditor.control_index_hint()
+    idx = auditor.player_car_index
     if idx is not None and idx in auditor.cars:
         ref = [g for g in GROUP_ORDER if _group_varies(auditor.cars[idx], g)]
         if ref:
@@ -3994,7 +3270,7 @@ def run_live(args, auditor, capture, meta):
 
     print("")
     print("=" * 78)
-    print("F1 25 TELEMETRY VISIBILITY AUDIT -- Project Hoover, Step 0.4.2")
+    print("F1 25 TELEMETRY VISIBILITY AUDIT -- Project Hoover, Step 0.4.1")
     print("=" * 78)
     print("listening        : UDP %s:%d" % (args.bind, args.port))
     print("expecting        : m_packetFormat=%d (F1 25). Anything else is a"
@@ -4003,10 +3279,6 @@ def run_live(args, auditor, capture, meta):
           "nonsense.")
     print("raw capture      : %s"
           % (meta["capture_file"] if capture and capture.fh else "OFF"))
-    print("control car      : %s"
-          % ("car %d (nominated via --control-car)" % args.control_car
-             if args.control_car is not None
-             else "auto (our own car, else the sole Public car)"))
     print("analysis rate    : %s"
           % ("every packet" if args.sample_hz <= 0
              else "%.1f Hz per packet type (capture keeps 100%%)"
@@ -4014,9 +3286,8 @@ def run_live(args, auditor, capture, meta):
     if args.duration:
         print("auto-stop after  : %.0fs" % args.duration)
     print("")
-    print(">> PRESS ENTER at any time to drop a timestamped marker.")
-    print(">> Press it at every privacy change and every notable event -- pit, "
-          "DRS, join.")
+    print(">> Press Enter at any time to drop a timestamped marker -- use")
+    print(">> this when you change the privacy setting.")
     print("")
     print("Ctrl-C to stop. Three files land in %s" % script_dir())
     print("=" * 78)
@@ -4114,10 +3385,6 @@ def run_replay(args, auditor, meta):
     print("analysis rate    : %s"
           % ("every packet" if args.sample_hz <= 0
              else "%.1f Hz per packet type" % args.sample_hz))
-    print("control car      : %s"
-          % ("car %d (nominated via --control-car)" % args.control_car
-             if args.control_car is not None
-             else "auto (our own car, else the sole Public car)"))
     print("=" * 78)
     print("")
 
@@ -4158,7 +3425,7 @@ def run_replay(args, auditor, meta):
 
 
 def write_outputs(auditor, meta, args):
-    analysis = Analysis(auditor, args)
+    analysis = Analysis(auditor)
     report = Report(auditor, analysis, meta)
     text = report.build()
 
@@ -4217,7 +3484,6 @@ def main(argv=None):
   python3 %(prog)s --port 20777         override port
   python3 %(prog)s --analyze cap.bin    offline replay of a saved capture
   python3 %(prog)s --duration 600       auto-stop after 600 seconds
-  python3 %(prog)s --control-car 6     nominate car 6 as the control
 """)
     parser.add_argument("--bind", default="0.0.0.0",
                         help="address to bind (default 0.0.0.0)")
@@ -4242,25 +3508,10 @@ def main(argv=None):
                              "analysis layers (default %(default)s Hz; "
                              "0 = every packet). The raw capture always "
                              "keeps 100%% of packets regardless.")
-    parser.add_argument(
-        "--control-car", type=int, default=None, metavar="N",
-        dest="control_car",
-        help="Nominate car slot N as the control instead of auto-detecting "
-             "our own car. Use when running as a spectator, where no player "
-             "car exists.",
-    )
     parser.add_argument("--per-byte", action="store_true",
                         help="include the full per-byte fingerprint arrays "
                              "in the JSON (large)")
     args = parser.parse_args(argv)
-
-    # Checked here as well as in resolve_control_car so a live run fails in
-    # the first second rather than after ten minutes in a lobby.
-    if args.control_car is not None and not (0 <= args.control_car < MAX_CARS):
-        raise SystemExit(
-            f"--control-car {args.control_car} is out of range "
-            f"(0..{MAX_CARS - 1})"
-        )
 
     signal.signal(signal.SIGINT, _on_sigint)
     try:
@@ -4295,7 +3546,6 @@ def main(argv=None):
     }
 
     auditor = Auditor(args.sample_hz)
-    auditor.control_hint = args.control_car
     capture = None
     rc = 0
 
