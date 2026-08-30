@@ -25,6 +25,13 @@ How this module removes the error class
     real capture, against the published 2025 packet sizes, with the
     provenance stated per packet in _MEASURED below.
 
+Provenance of the field lists themselves: transcribed from and audited
+field-by-field against the official EA documents "Data Output from F1 25
+v3" and "F1 25 Telemetry Output Structures" (C++ header). An automated
+comparison of every field name, type, order and count across all 16
+packet layouts against the official header found zero layout differences.
+The restricted-telemetry list below is the official v3 list, verbatim.
+
 What the sum does NOT prove
 ---------------------------
 A correct sum proves the total size is right. It does NOT prove field
@@ -51,7 +58,8 @@ Python 3.8+, standard library only.
 import struct
 from collections import OrderedDict
 
-SPEC_NAME = "F1 25 UDP specification (packet format 2025)"
+SPEC_NAME = ("F1 25 UDP specification, Data Output from F1 25 v3 "
+             "(packet format 2025)")
 
 # ---------------------------------------------------------------------------
 # Type codes. These are struct format characters; nothing else in the module
@@ -232,7 +240,7 @@ SESSION = (_expand([
     ("m_mpUnsafePitRelease", U8),
     ("m_mpOffForGriefing", U8),
     ("m_cornerCuttingStringency", U8),
-    ("m_parcFermeRule", U8),
+    ("m_parcFermeRules", U8),
     ("m_pitStopExperience", U8),
     ("m_safetyCar", U8),
     ("m_safetyCarExperience", U8),
@@ -288,10 +296,11 @@ LAP_DATA = _expand([
 # F1 25 shortened m_name from 48 to 32 chars and added the livery colours;
 # the 57-byte stride was measured on the 24 August capture and the name
 # offset (7) verified by the prefix resolver's printable-ASCII scoring.
+# LiveryColour members carry no m_ prefix in the specification.
 _LIVERY_COLOUR = [
-    ("m_red", U8),
-    ("m_green", U8),
-    ("m_blue", U8),
+    ("red", U8),
+    ("green", U8),
+    ("blue", U8),
 ]
 PARTICIPANT = (_expand([
     ("m_aiControlled", U8),
@@ -374,7 +383,7 @@ CAR_STATUS = _expand([
     ("m_actualTyreCompound", U8),
     ("m_visualTyreCompound", U8),
     ("m_tyresAgeLaps", U8),
-    ("m_vehicleFiaFlags", S8),
+    ("m_vehicleFIAFlags", S8),
     ("m_enginePowerICE", F32),
     ("m_enginePowerMGUK", F32),
     ("m_ersStoreEnergy", F32),
@@ -973,11 +982,13 @@ SESSION_TYPES = {
 SAFETY_CAR_STATUS = {0: "no safety car", 1: "full safety car",
                      2: "virtual safety car", 3: "formation lap"}
 
+# The 2025 document defines flags only up to yellow (no red value); an
+# observed 4 would print as undocumented, which is the honest label.
 ZONE_FLAGS = {-1: "invalid/unknown", 0: "none", 1: "green", 2: "blue",
-              3: "yellow", 4: "red"}
+              3: "yellow"}
 
 FIA_FLAGS = {-1: "invalid/unknown", 0: "none", 1: "green", 2: "blue",
-             3: "yellow", 4: "red"}
+             3: "yellow"}
 
 DRIVER_STATUS = {0: "in garage", 1: "flying lap", 2: "in lap", 3: "out lap",
                  4: "on track"}
@@ -1068,24 +1079,84 @@ INFRINGEMENT_TYPES = {
 SC_EVENT_TYPES = {0: "deployed", 1: "returning", 2: "returned",
                   3: "resume race"}
 
+TRACK_IDS = {
+    0: "Melbourne", 2: "Shanghai", 3: "Sakhir (Bahrain)", 4: "Catalunya",
+    5: "Monaco", 6: "Montreal", 7: "Silverstone", 9: "Hungaroring",
+    10: "Spa", 11: "Monza", 12: "Singapore", 13: "Suzuka", 14: "Abu Dhabi",
+    15: "Texas", 16: "Brazil", 17: "Austria", 19: "Mexico",
+    20: "Baku (Azerbaijan)", 26: "Zandvoort", 27: "Imola", 29: "Jeddah",
+    30: "Miami", 31: "Las Vegas", 32: "Losail",
+    39: "Silverstone (Reverse)", 40: "Austria (Reverse)",
+    41: "Zandvoort (Reverse)",
+}
+
+GAME_MODES = {
+    4: "Grand Prix '23", 5: "Time Trial", 6: "Splitscreen",
+    7: "Online Custom", 15: "Online Weekly Event",
+    17: "Story Mode (Braking Point)", 27: "My Team Career '25",
+    28: "Driver Career '25", 29: "Career '25 Online",
+    30: "Challenge Career '25", 75: "Story Mode (APXGP)", 127: "Benchmark",
+}
+
+RULESETS = {0: "Practice & Qualifying", 1: "Race", 2: "Time Trial",
+            12: "Elimination"}
+
+# BUTN bit flags, from the Button flags appendix.
+BUTTON_FLAGS = {
+    0x00000001: "Cross/A", 0x00000002: "Triangle/Y", 0x00000004: "Circle/B",
+    0x00000008: "Square/X", 0x00000010: "D-pad Left", 0x00000020: "D-pad Right",
+    0x00000040: "D-pad Up", 0x00000080: "D-pad Down", 0x00000100: "Options/Menu",
+    0x00000200: "L1/LB", 0x00000400: "R1/RB", 0x00000800: "L2/LT",
+    0x00001000: "R2/RT", 0x00002000: "Left Stick Click",
+    0x00004000: "Right Stick Click", 0x00008000: "Right Stick Left",
+    0x00010000: "Right Stick Right", 0x00020000: "Right Stick Up",
+    0x00040000: "Right Stick Down", 0x00080000: "Special",
+    0x00100000: "UDP Action 1", 0x00200000: "UDP Action 2",
+    0x00400000: "UDP Action 3", 0x00800000: "UDP Action 4",
+    0x01000000: "UDP Action 5", 0x02000000: "UDP Action 6",
+    0x04000000: "UDP Action 7", 0x08000000: "UDP Action 8",
+    0x10000000: "UDP Action 9", 0x20000000: "UDP Action 10",
+    0x40000000: "UDP Action 11", 0x80000000: "UDP Action 12",
+}
+
+
+def button_names(mask):
+    """Names of the buttons set in a BUTN mask, undocumented bits as hex."""
+    out = []
+    for bit in range(32):
+        v = 1 << bit
+        if mask & v:
+            out.append(BUTTON_FLAGS.get(v, "0x%08X" % v))
+    return out
+
 # ===========================================================================
 # THE DOCUMENTED RESTRICTED-TELEMETRY FIELD SET (question P1 / F4)
 #
-# The specification says that when a player's m_yourTelemetry reads
-# Restricted (0), exactly these fields are withheld (zeroed) for that car.
-# In an all-Public capture all of them should arrive; in a mixed one,
-# exactly this list should be zero for Restricted cars. P1 is the test of
-# this list -- it carries spec authority only until measured.
+# Transcribed verbatim from "Data Output from F1 25 v3", section
+# "Restricted data (Your Telemetry setting)": when a player's
+# m_yourTelemetry reads Restricted (0), exactly these fields are set to
+# zero for that car. In an all-Public capture all of them should arrive;
+# in a mixed one, exactly this list should be zero for Restricted cars.
+# P1 is the test of this list.
+#
+# Note what is NOT here: Car Setups is not restricted in F1 25 (it was in
+# earlier titles), and within Car Damage the blister, ERS-fault,
+# engine-blown and engine-seized fields stay public.
 # ===========================================================================
 
 RESTRICTED_FIELDS = {
     # packet id: field name prefixes withheld for a Restricted car
-    5:  ["*"],                                   # Car Setups: everything
     7:  ["m_fuelInTank", "m_fuelCapacity", "m_fuelMix", "m_fuelRemainingLaps",
          "m_frontBrakeBias", "m_ersDeployMode", "m_ersStoreEnergy",
-         "m_ersHarvestedThisLapMGUK", "m_ersHarvestedThisLapMGUH",
-         "m_ersDeployedThisLap"],
-    10: ["m_tyresWear", "m_tyresDamage", "m_brakesDamage"],
+         "m_ersDeployedThisLap", "m_ersHarvestedThisLapMGUK",
+         "m_ersHarvestedThisLapMGUH", "m_enginePowerICE",
+         "m_enginePowerMGUK"],
+    10: ["m_frontLeftWingDamage", "m_frontRightWingDamage",
+         "m_rearWingDamage", "m_floorDamage", "m_diffuserDamage",
+         "m_sidepodDamage", "m_engineDamage", "m_gearBoxDamage",
+         "m_tyresWear", "m_tyresDamage", "m_brakesDamage", "m_drsFault",
+         "m_engineMGUHWear", "m_engineESWear", "m_engineCEWear",
+         "m_engineICEWear", "m_engineMGUKWear", "m_engineTCWear"],
     12: ["*"],                                   # Tyre Sets: everything
 }
 
@@ -1097,13 +1168,16 @@ if __name__ == "__main__":
         for f in fails:
             print("  " + f)
         raise SystemExit(1)
-    print(self_check_summary())
-    for pid, layout in PACKETS.items():
-        print("  packet %2d %-22s payload %4d = %d prefix + %d x %d + %d "
-              "trailer  [%s]"
-              % (pid, layout.name, layout.expected_payload(),
-                 layout.prefix_size(), layout.slots, layout.stride(),
-                 layout.trailer_size(), provenance(pid)))
-    print("  packet  3 %-22s payload %4d = %d code + %d union  [%s]"
-          % ("Event", expected_payload(3), EVENT_CODE_LEN,
-             event_union_size(), provenance(3)))
+    try:
+        print(self_check_summary())
+        for pid, layout in PACKETS.items():
+            print("  packet %2d %-22s payload %4d = %d prefix + %d x %d "
+                  "+ %d trailer  [%s]"
+                  % (pid, layout.name, layout.expected_payload(),
+                     layout.prefix_size(), layout.slots, layout.stride(),
+                     layout.trailer_size(), provenance(pid)))
+        print("  packet  3 %-22s payload %4d = %d code + %d union  [%s]"
+              % ("Event", expected_payload(3), EVENT_CODE_LEN,
+                 event_union_size(), provenance(3)))
+    except BrokenPipeError:
+        pass

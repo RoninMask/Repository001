@@ -363,7 +363,7 @@ def participants_payload(t):
                 "m_techLevel": 0,
                 "m_platform": 1,
                 "m_numColours": 1,
-                "m_liveryColours[0].m_red": 200,
+                "m_liveryColours[0].red": 200,
             }
             if c >= 14 and c != 12:
                 m["m_driverId"] = 50 + c
@@ -448,7 +448,7 @@ def status_payload(t):
                 "m_actualTyreCompound": act,
                 "m_visualTyreCompound": vis,
                 "m_tyresAgeLaps": tyre_age(c, t),
-                "m_vehicleFiaFlags": 3 if sc_active(t) else 0,
+                "m_vehicleFIAFlags": 3 if sc_active(t) else 0,
                 "m_ersStoreEnergy": 0.0 if restricted
                 else 2.0e6 + 1.0e6 * math.sin(t / 9.0),
                 "m_ersDeployMode": 0 if restricted else 1,

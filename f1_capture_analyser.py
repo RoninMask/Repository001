@@ -2104,7 +2104,7 @@ class SessionTracker(object):
         "m_trackId", "m_trackLength", "m_gameMode", "m_ruleSet",
         "m_sessionLength", "m_pitSpeedLimit", "m_networkGame", "m_formula",
         "m_equalCarPerformance", "m_flashbackLimit", "m_lowFuelMode",
-        "m_parcFermeRule", "m_mpUnsafePitRelease", "m_mpOffForGriefing",
+        "m_parcFermeRules", "m_mpUnsafePitRelease", "m_mpOffForGriefing",
         "m_collisionsOffForFirstLapOnly",
     )
     LINKS = ("m_seasonLinkIdentifier", "m_weekendLinkIdentifier",
@@ -2666,7 +2666,7 @@ class StatusTracker(object):
         self.i_drsallow = ix["m_drsAllowed"]
         self.i_drsdist = ix["m_drsActivationDistance"]
         self.i_fuel = ix["m_fuelInTank"]
-        self.i_fia = ix["m_vehicleFiaFlags"]
+        self.i_fia = ix["m_vehicleFIAFlags"]
         self.i_actual = ix["m_actualTyreCompound"]
         self.i_visual = ix["m_visualTyreCompound"]
         self.i_age = ix["m_tyresAgeLaps"]
@@ -4711,7 +4711,7 @@ def build_group_h(r, a, d, x, V):
 
         fia_txt = ", ".join("%s x%d" % (_dname(v, FIELDS.FIA_FLAGS), n)
                             for v, n in st.fia_values.most_common())
-        _answer(r, V, "H5", "m_vehicleFiaFlags (per-car, distinct from "
+        _answer(r, V, "H5", "m_vehicleFIAFlags (per-car, distinct from "
                 "marshal zones) values: %s; %d transition(s)"
                 % (fia_txt, st.fia_trans.count))
         for (t, stime, c, old, new) in st.fia_trans.items[:10]:
@@ -5172,8 +5172,14 @@ def build_group_l(r, a, d, x, V):
                 % (len(ev.butn_masks),
                    sum(ev.butn_masks.values()), ev.butn_edges.count))
         for (t, st, old, new, rise, fall) in ev.butn_edges.items[:16]:
-            r.w("L6    %.1fs: 0x%08X -> 0x%08X  rising 0x%08X  falling "
-                "0x%08X" % (t, old, new, rise, fall))
+            names = []
+            if rise:
+                names.append("press " + "+".join(FIELDS.button_names(rise)))
+            if fall:
+                names.append("release "
+                             + "+".join(FIELDS.button_names(fall)))
+            r.w("L6    %.1fs: 0x%08X -> 0x%08X  %s"
+                % (t, old, new, "; ".join(names) or "no bit change"))
     r.w()
 
     rt = [e for e in ev.events if e[2] == "RTMT"]
@@ -5710,12 +5716,16 @@ def build_group_p(r, a, d, x, V):
             (pub if info["yourTelemetry"] == 1 else restr).append(c)
         r.w("P1  Public cars: [%s]; Restricted: [%s]."
             % (_cars_text(pub), _cars_text(restr)))
-        r.w("P1  Documented restricted set: Car Setups (all), Car Status "
-            "fuel/brake-bias/ERS fields, Car")
-        r.w("P1  Damage tyresWear/tyresDamage/brakesDamage, Tyre Sets "
-            "(all).")
-        r.w("P1  (list carries spec authority only; this question is its "
-            "test)")
+        r.w("P1  Documented restricted set (Data Output from F1 25 v3): "
+            "Car Status fuel/brake-bias/ERS/")
+        r.w("P1  engine-power fields (12); Car Damage wear, damage, "
+            "wing/floor/diffuser/sidepod, gearbox,")
+        r.w("P1  engine and engine-wear fields plus drsFault (18; "
+            "blisters, ersFault, engineBlown and")
+        r.w("P1  engineSeized stay public); Tyre Sets (all). Car Setups "
+            "is NOT restricted in F1 25.")
+        r.w("P1  (the list carries spec authority; this question is its "
+            "test against the capture)")
         if not restr:
             # All-Public: every documented-restricted field should arrive.
             missing = []
