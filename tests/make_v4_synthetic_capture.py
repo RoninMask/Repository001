@@ -54,11 +54,31 @@ RESTRICTED = {17, 18}
 
 # Scenario switches, set by build(): a rain variant exercises Group Q's
 # answered paths (forecast lead, wet surfaces, inter stop, DRSD reason 0);
-# formation=0 exercises Group R's gate.
-CONFIG = {"rain": False, "formation": 1}
+# formation=0 exercises Group R's gate; the weekend variant prepends a
+# one-shot qualifying phase and exercises Group S's answered paths.
+CONFIG = {"rain": False, "formation": 1, "weekend": False}
 RAIN_FORECAST_T = 80.0      # forecast first shows rain here...
 RAIN_START_T = 200.0        # ...predicting rain at +2 min = here
 WET_STOP_CAR = 5
+QUALI_END_T = 220.0         # weekend variant: quali -> race boundary
+                            # (long enough for flying laps to complete)
+QUALI_UID = 0x1111222233334444
+RACE_UID = 0xA1B2C3D4E5F60718
+QUALI_SESSION_LINK = 0x11112222
+GRID_SWAP = {6: 8, 7: 7}    # deliberate quali-vs-grid mismatches for S5
+
+
+def in_quali(t):
+    return CONFIG["weekend"] and t < QUALI_END_T
+
+
+def quali_rank(c):
+    # best lap = 89000 + 60*c, so rank is simply c+1
+    return c + 1
+
+
+def race_grid_pos(c):
+    return GRID_SWAP.get(c, c + 1)
 
 _packers = {}
 
@@ -86,10 +106,14 @@ def fill(struct_name, values, mapping):
 
 
 def header(pid, t, frame):
-    st = max(0.0, t)
+    if in_quali(t):
+        uid, st = QUALI_UID, max(0.0, t)
+    elif CONFIG["weekend"]:
+        uid, st = RACE_UID, max(0.0, t - QUALI_END_T)
+    else:
+        uid, st = RACE_UID, max(0.0, t)
     return packer("PacketHeader").pack(
-        2025, 25, 1, 7, 1, pid, 0xA1B2C3D4E5F60718, st, frame, frame,
-        255, 255)
+        2025, 25, 1, 7, 1, pid, uid, st, frame, frame, 255, 255)
 
 
 # --- the race model --------------------------------------------------------
@@ -219,6 +243,16 @@ def result_status(c, t):
 
 
 def driver_status(c, t):
+    if in_quali(t):
+        # Qualifying run cycle: garage -> out lap -> flying lap -> in lap.
+        ph = (t + 7.0 * c) % 40.0
+        if ph < 8.0:
+            return 0
+        if ph < 16.0:
+            return 3
+        if ph < 30.0:
+            return 1
+        return 2
     if t < 5.0:
         return 0
     if c == 7 and t >= 252.0:
@@ -280,7 +314,7 @@ def session_payload(t):
         "m_airTemperature": 24,
         "m_totalLaps": 5,
         "m_trackLength": int(TRACK_LEN),
-        "m_sessionType": 15,
+        "m_sessionType": 9 if in_quali(t) else 15,
         "m_trackId": 3,
         "m_formula": 0,
         "m_sessionDuration": 600,
@@ -295,7 +329,8 @@ def session_payload(t):
         "m_aiDifficulty": 90,
         "m_seasonLinkIdentifier": 0x0BADCAFE,
         "m_weekendLinkIdentifier": 0x12345678,
-        "m_sessionLinkIdentifier": 0x87654321,
+        "m_sessionLinkIdentifier": (QUALI_SESSION_LINK if in_quali(t)
+                                    else 0x87654321),
         "m_numSafetyCarPeriods": 1 if t > 300.0 else 0,
         "m_recoveryMode": 2,
         "m_cornerCuttingStringency": 1,
@@ -384,7 +419,9 @@ def lapdata_payload(t):
                 "m_penalties": 5 if (c == 9 and t >= 310.0) else 0,
                 "m_totalWarnings": tot_w,
                 "m_cornerCuttingWarnings": ccw,
-                "m_gridPosition": c + 1,
+                "m_gridPosition": (0 if in_quali(t)
+                                   else race_grid_pos(c)
+                                   if CONFIG["weekend"] else c + 1),
                 "m_driverStatus": driver_status(c, t),
                 "m_resultStatus": result_status(c, t),
                 # Rain variant, car 9: the D-5 anomaly -- timer flagged
@@ -572,7 +609,8 @@ def history_payload(c, t):
     done = max(0, min(lap - 1, 100)) if t >= LGOT_T else 0
     if t >= 392.0:
         done = min(lap, 100)                       # the bulk final update
-    lap_ms = int(TRACK_LEN / car_speed(c) * 1000.0)
+    lap_ms = (89000 + 60 * c if in_quali(t)
+              else int(TRACK_LEN / car_speed(c) * 1000.0))
     m = {
         "m_carIdx": c,
         "m_numLaps": max(done, 1),
@@ -732,9 +770,11 @@ RAIN_EVENTS = [
 ]
 
 
-def build(path, seconds=408.0, hz=10.0, rain=False, formation=1):
+def build(path, seconds=408.0, hz=10.0, rain=False, formation=1,
+          weekend=False):
     CONFIG["rain"] = rain
     CONFIG["formation"] = formation
+    CONFIG["weekend"] = weekend
     hdr = {
         "magic": "F1HOOVER-CAPTURE",
         "format_version": 1,
@@ -792,6 +832,9 @@ def build(path, seconds=408.0, hz=10.0, rain=False, formation=1):
             if abs(t - 392.0) < step / 2 or abs(t - 397.0) < step / 2 \
                     or abs(t - 402.0) < step / 2:
                 rec(t, 8, finalclass_payload(t), frame)
+            if CONFIG["weekend"] and abs(t - 215.0) < step / 2:
+                # the qualifying classification, before the boundary
+                rec(t, 8, finalclass_payload(t), frame)
             if 392.0 <= t < 394.0:                 # the bulk history update
                 for c in CARS:
                     rec(t, 11, history_payload(c, t), frame)
@@ -806,3 +849,4 @@ if __name__ == "__main__":
     build(os.path.join(out, "v5_synthetic_rain.bin"), rain=True)
     build(os.path.join(out, "v5_synthetic_formation_off.bin"),
           seconds=150.0, formation=0)
+    build(os.path.join(out, "v5_synthetic_weekend.bin"), weekend=True)

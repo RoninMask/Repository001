@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
 f1_capture_analyser.py -- Project Hoover / Live AI Race Broadcast
-T6, v5: structural pass, full decode pass, cross-check pass. Groups A-R.
+T6, v5: structural pass, full decode pass, cross-check pass. Groups A-S.
 
 v5 ON TOP OF v4: six verdict-defect fixes (A3 spec column sourced from the
 field module; E1 per-field delta verdicts; J3 overlap stated as a
 percentage over ALL episodes; M7 names the residue fields; E6 reports the
 timer/pit-status joint distribution; F2 classifies wear quantisation),
 plus Group Q (weather and forecast, eight questions), Group R (the
-formation lap, five questions, gated on m_formationLap), the H3
+formation lap, five questions, gated on m_formationLap), Group S (the
+weekend boundary, six questions, gated on a mid-capture m_sessionType
+transition -- it tests the white paper's PROPOSED claim that the weekend
+link identifier joins a qualifying capture to its race), the H3
 undocumented-surface callout, and the I7 50-lap question retired as
-unreachable. Groups Q and R return UNANSWERED with stated reasons on the
-four Phase 0 captures, which contain no rain and no formation lap -- that
-is the correct result; they exist to read a capture not yet recorded.
+unreachable. Groups Q, R and S return UNANSWERED with stated reasons on
+the four Phase 0 captures, which contain no rain, no formation lap and no
+session transition -- that is the correct result; they exist to read a
+capture not yet recorded.
 
 Standalone. Reads a capture, writes one report plus four data files.
 Python 3.8+, standard library only, nothing installed, no network. The
@@ -2048,6 +2052,8 @@ class HeaderTracker(object):
         self.packets = 0
         self.uid_counts = Counter()
         self.uid_changes = 0
+        self.uid_trans = TransitionLog(20)           # (t, old, new)
+        self.first_uid = None
         self.last_uid = None
         self.frame_last = None
         self.frame_regressions = TransitionLog(50)   # (t, st, old, new)
@@ -2083,8 +2089,11 @@ class HeaderTracker(object):
         overall = hdr[9]
         if len(self.uid_counts) < 16 or uid in self.uid_counts:
             self.uid_counts[uid] += 1
+        if self.first_uid is None:
+            self.first_uid = uid
         if self.last_uid is not None and uid != self.last_uid:
             self.uid_changes += 1
+            self.uid_trans.add((elapsed, self.last_uid, uid))
         self.last_uid = uid
         self.game_version[(hdr[1], hdr[2], hdr[3])] += 1
         self.player_idx[hdr[10]] += 1
@@ -2185,8 +2194,13 @@ class SessionTracker(object):
             self.period_incr[n] = TransitionLog(30)
             self._period_last[n] = None
         self.session_type = Counter()
+        # (elapsed, st_after, old_type, new_type, st_before) -- the last
+        # two feed S3's either-side read of m_sessionTime.
         self.session_type_trans = TransitionLog(10)
         self._stype_last = None
+        self._prev_st = None
+        self.link_trans = OrderedDict(
+            (n, TransitionLog(20)) for n in self.LINKS)  # (t, old, new)
         self.settings = OrderedDict((n, Counter()) for n in self.SETTINGS)
         self.links = OrderedDict((n, OrderedDict()) for n in self.LINKS)
         self.link_changes = Counter()
@@ -2303,7 +2317,7 @@ class SessionTracker(object):
         self.session_type[stype] += 1
         if self._stype_last is not None and stype != self._stype_last:
             self.session_type_trans.add((elapsed, st, self._stype_last,
-                                         stype))
+                                         stype, self._prev_st))
         self._stype_last = stype
 
         for n in self.SETTINGS:
@@ -2320,6 +2334,7 @@ class SessionTracker(object):
             last = self._link_last[n]
             if last is not None and val != last:
                 self.link_changes[n] += 1
+                self.link_trans[n].add((elapsed, last, val))
             self._link_last[n] = val
 
         self.s2_start[v[i["m_sector2LapDistanceStart"]]] += 1
@@ -2333,6 +2348,7 @@ class SessionTracker(object):
         self._spec_last = spec
         self.latest_spectator = spec
         self.paused[v[i["m_gamePaused"]]] += 1
+        self._prev_st = st
 
     def main_track_length(self):
         if not self.track_length:
@@ -2354,6 +2370,19 @@ class SessionTracker(object):
         if not c:
             return None
         return c.most_common(1)[0][0]
+
+    def link_around(self, name, t, window=2.0):
+        """(before, after) values of one link identifier around time t.
+        A change logged within the window supplies both sides directly;
+        otherwise the value in force at t is returned for both."""
+        for (tt, old, new) in self.link_trans[name].items:
+            if abs(tt - t) <= window:
+                return old, new
+        val = next(iter(self.links[name]), None)
+        for (tt, old, new) in self.link_trans[name].items:
+            if tt <= t:
+                val = new
+        return val, val
 
 
 class LapTracker(object):
@@ -3334,6 +3363,7 @@ class HistoryTracker(object):
         self.gap_sum = Counter()
         self.gap_n = Counter()
         self.numlaps = {}                      # carIdx -> latest numLaps
+        self.best_lap_ms = {}                  # carIdx -> best lap so far
         self.laptime_cars = set()              # cars with >=1 nonzero lap
         self.stint_cars = {}                   # car -> latest numTyreStints
         self.valid_flags = Counter()
@@ -3385,8 +3415,11 @@ class HistoryTracker(object):
         nl = vals[self.i_numlaps]
         self.numlaps[car] = nl
         for k in range(min(nl, 100)):
-            if vals[self.lap_time_ix[k]]:
+            lt = vals[self.lap_time_ix[k]]
+            if lt:
                 self.laptime_cars.add(car)
+                if lt < self.best_lap_ms.get(car, 1 << 31):
+                    self.best_lap_ms[car] = lt
             self.valid_flags[vals[self.valid_ix[k]]] += 1
         self.stint_cars[car] = vals[self.i_numstints]
         self.best_sectors[car] = (vals[self.i_bests[0]],
@@ -3498,17 +3531,19 @@ class FinalClassTracker(object):
     def __init__(self, plan):
         self.plan = plan
         self.times = []
+        self.contexts = []       # (t, session_type_then) -- S6
         self.count = 0
         self.last_vals = None
         self.last_prefix = None
         self.first_elapsed = None
 
-    def add(self, elapsed, hdr, prefix_vals, vals):
+    def add(self, elapsed, hdr, prefix_vals, vals, session_type=None):
         self.count += 1
         if self.first_elapsed is None:
             self.first_elapsed = elapsed
         if len(self.times) < 100:
             self.times.append(elapsed)
+            self.contexts.append((elapsed, session_type))
         self.last_vals = vals
         self.last_prefix = prefix_vals
 
@@ -3576,6 +3611,14 @@ class DecodePass(object):
         self.last_race_telemetry_t = None
         self.reader = None
         self.last_elapsed = 0.0
+        # Group S: one snapshot per session-type transition -- the best
+        # laps accumulated so far (the qualifying result), and the race
+        # grid captured shortly after the boundary.
+        self.phase_snapshots = []
+        self._stype_trans_seen = 0
+        self.race_grid = None
+        self._grid_capture_at = None
+        self._i_grid = self.plans[2].index["m_gridPosition"]
 
         mplan = self.plans[0]
         self._m_ix = mplan.index["m_worldPositionX"]
@@ -3670,8 +3713,29 @@ class DecodePass(object):
                     self.lap.add(elapsed, hdr, vals)
                     if self.finalclass.count == 0:
                         self.last_race_telemetry_t = elapsed
+                    if self._grid_capture_at is not None \
+                            and elapsed >= self._grid_capture_at:
+                        nf2 = self.plans[2].nf
+                        self.race_grid = [vals[c * nf2 + self._i_grid]
+                                          for c in range(MAX_CARS)]
+                        self._grid_capture_at = None
                 elif pid == 1:
                     self.session.add(elapsed, hdr, vals)
+                    tlog = self.session.session_type_trans
+                    if tlog.count > self._stype_trans_seen:
+                        self._stype_trans_seen = tlog.count
+                        item = (tlog.items[-1] if tlog.items else None)
+                        if item is not None:
+                            self.phase_snapshots.append({
+                                "t": item[0], "old": item[2],
+                                "new": item[3],
+                                "best_laps":
+                                    dict(self.history.best_lap_ms),
+                            })
+                            if item[3] in (15, 16, 17):
+                                # a race began: capture the grid once the
+                                # field settles
+                                self._grid_capture_at = elapsed + 5.0
                 elif pid == 4:
                     self.participants.add(elapsed, hdr,
                                           plan.unpack_prefix(payload), vals)
@@ -3689,7 +3753,8 @@ class DecodePass(object):
                     if self.finalclass.count == 0:
                         self.history.note_fc(elapsed)
                     self.finalclass.add(elapsed, hdr,
-                                        plan.unpack_prefix(payload), vals)
+                                        plan.unpack_prefix(payload), vals,
+                                        self.session._stype_last)
                 elif pid == 13:
                     self.motionex.add(elapsed, hdr, payload)
                 # 5, 9, 14: census only.
@@ -6603,6 +6668,205 @@ def build_group_r(r, a, d, x, V):
     r.w()
 
 
+# --- GROUP S: the weekend boundary (v5) ------------------------------------
+
+def build_group_s(r, a, d, x, V):
+    _group_header(r, "S", "THE WEEKEND BOUNDARY (tests the white paper's "
+                          "PROPOSED claim that the weekend link "
+                          "identifier joins a qualifying capture to its "
+                          "race)")
+    s = d.session
+    h = d.headers
+    lt = d.lap
+
+    if s.packets == 0:
+        for q in range(1, 7):
+            _unanswered(r, V, "S%d" % q, "no Session packets decoded, so "
+                        "m_sessionType is unknown and no boundary can be "
+                        "located")
+        r.w()
+        return
+    if s.session_type_trans.count == 0:
+        only = s.session_type.most_common(1)[0][0]
+        r.w("S   m_sessionType held a single value throughout: %s. This "
+            "capture contains no session" % _dname(only,
+                                                   FIELDS.SESSION_TYPES))
+        r.w("S   transition, so the weekend boundary cannot be read from "
+            "it. The group exists to read the")
+        r.w("S   quali+race capture that has not been recorded yet.")
+        for q in range(1, 7):
+            _unanswered(r, V, "S%d" % q, "single session type (%s) "
+                        "throughout -- no weekend boundary in this "
+                        "capture" % _dname(only, FIELDS.SESSION_TYPES))
+        r.w()
+        return
+
+    trans = s.session_type_trans.items
+    _answer(r, V, "S1", "m_sessionType values: %s; %d mid-capture "
+            "transition(s) -- the first ever observed in this project"
+            % (", ".join("%s x%d" % (_dname(v, FIELDS.SESSION_TYPES), n)
+                         for v, n in s.session_type.most_common()),
+               s.session_type_trans.count))
+    for item in trans[:6]:
+        r.w("S1    %.1fs (session time %.1fs): %s -> %s"
+            % (item[0], item[1], _dname(item[2], FIELDS.SESSION_TYPES),
+               _dname(item[3], FIELDS.SESSION_TYPES)))
+    r.w()
+
+    r.w("S2  ACROSS THE TRANSITION: DOES WEEKEND HOLD WHILE SESSION "
+        "CHANGES? (the load-bearing question)")
+    verdicts2 = []
+    for item in trans[:4]:
+        bt = item[0]
+        r.w("S2  boundary at %.1fs (%s -> %s):"
+            % (bt, _dname(item[2], FIELDS.SESSION_TYPES),
+               _dname(item[3], FIELDS.SESSION_TYPES)))
+        held = {}
+        for n in s.LINKS:
+            before, after = s.link_around(n, bt)
+            held[n] = (before == after)
+            r.w("S2    %-26s 0x%08X -> 0x%08X  %s"
+                % (n, before if before is not None else 0,
+                   after if after is not None else 0,
+                   "HELD" if before == after else "CHANGED"))
+        uid_b = uid_a = None
+        for (tt, old, new) in h.uid_trans.items:
+            if abs(tt - bt) <= 3.0:
+                uid_b, uid_a = old, new
+                break
+        if uid_b is None:
+            uid_b = uid_a = h.first_uid
+            for (tt, old, new) in h.uid_trans.items:
+                if tt <= bt:
+                    uid_b = uid_a = new
+        r.w("S2    %-26s 0x%016X -> 0x%016X  %s"
+            % ("header m_sessionUID", uid_b or 0, uid_a or 0,
+               "HELD" if uid_b == uid_a else "CHANGED"))
+        expected = (held["m_seasonLinkIdentifier"]
+                    and held["m_weekendLinkIdentifier"]
+                    and not held["m_sessionLinkIdentifier"])
+        if expected:
+            verdicts2.append("expected result at %.1fs: season and "
+                            "weekend HELD, session CHANGED -- the "
+                            "weekend link identifier IS the join key"
+                            % bt)
+        elif not held["m_weekendLinkIdentifier"]:
+            verdicts2.append("at %.1fs the WEEKEND identifier CHANGED "
+                            "across the boundary -- the white paper's "
+                            "third ingest source has NO join key and "
+                            "that section needs rewriting" % bt)
+        else:
+            verdicts2.append("at %.1fs the identifiers did not follow "
+                            "the expected hold/change pattern -- see the "
+                            "table" % bt)
+    _answer(r, V, "S2", "; ".join(verdicts2))
+    r.w()
+
+    s3_bits = []
+    for item in trans[:4]:
+        st_before = item[4]
+        st_after = item[1]
+        if st_before is None:
+            s3_bits.append("boundary %.1fs: no prior session time to "
+                           "compare" % item[0])
+            continue
+        if st_after < 1.0 and st_before > 10.0:
+            kind = "RESET to %.1fs from %.1fs" % (st_after, st_before)
+        elif st_after < st_before - 0.001:
+            kind = "went BACKWARDS %.1fs -> %.1fs" % (st_before, st_after)
+        else:
+            kind = "CONTINUED %.1fs -> %.1fs" % (st_before, st_after)
+        s3_bits.append("boundary %.1fs: m_sessionTime %s"
+                       % (item[0], kind))
+    _answer(r, V, "S3", "; ".join(s3_bits)
+            + " (D6 tracks the same signal capture-wide)")
+    r.w()
+
+    flying = [c for c in d.real if 1 in lt.drv_values[c]]
+    if flying:
+        _answer(r, V, "S4", "m_driverStatus == 1 (flying lap) OBSERVED "
+                "for %d car(s) [%s] -- the last of the five defined "
+                "values is now seen" % (len(flying), _cars_text(flying)))
+        shown = 0
+        for (t, st2, c, old, new) in lt.drv_trans.items:
+            if 1 in (old, new) and shown < 12:
+                r.w("S4    %.1fs car %d: %s -> %s"
+                    % (t, c, _dname(old, FIELDS.DRIVER_STATUS),
+                       _dname(new, FIELDS.DRIVER_STATUS)))
+                shown += 1
+    else:
+        _answer(r, V, "S4", "m_driverStatus == 1 (flying lap) NEVER "
+                "observed, even across the session transition -- still "
+                "the one defined value with no sighting")
+    r.w()
+
+    r.w("S5  DOES m_gridPosition IN THE RACE MATCH THE QUALIFYING "
+        "RESULT? (first check of grid against something true)")
+    snap = None
+    for ps in d.phase_snapshots:
+        if ps["new"] in (15, 16, 17):
+            snap = ps
+            break
+    if snap is None:
+        _unanswered(r, V, "S5", "no transition INTO a race session type "
+                    "was observed, so there is no qualifying result to "
+                    "compare against")
+    elif not snap["best_laps"]:
+        _unanswered(r, V, "S5", "Session History carried no lap times "
+                    "before the boundary, so the qualifying order cannot "
+                    "be built")
+    elif d.race_grid is None:
+        _unanswered(r, V, "S5", "no Lap Data arrived after the boundary "
+                    "to read the race grid from")
+    else:
+        order = sorted((ms, c) for c, ms in snap["best_laps"].items()
+                       if c in set(d.real))
+        quali_rank = dict((c, k + 1) for k, (ms, c) in enumerate(order))
+        mismatches = []
+        compared = 0
+        for c in d.real:
+            qr = quali_rank.get(c)
+            gr = d.race_grid[c]
+            if qr is None or not gr:
+                continue
+            compared += 1
+            if qr != gr:
+                mismatches.append((c, qr, gr))
+        if not mismatches:
+            _answer(r, V, "S5", "race m_gridPosition MATCHES the "
+                    "qualifying best-lap order for all %d comparable "
+                    "car(s)" % compared)
+        else:
+            _answer(r, V, "S5", "race m_gridPosition disagrees with the "
+                    "qualifying best-lap order for %d of %d car(s) "
+                    "(penalties, pit-lane starts or a wrong join would "
+                    "all look like this -- listed for the reader):"
+                    % (len(mismatches), compared))
+            for (c, qr, gr) in mismatches[:12]:
+                r.w("S5    car %2d: qualified P%d, gridded P%d"
+                    % (c, qr, gr))
+    r.w()
+
+    fc = d.finalclass
+    if fc.count == 0:
+        _answer(r, V, "S6", "NO Final Classification packet anywhere in "
+                "the capture -- neither session produced one")
+    else:
+        _answer(r, V, "S6", "%d Final Classification packet(s):"
+                % fc.count)
+        for (t, stype) in fc.contexts[:12]:
+            r.w("S6    %.1fs during %s"
+                % (t, _dname(stype, FIELDS.SESSION_TYPES)
+                   if stype is not None else "(session type unknown)"))
+        quali_fc = [1 for (t, stype) in fc.contexts
+                    if stype is not None and stype not in (15, 16, 17)]
+        r.w("S6    %s"
+            % ("classification WAS broadcast at the end of the "
+               "qualifying session" if quali_fc else
+               "classification arrived only in the race phase"))
+    r.w()
+
+
 # --- the dispatcher --------------------------------------------------------
 
 V4_BUILDERS = OrderedDict((
@@ -6611,7 +6875,7 @@ V4_BUILDERS = OrderedDict((
     ("I", build_group_i), ("J", build_group_j), ("K", build_group_k),
     ("L", build_group_l), ("M", build_group_m), ("N", build_group_n),
     ("O", build_group_o), ("P", build_group_p), ("Q", build_group_q),
-    ("R", build_group_r),
+    ("R", build_group_r), ("S", build_group_s),
 ))
 
 
@@ -6627,7 +6891,7 @@ def build_v4_groups(r, a, decode, cross, verdicts):
 # SECTION 17 -- CLI (was SECTION 9 in v0.6a)
 # ===========================================================================
 
-VALID_GROUPS = tuple("ABCDEFGHIJKLMNOPQR")
+VALID_GROUPS = tuple("ABCDEFGHIJKLMNOPQRS")
 
 
 def parse_groups(text):
