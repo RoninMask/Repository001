@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
 f1_capture_analyser.py -- Project Hoover / Live AI Race Broadcast
-T6, v4: structural pass, full decode pass, cross-check pass. Groups A-P.
+T6, v5: structural pass, full decode pass, cross-check pass. Groups A-R.
+
+v5 ON TOP OF v4: six verdict-defect fixes (A3 spec column sourced from the
+field module; E1 per-field delta verdicts; J3 overlap stated as a
+percentage over ALL episodes; M7 names the residue fields; E6 reports the
+timer/pit-status joint distribution; F2 classifies wear quantisation),
+plus Group Q (weather and forecast, eight questions), Group R (the
+formation lap, five questions, gated on m_formationLap), the H3
+undocumented-surface callout, and the I7 50-lap question retired as
+unreachable. Groups Q and R return UNANSWERED with stated reasons on the
+four Phase 0 captures, which contain no rain and no formation lap -- that
+is the correct result; they exist to read a capture not yet recorded.
 
 Standalone. Reads a capture, writes one report plus four data files.
 Python 3.8+, standard library only, nothing installed, no network. The
@@ -234,7 +245,7 @@ import sys
 from collections import Counter, OrderedDict, deque
 
 SCRIPT_NAME = "f1_capture_analyser.py"
-SCRIPT_VERSION = "4"
+SCRIPT_VERSION = "5"
 
 # The field-list reference. THE ONLY SOURCE OF STRIDES AND OFFSETS in the
 # decode and cross-check passes: no numeric offset appears anywhere below
@@ -313,17 +324,29 @@ ARRAY_PACKETS = OrderedDict((
     (10, "CarDamageData"),
 ))
 
-# What the audit's ARRAY_SPECS claims the non-array overhead is, as
-# (prefix, trailer). Printed beside the measurement as a cross-check ONLY.
-# It carries no authority: the spec has been wrong twice already.
+# The field-list's non-array overhead per packet, as (prefix, trailer),
+# and its stride -- the cross-check printed beside the measurement, and
+# the prefix-resolver fallback. Since v5 these are DERIVED from
+# f1_2025_fields.py so there is exactly one source of truth in the tool;
+# the literals below are only the fallback for a missing module (in which
+# case main() refuses to decode anyway). The measurement stays the
+# authority on any disagreement (rule 6).
 SPEC_CLAIMED_OVERHEAD = {
     0: (0, 0), 2: (0, 2), 4: (1, 0), 5: (0, 4), 6: (0, 3),
     7: (0, 0), 8: (1, 0), 9: (1, 0), 10: (0, 0),
 }
-# ... and the stride the spec claims, again as a cross-check only.
 SPEC_CLAIMED_STRIDE = {
-    0: 60, 2: 57, 4: 57, 5: 49, 6: 60, 7: 55, 8: 45, 9: 42, 10: 42,
+    0: 60, 2: 57, 4: 57, 5: 50, 6: 60, 7: 55, 8: 46, 9: 42, 10: 46,
 }
+if FIELDS is not None:
+    SPEC_CLAIMED_OVERHEAD = dict(
+        (pid, (layout.prefix_size(), layout.trailer_size()))
+        for pid, layout in FIELDS.PACKETS.items()
+        if layout.slots == FIELDS.MAX_CARS)
+    SPEC_CLAIMED_STRIDE = dict(
+        (pid, layout.stride())
+        for pid, layout in FIELDS.PACKETS.items()
+        if layout.slots == FIELDS.MAX_CARS)
 
 # An overhead larger than this is not a scalar tail, it is a wrong
 # assumption about the slot count. Bounds the candidate ladder.
@@ -1475,12 +1498,13 @@ def build_group_a(r, a):
 
     # -- A3 -----------------------------------------------------------------
     r.w("A3  MEASURED STRIDE PER ARRAY PACKET, DERIVATION SHOWN")
-    r.w("A3  Strides are derived from observed payload lengths over %d "
-        "fixed slots. Nothing here is read" % MAX_CARS)
-    r.w("A3  from the specification. The spec column is a cross-check with "
-        "no authority: it has been wrong")
-    r.w("A3  twice already (Car Damage 46 vs documented 42, Final "
-        "Classification 46 vs documented 45).")
+    r.w("A3  Strides are measured from observed payload lengths over %d "
+        "fixed slots. The field-list sum" % MAX_CARS)
+    r.w("A3  from f1_2025_fields.py is the cross-check; every layout has "
+        "agreed with the measurement on")
+    r.w("A3  every capture to date. Where they ever disagree, the "
+        "measurement is the authority and the")
+    r.w("A3  field list is wrong for this build (rule 6).")
     r.w()
     any_array = False
     for pid in sorted(a.stats):
@@ -1507,15 +1531,18 @@ def build_group_a(r, a):
             spec_pre, spec_tail = SPEC_CLAIMED_OVERHEAD.get(pid, (None, None))
             spec_stride = SPEC_CLAIMED_STRIDE.get(pid)
             if spec_stride is not None:
-                agree = "agrees" if spec_stride == stride else "*** DISAGREES"
-                r.w("A3          spec claims overhead %d+%d and stride %d "
-                    "-- %s with the measurement"
-                    % (spec_pre, spec_tail, spec_stride, agree))
-                if spec_stride != stride:
+                if spec_stride == stride:
+                    r.w("A3          field-list sum: overhead %d+%d, "
+                        "stride %d -- AGREES with the measurement"
+                        % (spec_pre, spec_tail, spec_stride))
+                else:
                     need = length - spec_stride * MAX_CARS
-                    r.w("A3          the documented stride would require "
-                        "overhead %d, which is not a plausible scalar tail."
-                        % need)
+                    r.w("A3          field-list sum: overhead %d+%d, "
+                        "stride %d -- *** DISAGREES with the measurement."
+                        % (spec_pre, spec_tail, spec_stride))
+                    r.w("A3          The measurement is the authority: the "
+                        "field list is wrong for this build (its stride "
+                        "would need overhead %d)." % need)
             if len(cands) > 1:
                 r.w("A3          other exact divisions: %s"
                     % "; ".join("overhead %d -> stride %d" % c
@@ -2123,12 +2150,18 @@ class SessionTracker(object):
             "m_gamePaused", "m_sector2LapDistanceStart",
             "m_sector3LapDistanceStart", "m_trackLength",
             "m_sessionTimeLeft", "m_sessionDuration", "m_timeOfDay",
+            "m_forecastAccuracy",
         ) + self.SETTINGS + self.LINKS)
         self.zone_flag_ix = [ix["m_marshalZones[%d].m_zoneFlag" % z]
                              for z in range(21)]
         self.forecast_ix = [
             (ix["m_weatherForecastSamples[%d].m_timeOffset" % s],
-             ix["m_weatherForecastSamples[%d].m_sessionType" % s])
+             ix["m_weatherForecastSamples[%d].m_sessionType" % s],
+             ix["m_weatherForecastSamples[%d].m_weather" % s],
+             ix["m_weatherForecastSamples[%d].m_rainPercentage" % s],
+             ix["m_weatherForecastSamples[%d].m_trackTemperatureChange"
+                % s],
+             ix["m_weatherForecastSamples[%d].m_airTemperatureChange" % s])
             for s in range(64)]
 
         self.weather = Counter()
@@ -2167,6 +2200,20 @@ class SessionTracker(object):
         self._spec_last = None
         self.latest_spectator = None
         self.paused = Counter()
+        # Group Q: rain, forecast prediction ledger, temperature
+        # directions. Only the first m_numWeatherForecastSamples slots
+        # are valid; everything below is gated on that count.
+        self.rain_max = 0
+        self.rain_first_t = None            # first non-zero rainPercentage
+        self.rain_offsets = set()           # timeOffsets that carried rain
+        self.rain_trans = TransitionLog(120)  # (t, st, sample, old, new)
+        self._rain_last = [None] * 64
+        self.first_rain_forecast = None     # (t, offset_min, weather_code)
+        self.forecast_accuracy = Counter()
+        self.temp_trans = TransitionLog(80)  # (t, which, old, new)
+        self.tempchange_track = Counter()   # forecast direction fields
+        self.tempchange_air = Counter()
+        self.weather_timeline = []          # (t, value), first + changes
 
     def add(self, elapsed, hdr, vals):
         self.packets += 1
@@ -2177,8 +2224,11 @@ class SessionTracker(object):
         w = v[i["m_weather"]]
         self.weather[w] += 1
         last_w = getattr(self, "_w_last", None)
-        if last_w is not None and w != last_w:
-            self.weather_trans.add((elapsed, st, last_w, w))
+        if last_w is None or w != last_w:
+            if last_w is not None:
+                self.weather_trans.add((elapsed, st, last_w, w))
+            if len(self.weather_timeline) < 64:
+                self.weather_timeline.append((elapsed, w))
         self._w_last = w
 
         for key, idx in (("track", i["m_trackTemperature"]),
@@ -2193,16 +2243,38 @@ class SessionTracker(object):
             if self._last_temps[slot] is not None \
                     and t != self._last_temps[slot]:
                 rec[2] += 1
+                self.temp_trans.add((elapsed, key,
+                                     self._last_temps[slot], t))
             self._last_temps[slot] = t
 
+        self.forecast_accuracy[v[i["m_forecastAccuracy"]]] += 1
         nf = v[i["m_numWeatherForecastSamples"]]
         self.forecast_counts[nf] += 1
         for s in range(min(nf, 64)):
-            off_ix, sess_ix = self.forecast_ix[s]
+            off_ix, sess_ix, w_ix, rain_ix, ttc_ix, atc_ix = \
+                self.forecast_ix[s]
             off = v[off_ix]
             if off > self.forecast_horizon:
                 self.forecast_horizon = off
             self.forecast_sessions[v[sess_ix]] += 1
+            rain = v[rain_ix]
+            if rain:
+                if self.rain_first_t is None:
+                    self.rain_first_t = elapsed
+                if rain > self.rain_max:
+                    self.rain_max = rain
+                if len(self.rain_offsets) < 64:
+                    self.rain_offsets.add(off)
+            if rain != self._rain_last[s]:
+                if self._rain_last[s] is not None:
+                    self.rain_trans.add((elapsed, st, s,
+                                         self._rain_last[s], rain))
+                self._rain_last[s] = rain
+            wf = v[w_ix]
+            if wf >= 3 and self.first_rain_forecast is None:
+                self.first_rain_forecast = (elapsed, off, wf)
+            self.tempchange_track[v[ttc_ix]] += 1
+            self.tempchange_air[v[atc_ix]] += 1
 
         nz = v[i["m_numMarshalZones"]]
         self.marshal_counts[nz] += 1
@@ -2266,6 +2338,22 @@ class SessionTracker(object):
         if not self.track_length:
             return None
         return self.track_length.most_common(1)[0][0]
+
+    def weather_at(self, t):
+        """m_weather in force at record time t, from the change timeline."""
+        current = None
+        for (tt, w) in self.weather_timeline:
+            if tt <= t:
+                current = w
+            else:
+                break
+        return current
+
+    def formation_setting(self):
+        c = self.settings.get("m_formationLap")
+        if not c:
+            return None
+        return c.most_common(1)[0][0]
 
 
 class LapTracker(object):
@@ -2366,7 +2454,12 @@ class LapTracker(object):
         self.totdist_max = [0.0] * n
         self.pl_timer_seen = [0] * n
         self.inlane_max = [0] * n
+        self.inlane_nonzero = [0] * n
         self.stoptimer_max = [0] * n
+        # (timerActive, pitStatus) -> samples, per car: the joint
+        # distribution D-5 asks for. A timer active at pitStatus 0 with
+        # zero measured time is a finding, not population.
+        self.timer_joint = [Counter() for _ in range(n)]
         self.trap_speed_max = [0.0] * n
         self.trap_laps = [set() for _ in range(n)]
         self.cur_sector = [None] * n
@@ -2376,6 +2469,14 @@ class LapTracker(object):
         self.pen_max = [0] * n
         self.warn_max = [0] * n
         self.ccw_max = [0] * n
+        self.cur_totdist = [0.0] * n
+        # D-4: per-field residue on slots the predicate calls unoccupied,
+        # scanned at 1 Hz.
+        self.empty_slots = [c for c in range(n)
+                            if c not in set(self.real)]
+        self.empty_residue = {}        # slot -> {field: [last_value, n]}
+        self._empty_scan_last = float("-inf")
+        self.f_names = plan.names
 
     def _close_pit_episode(self, c, elapsed, st):
         ep = self.pit_open[c]
@@ -2539,14 +2640,19 @@ class LapTracker(object):
             if last_td is not None and td < last_td - 0.5:
                 self.totdist_drops.add((elapsed, st, c, last_td, td))
             self.totdist_last[c] = td
+            self.cur_totdist[c] = td
             if td > self.totdist_max[c]:
                 self.totdist_max[c] = td
 
-            if vals[base + self.i_pltimer]:
+            timer = vals[base + self.i_pltimer]
+            if timer:
                 self.pl_timer_seen[c] += 1
+            self.timer_joint[c][(timer, pit)] += 1
             inlane = vals[base + self.i_inlane]
-            if inlane > self.inlane_max[c]:
-                self.inlane_max[c] = inlane
+            if inlane:
+                self.inlane_nonzero[c] += 1
+                if inlane > self.inlane_max[c]:
+                    self.inlane_max[c] = inlane
             stopt = vals[base + self.i_stoptimer]
             if stopt > self.stoptimer_max[c]:
                 self.stoptimer_max[c] = stopt
@@ -2579,6 +2685,25 @@ class LapTracker(object):
         if parts is not None:
             self.timeline_fh.write(",".join(parts))
             self.timeline_fh.write("\n")
+
+        if self.empty_slots \
+                and elapsed - self._empty_scan_last >= 1.0:
+            self._empty_scan_last = elapsed
+            for c in self.empty_slots:
+                base = c * nf
+                residue = None
+                for j, fname in enumerate(self.f_names):
+                    v = vals[base + j]
+                    if v == 0 or v == 255:
+                        continue
+                    if residue is None:
+                        residue = self.empty_residue.setdefault(c, {})
+                    ent = residue.get(fname)
+                    if ent is None:
+                        residue[fname] = [v, 1]
+                    else:
+                        ent[0] = v
+                        ent[1] += 1
 
 
 # ===========================================================================
@@ -2755,12 +2880,18 @@ class StatusTracker(object):
 
 
 class TelemetryTracker(object):
-    """Group H (Car Telemetry half): surface types and DRS open state."""
+    """Group H (Car Telemetry half): surface types and DRS open state.
+    v5 adds the undocumented-surface callout (H3/Q6) and a rolling
+    off-tarmac window for the Q8 DRSD context."""
 
-    def __init__(self, plan, real_indices):
+    UNDOC_SURFACE_MAX = 11        # the documented table runs 0..11
+    WINDOW_S = 10.0
+
+    def __init__(self, plan, real_indices, lap_tracker):
         ix = plan.index
         self.nf = plan.nf
         self.real = list(real_indices)
+        self.lap = lap_tracker
         self.i_surface = [ix["m_surfaceType[%d]" % w] for w in range(4)]
         self.i_drs = ix["m_drs"]
         n = MAX_CARS
@@ -2772,12 +2903,17 @@ class TelemetryTracker(object):
         self.drs_open_trans = [0] * n
         self._drs_last = [None] * n
         self.drs_open_log = TransitionLog(200)  # (t, st, car, old, new)
+        self.undoc_values = Counter()          # value -> wheel-samples
+        self.undoc_cars = Counter()            # car -> wheel-samples
+        self.undoc_log = TransitionLog(120)    # (t, car, value, lapdist)
+        self.window = deque()                  # (t, offtarmac_cars, cars)
 
     def add(self, elapsed, hdr, vals):
         self.packets += 1
         st = hdr[7]
         nf = self.nf
         i_s = self.i_surface
+        off_cars = 0
         for c in self.real:
             base = c * nf
             self.samples += 1
@@ -2788,10 +2924,17 @@ class TelemetryTracker(object):
             if s0 or s1 or s2 or s3:
                 self.offtarmac_samples[c] += 1
                 self.offtarmac_total += 1
+                off_cars += 1
                 self.surface_values[s0] += 1
                 self.surface_values[s1] += 1
                 self.surface_values[s2] += 1
                 self.surface_values[s3] += 1
+                for sv in (s0, s1, s2, s3):
+                    if sv > self.UNDOC_SURFACE_MAX:
+                        self.undoc_values[sv] += 1
+                        self.undoc_cars[c] += 1
+                        self.undoc_log.add((elapsed, c, sv,
+                                            self.lap.cur_lapdist[c]))
             else:
                 self.surface_values[0] += 4
 
@@ -2802,6 +2945,20 @@ class TelemetryTracker(object):
                     self.drs_open_log.add((elapsed, st, c,
                                            self._drs_last[c], drs))
                 self._drs_last[c] = drs
+
+        self.window.append((elapsed, off_cars, len(self.real)))
+        cutoff = elapsed - self.WINDOW_S - 2.0
+        while self.window and self.window[0][0] < cutoff:
+            self.window.popleft()
+
+    def window_summary(self, now):
+        """(off-tarmac car-samples, total car-samples) in the last 10 s."""
+        off = tot = 0
+        for (t, o, n) in self.window:
+            if now - self.WINDOW_S <= t <= now:
+                off += o
+                tot += n
+        return off, tot
 
 
 class DamageTracker(object):
@@ -2821,9 +2978,17 @@ class DamageTracker(object):
         self.wear_stints = [[] for _ in range(n)]
         # stint: (t_start, t_end, wear_start, wear_end) per wheel-0 curve
         self.stint_open = [None] * n   # (t_start, start_wear_w0)
-        self.wear_drops = TransitionLog(120)  # (t, st, car, wheel, old, new)
+        # D-6: m_tyresWear is quantised to whole percent, so a drop of
+        # <= 1 point with no compound change is quantisation, not a tyre
+        # change. Big drops are stint boundaries; small ones are counted
+        # and sampled, never listed one by one.
+        self.wear_drops = TransitionLog(120)   # boundary: > QUANT_STEP_PC
+        self.quant_drops = TransitionLog(200)  # small: kept for the
+        # report-time compound-change cross-check; count is authoritative
         self.any_damage_cars = set()
         self._last_scan = float("-inf")
+
+    QUANT_STEP_PC = 1.0
 
     def add(self, elapsed, hdr, vals):
         self.packets += 1
@@ -2834,14 +2999,18 @@ class DamageTracker(object):
             for w in range(4):
                 v = vals[base + self.i_wear[w]]
                 last = self.wear_last[c][w]
-                if last is not None and v < last - 0.5:
-                    self.wear_drops.add((elapsed, st, c, w, last, v))
-                    if w == 0 and self.stint_open[c] is not None:
-                        t0, w0 = self.stint_open[c]
-                        if len(self.wear_stints[c]) < 12:
-                            self.wear_stints[c].append((t0, elapsed, w0,
-                                                        last))
-                        self.stint_open[c] = (elapsed, v)
+                if last is not None and v < last:
+                    drop = last - v
+                    if drop > self.QUANT_STEP_PC:
+                        self.wear_drops.add((elapsed, st, c, w, last, v))
+                        if w == 0 and self.stint_open[c] is not None:
+                            t0, w0 = self.stint_open[c]
+                            if len(self.wear_stints[c]) < 12:
+                                self.wear_stints[c].append(
+                                    (t0, elapsed, w0, last))
+                            self.stint_open[c] = (elapsed, v)
+                    elif drop > 1e-6:
+                        self.quant_drops.add((elapsed, st, c, w, last, v))
                 elif w == 0 and self.stint_open[c] is None:
                     self.stint_open[c] = (elapsed, v)
                 self.wear_last[c][w] = v
@@ -2909,6 +3078,8 @@ class ParticipantsTracker(object):
         # per car dict of the latest raw identity values
         self.dup_checks = 0
         self.netid_unpopulated = False
+        self.f_names = plan.names
+        self.empty_residue = {}        # slot -> {field: [last_value, n]}
         self.dup_numbers = TransitionLog(40)   # (t, value, cars)
         self.dup_netids = TransitionLog(40)
         self.dup_names = TransitionLog(40)
@@ -2952,9 +3123,28 @@ class ParticipantsTracker(object):
             tel = vals[base + self.i_tel]
 
             if c not in self.real_set:
-                # M7: the unpopulated-slot predicate says every identity
-                # field here should be hollow. Count violations.
-                if name or num or net or drv not in (0, 255):
+                # M7 / D-4: the unpopulated-slot predicate says every
+                # field here should be hollow. Record exactly WHICH
+                # fields carry residue, with values, so the report can
+                # separate identity residue from cosmetic residue.
+                residue = self.empty_residue.setdefault(c, {})
+                any_res = False
+                for j, fname in enumerate(self.f_names):
+                    v = vals[base + j]
+                    if isinstance(v, bytes):
+                        if not v.strip(b"\x00"):
+                            continue
+                        v = decode_name_bytes(v)
+                    elif v == 0 or v == 255:
+                        continue
+                    any_res = True
+                    ent = residue.get(fname)
+                    if ent is None:
+                        residue[fname] = [v, 1]
+                    else:
+                        ent[0] = v
+                        ent[1] += 1
+                if any_res:
                     self.empty_slot_nonzero[c] += 1
                 continue
 
@@ -3370,7 +3560,9 @@ class DecodePass(object):
         self.spatial = MotionSpatial(self.real, self.lap)
         self.lap.spatial = self.spatial
         self.status = StatusTracker(self.plans[7], self.real)
-        self.telemetry = TelemetryTracker(self.plans[6], self.real)
+        self.telemetry = TelemetryTracker(self.plans[6], self.real,
+                                          self.lap)
+        self.drsd_context = []   # (t, weather_now, off_samples, samples)
         self.damage = DamageTracker(self.plans[10], self.real)
         self.participants = ParticipantsTracker(self.plans[4], self.real)
         self.events = EventLog()
@@ -3416,11 +3608,22 @@ class DecodePass(object):
                                 and self.grid_snapshot is None:
                             # The last Lap Data before lights-out is the
                             # standing grid: K2 reads the reference point
-                            # straight off it.
+                            # straight off it; R3 reads the lap counter
+                            # and total distance across the same instant.
                             self.grid_snapshot = (
                                 elapsed, tuple(self.lap.cur_lapdist),
                                 tuple(self.lap.cur_pos),
-                                tuple(self.lap.grid_pos))
+                                tuple(self.lap.grid_pos),
+                                tuple(self.lap.cur_lap),
+                                tuple(self.lap.cur_totdist))
+                        if payload[HEADER_SIZE:HEADER_SIZE + 4] \
+                                == b"DRSD" and len(self.drsd_context) < 32:
+                            off, tot = self.telemetry.window_summary(
+                                elapsed)
+                            self.drsd_context.append(
+                                (elapsed,
+                                 getattr(self.session, "_w_last", None),
+                                 off, tot))
                     continue
 
                 plan = plans.get(pid)
@@ -3537,6 +3740,13 @@ class CrossCheck(object):
         self.episodes = []
         self.episode_cap = 500
         self.episode_count = 0
+        # Totals over ALL episodes, not just the retained sample -- the
+        # J3/J4/J5 fractions come from these (defect D-3 in v4 quoted the
+        # capped list).
+        self.episode_surface = 0
+        self.episode_invalid = 0
+        self.episode_noninvalid = 0
+        self.episode_ccw_no_invalid = 0
         self._open_ep = [None] * MAX_CARS
         self.coll_windows = []
         for (t, st, code, fields) in decode.events.events:
@@ -3610,6 +3820,14 @@ class CrossCheck(object):
         if ep is None:
             return
         self.episode_count += 1
+        if ep["surface_off"]:
+            self.episode_surface += 1
+        if ep["invalid"]:
+            self.episode_invalid += 1
+        else:
+            self.episode_noninvalid += 1
+            if ep["ccw1"] > ep["ccw0"]:
+                self.episode_ccw_no_invalid += 1
         if len(self.episodes) < self.episode_cap:
             self.episodes.append(ep)
         self._open_ep[c] = None
@@ -3752,6 +3970,30 @@ class CrossCheck(object):
         self._test_pit_derivation()
         self._retirement_signatures()
         self._measurement_point()
+        self._settle_forecast()
+
+    def _settle_forecast(self):
+        """Q3: the pass-2 forecast ledger settled against the actual
+        weather transitions. None when no rain transition occurred."""
+        s = self.d.session
+        self.forecast_test = None
+        rain_trans = [tr for tr in s.weather_trans.items if tr[3] >= 3]
+        if not rain_trans:
+            return
+        t_actual = rain_trans[0][0]
+        out = {"t_actual": t_actual, "to": rain_trans[0][3],
+               "lead_rain_pct": None, "lead_forecast": None,
+               "predicted_delta": None}
+        if s.rain_first_t is not None and s.rain_first_t <= t_actual:
+            out["lead_rain_pct"] = t_actual - s.rain_first_t
+        if s.first_rain_forecast is not None:
+            ft, off_min, code = s.first_rain_forecast
+            if ft <= t_actual:
+                out["lead_forecast"] = t_actual - ft
+                # the forecast said rain at ft + off_min minutes
+                out["predicted_delta"] = (ft + off_min * 60.0) - t_actual
+                out["forecast_code"] = code
+        self.forecast_test = out
 
     def _resolve_overtakes(self):
         d = self.d
@@ -3879,7 +4121,7 @@ class CrossCheck(object):
         # K2: grid spacing at the standing start.
         k2 = None
         if d.grid_snapshot is not None:
-            t, lds, poss, grids = d.grid_snapshot
+            t, lds, poss, grids = d.grid_snapshot[:4]
             rows = []
             for c in d.real:
                 p = poss[c]
@@ -4422,32 +4664,49 @@ def build_group_e(r, a, d, x, V):
 
     r.w("E1  DELTA FIELDS -- POPULATED FOR EVERY CAR, OR ONLY THE CONTROL "
         "CAR? (the tension model's primary input)")
-    pop_front = [c for c in d.real
-                 if lt.samples[c] and lt.d_front_nonzero[c] > 0]
-    pop_leader = [c for c in d.real
-                  if lt.samples[c] and lt.d_leader_nonzero[c] > 0]
-    r.w("E1  m_deltaToCarInFrontMSPart non-zero on: %d of %d real cars "
-        "(%s)" % (len(pop_front), len(d.real), _cars_text(pop_front)))
-    r.w("E1  m_deltaToRaceLeaderMSPart non-zero on: %d of %d real cars "
-        "(%s)" % (len(pop_leader), len(d.real), _cars_text(pop_leader)))
     n_real = len(d.real)
-    if not pop_front and not pop_leader:
-        verdict = ("NEVER POPULATED for any car -- every gap must be "
-                   "derived from lap distance and position instead")
-    elif len(pop_front) >= max(2, n_real - 2):
-        verdict = ("POPULATED FOR EVERY CAR (or all but the leader, whose "
-                   "deltas are legitimately zero) -- the tension model can "
-                   "consume them directly")
-    elif len(pop_front) <= 1:
-        verdict = ("populated for ONLY %d car(s) -- control-car-only; "
-                   "gaps must be derived from lap distance and position, "
-                   "which is a different implementation"
-                   % len(pop_front))
+
+    def delta_tier(pop):
+        """The verdict follows the counts (rule 5), never the other way
+        round. One legitimately-zero car is allowed for the leader."""
+        n = len(pop)
+        missing = [c for c in d.real if c not in set(pop)]
+        if n >= n_real - 1:
+            return ("POPULATED FOR EVERY CAR (%d of %d%s)"
+                    % (n, n_real,
+                       "; car %s zero throughout, consistent with the "
+                       "leader" % _cars_text(missing) if missing else ""),
+                    True)
+        if n >= 2:
+            return ("PARTIAL: %d of %d; never non-zero for cars [%s]"
+                    % (n, n_real, _cars_text(missing)), False)
+        return ("NOT POPULATED: non-zero on %d of %d cars" % (n, n_real),
+                False)
+
+    verdict_parts = []
+    reliable = []
+    for label, counts in (("m_deltaToCarInFrontMSPart",
+                           lt.d_front_nonzero),
+                          ("m_deltaToRaceLeaderMSPart",
+                           lt.d_leader_nonzero)):
+        pop = [c for c in d.real if lt.samples[c] and counts[c] > 0]
+        text, ok = delta_tier(pop)
+        r.w("E1  %-28s %s" % (label, text))
+        verdict_parts.append("%s: %s" % (label, text))
+        if ok:
+            reliable.append(label)
+    if len(reliable) == 2:
+        combined = ("both delta fields are reliable per-car inputs for "
+                    "the tension model")
+    elif reliable:
+        combined = ("the tension model can rely on %s only; the other "
+                    "field must be derived from lap distance and position"
+                    % reliable[0])
     else:
-        verdict = ("populated for %d of %d real cars -- partial; treat "
-                   "per-car, do not assume either way" % (len(pop_front),
-                                                          n_real))
-    _answer(r, V, "E1", verdict)
+        combined = ("neither delta field is reliable -- every gap must be "
+                    "derived from lap distance and position instead, "
+                    "which is a different implementation")
+    _answer(r, V, "E1", "; ".join(verdict_parts) + " -- " + combined)
     r.w()
 
     nz_pen = [c for c in d.real if lt.pen_max[c]]
@@ -4494,23 +4753,56 @@ def build_group_e(r, a, d, x, V):
                 "whether one ran)")
     r.w()
 
-    pit_cars = [c for c in d.real if lt.inlane_max[c] or lt.pl_timer_seen[c]]
-    if pit_cars:
-        plaus = [c for c in pit_cars
+    # E6, per D-5: a timer flag with no measured time is not population.
+    # Populated = the timer carried a non-zero in-lane time; a flag that
+    # is active at pitStatus 0 measuring nothing is reported as the
+    # finding it is.
+    timed_cars = [c for c in d.real if lt.inlane_max[c] > 0]
+    anomaly = []
+    for c in d.real:
+        n_flag_nopit = sum(n for (timer, pit), n in
+                           lt.timer_joint[c].items()
+                           if timer and pit == 0)
+        if n_flag_nopit and lt.inlane_max[c] == 0:
+            anomaly.append((c, n_flag_nopit))
+    if timed_cars:
+        plaus = [c for c in timed_cars
                  if 10000 <= lt.inlane_max[c] <= 120000]
-        _answer(r, V, "E6", "pit lane fields populated for [%s]; "
-                "m_pitLaneTimeInLaneInMS maxima plausible (10-120s) for "
-                "[%s]" % (_cars_text(pit_cars), _cars_text(plaus)))
-        for c in pit_cars[:8]:
-            r.w("E6    car %2d: timerActive on %d packet(s), inLane max "
-                "%.1fs, stopTimer max %.1fs"
-                % (c, lt.pl_timer_seen[c], lt.inlane_max[c] / 1000.0,
-                   lt.stoptimer_max[c] / 1000.0))
-    else:
+        _answer(r, V, "E6", "pit lane timing carries real time for "
+                "[%s]; maxima plausible (10-120s) for [%s]"
+                % (_cars_text(timed_cars), _cars_text(plaus)))
+        for c in timed_cars[:8]:
+            r.w("E6    car %2d: inLane max %.1fs (%d non-zero samples), "
+                "stopTimer max %.1fs, timerActive on %d packet(s)"
+                % (c, lt.inlane_max[c] / 1000.0, lt.inlane_nonzero[c],
+                   lt.stoptimer_max[c] / 1000.0, lt.pl_timer_seen[c]))
+    elif not anomaly:
         _unanswered(r, V, "E6", "no car ever showed pit-lane timer "
                     "activity in this capture (nobody pitted, or the "
                     "fields are control-car-only -- see N for the pit "
                     "evidence)")
+    if anomaly:
+        r.w("E6  FINDING: m_pitLaneTimerActive reads 1 while m_pitStatus "
+            "is 0 and m_pitLaneTimeInLaneInMS never")
+        r.w("E6  leaves 0 for the cars below. A timer that is 'active' "
+            "and measures nothing is either a")
+        r.w("E6  misread offset or a field meaning something other than "
+            "assumed; do NOT treat it as populated.")
+        for c, n in anomaly[:10]:
+            joint = ", ".join("timer=%d/pit=%d x%d" % (k[0], k[1], v)
+                              for k, v in
+                              lt.timer_joint[c].most_common(4))
+            r.w("E6    car %2d: active-with-pitStatus-0 on %d packet(s); "
+                "joint distribution: %s" % (c, n, joint))
+        if not timed_cars:
+            _answer(r, V, "E6", "timer flag active without measured time "
+                    "for %d car(s) that never pitted -- reported as a "
+                    "finding, not as population; no car carried a "
+                    "non-zero in-lane time" % len(anomaly))
+        else:
+            V.set("E6", "ANSWERED",
+                  V.get("E6")["detail"] + "; PLUS timer-active-"
+                  "without-time anomaly on %d car(s)" % len(anomaly))
     r.w()
 
     trap_cars = [c for c in d.real if lt.trap_speed_max[c] > 0.0]
@@ -4568,9 +4860,27 @@ def build_group_f(r, a, d, x, V):
         _unanswered(r, V, "F2", "tyre wear never left zero for any real "
                     "car (all-Restricted lobby, or no running)")
     else:
-        _answer(r, V, "F2", "wear rises for %d car(s) [%s]; %d drop(s) "
-                "recorded (drops should coincide with compound changes)"
-                % (len(rising), _cars_text(rising), dt.wear_drops.count))
+        comp = d.status.compound_trans
+        # D-6: classify drops. <= 1 point with no compound change nearby
+        # is quantisation; anything bigger, or anything coincident with a
+        # compound change, is a stint boundary.
+        quant_promoted = []
+        for item in dt.quant_drops.items:
+            t, st2, c = item[0], item[1], item[2]
+            if any(abs(t - ct[0]) < 10.0 and ct[2] == c for ct in
+                   comp.items):
+                quant_promoted.append(item)
+        n_quant = dt.quant_drops.count - len(quant_promoted)
+        _answer(r, V, "F2", "wear rises for %d car(s) [%s]; %d stint-"
+                "boundary drop(s) (> %.0f point or compound-coincident), "
+                "%d quantisation step(s) (<= %.0f point, no compound "
+                "change) counted but not listed"
+                % (len(rising), _cars_text(rising),
+                   dt.wear_drops.count + len(quant_promoted),
+                   dt.QUANT_STEP_PC, n_quant, dt.QUANT_STEP_PC))
+        r.w("F2  m_tyresWear is quantised to whole percent and is NOT "
+            "monotonic at the 1% level -- a consumer")
+        r.w("F2  must smooth it before differencing.")
         shown = 0
         for c in rising:
             for (t0, t1, w0, w1) in dt.wear_stints[c][:3]:
@@ -4579,13 +4889,20 @@ def build_group_f(r, a, d, x, V):
                 shown += 1
             if shown > 20:
                 break
-        comp = d.status.compound_trans
-        for (t, st, c, w, old, new) in dt.wear_drops.items[:8]:
+        for (t, st2, c, w, old, new) in dt.wear_drops.items[:8]:
             near = any(abs(t - ct[0]) < 10.0 and ct[2] == c
                        for ct in comp.items)
-            r.w("F2    drop %.1fs car %d wheel %d: %.1f%% -> %.1f%% -- "
-                "compound change within 10s: %s"
+            r.w("F2    boundary drop %.1fs car %d wheel %d: %.1f%% -> "
+                "%.1f%% -- compound change within 10s: %s"
                 % (t, c, w, old, new, "yes" if near else "NO"))
+        for (t, st2, c, w, old, new) in quant_promoted[:4]:
+            r.w("F2    small drop promoted to boundary %.1fs car %d "
+                "wheel %d: %.1f%% -> %.1f%% (compound change nearby)"
+                % (t, c, w, old, new))
+        if dt.quant_drops.truncated():
+            r.w("F2    (quantisation log sampled the first %d of %d; the "
+                "compound cross-check covers that sample)"
+                % (len(dt.quant_drops.items), dt.quant_drops.count))
     r.w()
 
     r.w("F3  EVERY REMAINING FIELD, BY OBSERVED RANGE AND VARIANCE")
@@ -4679,12 +4996,22 @@ def build_group_h(r, a, d, x, V):
             for v, n in tl.surface_values.most_common(8))
         off_cars = [(c, tl.offtarmac_samples[c]) for c in d.real
                     if tl.offtarmac_samples[c]]
+        undoc_txt = ""
+        if tl.undoc_values:
+            undoc_txt = ("; UNDOCUMENTED value(s) outside 0-11: %s on "
+                         "car(s) [%s]"
+                         % (", ".join("%d x%d" % (v, n) for v, n in
+                                      tl.undoc_values.most_common()),
+                            _cars_text(tl.undoc_cars)))
         _answer(r, V, "H3", "m_surfaceType values: %s; car-samples with "
-                "any wheel off tarmac: %d of %d (%s)"
+                "any wheel off tarmac: %d of %d (%s)%s"
                 % (surf_txt, tl.offtarmac_total, tl.samples,
-                   _pct(tl.offtarmac_total, tl.samples)))
+                   _pct(tl.offtarmac_total, tl.samples), undoc_txt))
         for c, n in sorted(off_cars, key=lambda cn: -cn[1])[:10]:
             r.w("H3    car %2d off tarmac in %d sample(s)" % (c, n))
+        for (t, c, sv, ld) in tl.undoc_log.items[:8]:
+            r.w("H3    UNDOCUMENTED surface %d: %.1fs car %d at "
+                "lap-dist %.0f m" % (sv, t, c, ld))
     r.w()
 
     if have_status:
@@ -4865,13 +5192,14 @@ def build_group_i(r, a, d, x, V):
                    len(covered), len(d.real), _cars_text(covered),
                    "; %d position value(s) out of 1..22"
                    % lp.bad_positions if lp.bad_positions else ""))
-        r.w("I7  The 50-lap split boundary (m_lapStart > 0) %s in this "
-            "capture%s."
-            % ("WAS reached" if any(v > 0 for v in lp.lapstart)
-               else "was not reached",
-               "" if any(v > 0 for v in lp.lapstart) else
-               ", as expected for races short of 50 laps; the split "
-               "behaviour remains untested"))
+        if any(v > 0 for v in lp.lapstart):
+            r.w("I7  The 50-lap split boundary (m_lapStart > 0) WAS "
+                "reached in this capture.")
+        else:
+            r.w("I7  The 50-lap split boundary needs a race longer than "
+                "any that will be run in this project;")
+            r.w("I7  the question is RETIRED AS UNREACHABLE, not held "
+                "open.")
     r.w()
 
 
@@ -4935,52 +5263,69 @@ def build_group_j(r, a, d, x, V):
         r.w()
         return
 
-    eps = x.episodes
-    with_surface = sum(1 for e in eps if e["surface_off"])
-    _answer(r, V, "J3", "lateral outlier threshold %.1f m (%.1f x median "
-            "bin spread, clamped %g..%g); %d excursion episode(s) across "
-            "%d deviation samples (max deviation %.1f m); %d of %d "
-            "coincide with m_surfaceType leaving tarmac -- %s"
-            % (x.threshold, EXCURSION_SPREAD_FACTOR,
-               EXCURSION_MIN_THRESHOLD_M, EXCURSION_MAX_THRESHOLD_M,
-               x.episode_count, x.dev_samples, x.dev_max,
-               with_surface, x.episode_count,
-               "the two detectors corroborate; this is the excursion "
-               "detector that needs no track database"
-               if x.episode_count and with_surface else
-               "no corroboration to report" if not x.episode_count else
-               "surface data did not corroborate -- treat the outliers "
-               "as line spread, not excursions"))
-    for e in eps[:10]:
-        r.w("J3    car %2d %.1fs..%.1fs: max dev %.1f m at lap-dist "
-            "%.0f m; off-tarmac %s; lap invalidated %s"
-            % (e["car"], e["t0"], e["t1"], e["dev_max"], e["ld"],
-               "yes" if e["surface_off"] else "no",
-               "yes" if e["invalid"] else "no"))
-    r.w()
-
-    if not eps:
+    n_eps = x.episode_count
+    if not n_eps:
+        _answer(r, V, "J3", "lateral outlier threshold %.1f m (%.1f x "
+                "median bin spread, clamped %g..%g); ZERO excursion "
+                "episodes across %d deviation samples (max deviation "
+                "%.1f m) -- nothing left the line envelope"
+                % (x.threshold, EXCURSION_SPREAD_FACTOR,
+                   EXCURSION_MIN_THRESHOLD_M, EXCURSION_MAX_THRESHOLD_M,
+                   x.dev_samples, x.dev_max))
         _unanswered(r, V, "J4", "no excursions detected, so the "
                     "invalidation question has nothing to fire on")
         _unanswered(r, V, "J5", "no excursions detected")
         r.w()
         return
-    fired = sum(1 for e in eps if e["invalid"])
+    # The overlap verdict follows the percentage (defect D-3: v4 claimed
+    # corroboration at 6-17% overlap).
+    pct_surface = 100.0 * x.episode_surface / n_eps
+    if pct_surface > 50.0:
+        overlap_verdict = "the two detectors CORROBORATE"
+    elif pct_surface >= 20.0:
+        overlap_verdict = "the two detectors PARTIALLY corroborate"
+    else:
+        overlap_verdict = ("the two detectors are LARGELY INDEPENDENT -- "
+                           "each detects excursions the other misses")
+    _answer(r, V, "J3", "lateral outlier threshold %.1f m (%.1f x median "
+            "bin spread, clamped %g..%g); %d excursion episode(s) across "
+            "%d deviation samples (max deviation %.1f m); %d of %d "
+            "(%.1f%%) coincide with m_surfaceType leaving tarmac -- %s"
+            % (x.threshold, EXCURSION_SPREAD_FACTOR,
+               EXCURSION_MIN_THRESHOLD_M, EXCURSION_MAX_THRESHOLD_M,
+               n_eps, x.dev_samples, x.dev_max,
+               x.episode_surface, n_eps, pct_surface, overlap_verdict))
+    if pct_surface < 50.0:
+        r.w("J3  What that means: the lateral detector is broader than "
+            "the game's own surface judgement --")
+        r.w("J3  it flags line departures the wheels never register as "
+            "off-tarmac. That breadth is the point")
+        r.w("J3  of building it; the surface channel confirms only the "
+            "grossest excursions.")
+    for e in x.episodes[:10]:
+        r.w("J3    car %2d %.1fs..%.1fs: max dev %.1f m at lap-dist "
+            "%.0f m; off-tarmac %s; lap invalidated %s"
+            % (e["car"], e["t0"], e["t1"], e["dev_max"], e["ld"],
+               "yes" if e["surface_off"] else "no",
+               "yes" if e["invalid"] else "no"))
+    if n_eps > len(x.episodes):
+        r.w("J3    (%d episodes total; first %d listed, fractions above "
+            "cover all of them)" % (n_eps, len(x.episodes)))
+    r.w()
+
     _answer(r, V, "J4", "m_currentLapInvalid fired on %d of %d "
-            "excursion(s) -- %s"
-            % (fired, len(eps),
-               "every excursion" if fired == len(eps) else
+            "excursion(s) (%.1f%%) -- %s"
+            % (x.episode_invalid, n_eps,
+               100.0 * x.episode_invalid / n_eps,
+               "every excursion" if x.episode_invalid == n_eps else
                "ONLY A SUBSET: the taxonomy's 'ran wide' is indeed "
                "broader than the game's own infringement judgement"))
     r.w()
 
-    ccw_no_invalid = sum(1 for e in eps
-                         if not e["invalid"] and e["ccw1"] > e["ccw0"])
     _answer(r, V, "J5", "m_cornerCuttingWarnings incremented during %d "
             "excursion(s) that never invalidated a lap (of %d "
             "non-invalidating excursions)"
-            % (ccw_no_invalid,
-               sum(1 for e in eps if not e["invalid"])))
+            % (x.episode_ccw_no_invalid, x.episode_noninvalid))
     r.w()
 
 
@@ -5383,18 +5728,58 @@ def build_group_m(r, a, d, x, V):
     r.w("M7  no motion variance. (rule 2 -- the prior audit read two "
         "such slots as restricted drivers.)")
     empty = [c for c in range(MAX_CARS) if c not in set(d.real)]
-    viol = [(c, n) for c, n in pt.empty_slot_nonzero.items() if n]
+    # D-4: when the hollow test finds residue, NAME THE FIELDS so a
+    # reader can decide whether it is identity or cosmetic.
+    IDENTITY_FIELDS = ("m_name", "m_raceNumber", "m_networkId",
+                       "m_driverId", "m_resultStatus", "m_carPosition")
+    residue_by_slot = {}
+    for c in empty:
+        merged = {}
+        for src, label in ((pt.empty_residue.get(c), "Participants"),
+                           (d.lap.empty_residue.get(c), "Lap Data")):
+            if src:
+                for fname, (val, n) in src.items():
+                    merged["%s %s" % (label, fname)] = (fname, val, n)
+        if merged:
+            residue_by_slot[c] = merged
     if not empty:
         _answer(r, V, "M7", "every slot is occupied in this capture; the "
                 "predicate has nothing to reject")
-    elif not viol:
+    elif not residue_by_slot:
         _answer(r, V, "M7", "unoccupied slots [%s] all PASS the predicate "
-                "(identity fields hollow throughout)" % _cars_text(empty))
+                "(every Participants and Lap Data field hollow "
+                "throughout)" % _cars_text(empty))
     else:
-        _answer(r, V, "M7", "unoccupied slots [%s]; %d of them showed "
-                "non-hollow identity bytes -- the predicate FAILS there, "
-                "investigate: %s"
-                % (_cars_text(empty), len(viol), viol[:6]))
+        identity_hit = False
+        for c, merged in sorted(residue_by_slot.items()):
+            r.w("M7  slot %d residue (non-hollow fields, last value and "
+                "sample count):" % c)
+            for key, (fname, val, n) in sorted(merged.items()):
+                is_id = any(fname.startswith(p) for p in IDENTITY_FIELDS)
+                if is_id:
+                    identity_hit = True
+                r.w("M7      %-44s = %-12r x%-6d %s"
+                    % (key[:44], val, n,
+                       "IDENTITY" if is_id else "cosmetic"))
+        clean = [c for c in empty if c not in residue_by_slot]
+        if identity_hit:
+            verdict = ("unoccupied slots [%s]; identity-bearing residue "
+                       "found (see fields above) -- the predicate is "
+                       "MISSING a real occupant or the slot held one "
+                       "earlier; TIGHTEN by latching any slot that ever "
+                       "shows a name, race number or non-invalid result "
+                       "status as once-occupied"
+                       % _cars_text(residue_by_slot))
+        else:
+            verdict = ("unoccupied slots [%s]; residue is COSMETIC only "
+                       "(livery/tech-level class fields, no name, no "
+                       "result status, no race number) -- the predicate "
+                       "HOLDS; the hollow test should simply ignore "
+                       "these default-styled fields%s"
+                       % (_cars_text(residue_by_slot),
+                          "; slots [%s] fully hollow" % _cars_text(clean)
+                          if clean else ""))
+        _answer(r, V, "M7", verdict)
     r.w()
 
     r.w("M8  THE FULL OBSERVABLE SIGNATURE OF A RETIREMENT")
@@ -5847,6 +6232,377 @@ def build_group_p(r, a, d, x, V):
     r.w()
 
 
+# --- GROUP Q: weather and forecast (v5) ------------------------------------
+
+def build_group_q(r, a, d, x, V):
+    _group_header(r, "Q", "WEATHER AND FORECAST (only the first "
+                          "m_numWeatherForecastSamples slots are read; "
+                          "beyond the count is uninitialised memory)")
+    s = d.session
+    have_session = s.packets > 0
+
+    if not have_session:
+        for q in (1, 2, 3, 4, 5):
+            _unanswered(r, V, "Q%d" % q, "no Session packets decoded, so "
+                        "the weather block and forecast array are "
+                        "unreadable")
+    else:
+        if s.rain_max == 0:
+            _answer(r, V, "Q1", "m_rainPercentage NEVER leaves zero in "
+                    "any valid forecast sample (%d Session packets, "
+                    "forecast counts %s)"
+                    % (s.packets,
+                       ", ".join("%d x%d" % (v, n) for v, n in
+                                 s.forecast_counts.most_common(4))))
+        else:
+            _answer(r, V, "Q1", "m_rainPercentage reaches %d%%; first "
+                    "non-zero at %.1fs; carried at m_timeOffset value(s) "
+                    "%s; %d sample-level change(s)"
+                    % (s.rain_max, s.rain_first_t or 0.0,
+                       sorted(s.rain_offsets), s.rain_trans.count))
+            for (t, st2, samp, old, new) in s.rain_trans.items[:10]:
+                r.w("Q1    %.1fs sample %d: %d%% -> %d%%"
+                    % (t, samp, old, new))
+        r.w()
+
+        vals_txt = ", ".join("%s x%d" % (_dname(v, FIELDS.WEATHER), n)
+                             for v, n in s.weather.most_common())
+        _answer(r, V, "Q2", "m_weather values: %s; %d transition(s)"
+                % (vals_txt, s.weather_trans.count))
+        for (t, st2, old, new) in s.weather_trans.items[:10]:
+            r.w("Q2    %.1fs (st %.1fs): %s -> %s"
+                % (t, st2, _dname(old, FIELDS.WEATHER),
+                   _dname(new, FIELDS.WEATHER)))
+        r.w()
+
+        r.w("Q3  DOES THE FORECAST PREDICT THE TRANSITION, AND BY HOW "
+            "LONG?")
+        ft = x.forecast_test if x is not None else None
+        if ft is None:
+            r.w("Q3  forecast content observed: sample counts %s, "
+                "horizon %d min, max rain %d%%"
+                % (", ".join("%d x%d" % (v, n) for v, n in
+                             s.forecast_counts.most_common(4)),
+                   s.forecast_horizon, s.rain_max))
+            _unanswered(r, V, "Q3", "no weather transition to a rain "
+                        "code occurred in this capture, so the "
+                        "prediction test has nothing to settle against")
+        else:
+            lines = ["actual transition to %s at %.1fs"
+                     % (_dname(ft["to"], FIELDS.WEATHER), ft["t_actual"])]
+            if ft["lead_rain_pct"] is not None:
+                lines.append("first non-zero rainPercentage led it by "
+                             "%.0fs" % ft["lead_rain_pct"])
+            else:
+                lines.append("rainPercentage never led it (first "
+                             "non-zero came at or after the transition, "
+                             "or never)")
+            if ft["lead_forecast"] is not None:
+                lines.append("first rain weather code in a forecast "
+                             "sample led it by %.0fs; that sample's "
+                             "predicted time missed the actual by %+.0fs"
+                             % (ft["lead_forecast"],
+                                ft["predicted_delta"]))
+            else:
+                lines.append("no forecast sample showed a rain code "
+                             "before the transition")
+            _answer(r, V, "Q3", "; ".join(lines))
+        r.w()
+
+        acc_txt = ", ".join("%s x%d"
+                            % (_dname(v, {0: "perfect", 1: "approximate"}),
+                               n)
+                            for v, n in s.forecast_accuracy.most_common())
+        if ft is None:
+            _answer(r, V, "Q4", "m_forecastAccuracy: %s; no transition "
+                    "occurred, so whether the forecast was right is "
+                    "untested here" % acc_txt)
+        else:
+            right = (ft["lead_forecast"] is not None)
+            _answer(r, V, "Q4", "m_forecastAccuracy: %s; the forecast %s "
+                    "the observed transition (see Q3 for the timing "
+                    "error)" % (acc_txt,
+                                "predicted" if right else "did NOT "
+                                "predict"))
+        r.w()
+
+        tt, at = s.temps["track"], s.temps["air"]
+        ups = Counter()
+        downs = Counter()
+        for (t, which, old, new) in s.temp_trans.items:
+            (ups if new > old else downs)[which] += 1
+        agree_bits = []
+        for which, counter, rec in (("track", s.tempchange_track, tt),
+                                    ("air", s.tempchange_air, at)):
+            dom = counter.most_common(1)[0][0] if counter else None
+            dom_txt = {0: "up", 1: "down", 2: "no change"}.get(dom,
+                                                               str(dom))
+            if ups[which] and downs[which]:
+                actual = "mixed (up and down)"
+            elif ups[which]:
+                actual = "up"
+            elif downs[which]:
+                actual = "down"
+            else:
+                actual = "no change"
+            if actual.startswith("mixed"):
+                verdict = ("cannot be settled by a single direction "
+                           "field; not counted as a disagreement")
+            elif dom_txt == actual:
+                verdict = "agree"
+            else:
+                verdict = ("*** DISAGREE (a change field contradicting "
+                           "the measurement is a finding)")
+            agree_bits.append("%s: forecast change field says %r, "
+                              "measured movement %r -- %s"
+                              % (which, dom_txt, actual, verdict))
+        _answer(r, V, "Q5", "m_trackTemperature %s..%s C (%d changes), "
+                "m_airTemperature %s..%s C (%d changes); %s"
+                % (tt[0], tt[1], tt[2], at[0], at[1], at[2],
+                   "; ".join(agree_bits)))
+        for (t, which, old, new) in s.temp_trans.items[:8]:
+            r.w("Q5    %.1fs %s temp %s -> %s C" % (t, which, old, new))
+        r.w()
+
+    tl = d.telemetry
+    if tl.packets == 0:
+        _unanswered(r, V, "Q6", "no Car Telemetry packets decoded")
+    else:
+        surf_txt = ", ".join("%s x%d"
+                             % (_dname(v, FIELDS.SURFACE_TYPES), n)
+                             for v, n in tl.surface_values.most_common(10))
+        wet = tl.surface_values.get(8, 0)
+        base = ("m_surfaceType values: %s; wet value 8 (water) %s"
+                % (surf_txt, "seen x%d" % wet if wet else "never seen"))
+        if tl.undoc_values:
+            undoc = ", ".join("%d x%d" % (v, n) for v, n in
+                              tl.undoc_values.most_common())
+            _answer(r, V, "Q6", base + "; UNDOCUMENTED value(s) outside "
+                    "0-11: %s on car(s) [%s]" % (undoc,
+                                                 _cars_text(
+                                                     tl.undoc_cars)))
+            for (t, c, sv, ld) in tl.undoc_log.items[:10]:
+                r.w("Q6    %.1fs car %d surface %d at lap-dist %.0f m"
+                    % (t, c, sv, ld))
+        else:
+            _answer(r, V, "Q6", base + "; every value inside the "
+                    "documented 0-11 table")
+    r.w()
+
+    wet_changes = [ct for ct in d.status.compound_trans.items
+                   if ct[5] in (7, 8)]
+    if not d.plans[7].decoded:
+        _unanswered(r, V, "Q7", "no Car Status packets decoded")
+    elif not wet_changes:
+        _unanswered(r, V, "Q7", "no compound change to inter (7) or wet "
+                    "(8) occurred in this capture; whether a wet change "
+                    "looks like a dry stop is untestable here")
+    else:
+        pits = d.lap.pit_episodes
+        matched = 0
+        for ct in wet_changes:
+            t, c = ct[0], ct[2]
+            if any(ep["car"] == c and ep["t0"] - 30.0 <= t
+                   <= ep.get("t_end", ep["t0"]) + 30.0 for ep in pits):
+                matched += 1
+        _answer(r, V, "Q7", "%d wet/inter compound change(s); %d of them "
+                "sit inside a Group-N pit episode -- %s"
+                % (len(wet_changes), matched,
+                   "a wet change carries the same signature as a dry "
+                   "stop" if matched == len(wet_changes) else
+                   "SOME wet changes have no matching pit episode; "
+                   "investigate before trusting the pit derivation in "
+                   "rain"))
+        for ct in wet_changes[:6]:
+            r.w("Q7    %.1fs car %d: %s/%s -> %s/%s"
+                % (ct[0], ct[2], ct[3], ct[4], ct[5], ct[6]))
+    r.w()
+
+    ev = d.events
+    drsd = [e for e in ev.events if e[2] == "DRSD"]
+    if not drsd:
+        _answer(r, V, "Q8", "DRSD never fired in this capture (reason 0 "
+                "'track too wet' fired once on the dry 24 Aug capture, "
+                "unexplained -- absence here adds no explanation)")
+    else:
+        _answer(r, V, "Q8", "%d DRSD event(s), each with reason, weather "
+                "at that moment, and the off-tarmac fraction in the "
+                "preceding 10s:" % len(drsd))
+        ctx = {round(t, 3): (w, off, tot)
+               for (t, w, off, tot) in d.drsd_context}
+        for (t, st2, code, fields) in drsd[:10]:
+            w, off, tot = ctx.get(round(t, 3), (None, None, None))
+            r.w("Q8    %.1fs reason %s; m_weather then: %s; preceding "
+                "10s: %s"
+                % (t, _dname(fields.get("reason"),
+                             FIELDS.DRS_DISABLED_REASONS),
+                   _dname(w, FIELDS.WEATHER) if w is not None else "-",
+                   "%d of %d car-samples off tarmac" % (off, tot)
+                   if off is not None else "no telemetry window"))
+            if fields.get("reason") == 0 and w == 0:
+                r.w("Q8      NOTE: reason 0 (track too wet) while "
+                    "m_weather reads clear -- the unexplained signature "
+                    "from 24 Aug reproduced")
+    r.w()
+
+
+# --- GROUP R: the formation lap (v5) ---------------------------------------
+
+def build_group_r(r, a, d, x, V):
+    _group_header(r, "R", "THE FORMATION LAP (a state visible in three "
+                          "places at once; no packet is dedicated to it)")
+    s = d.session
+    ev = d.events
+    lt = d.lap
+
+    if s.packets == 0:
+        for q in range(1, 6):
+            _unanswered(r, V, "R%d" % q, "no Session packets decoded, so "
+                        "m_formationLap is unknown and the formation "
+                        "state cannot be gated")
+        r.w()
+        return
+    setting = s.formation_setting()
+    if setting == 0:
+        r.w("R   m_formationLap = 0: the formation lap was DISABLED for "
+            "this session. All five questions are")
+        r.w("R   unanswerable by design of the session, not by any gap "
+            "in the capture.")
+        for q in range(1, 6):
+            _unanswered(r, V, "R%d" % q, "m_formationLap = 0 -- the "
+                        "session ran no formation lap")
+        r.w()
+        return
+    r.w("R   m_formationLap = %s: the setting permits a formation lap; "
+        "reading the three state channels." % setting)
+    r.w()
+
+    n3 = s.sc_status.get(3, 0)
+    if not n3:
+        _answer(r, V, "R1", "m_safetyCarStatus NEVER takes value 3 "
+                "(formation lap safety car) -- still unobserved (values "
+                "seen: %s)"
+                % ", ".join("%s x%d"
+                            % (_dname(v, FIELDS.SAFETY_CAR_STATUS), n)
+                            for v, n in s.sc_status.most_common()))
+    else:
+        into = [tr for tr in s.sc_trans.items if tr[3] == 3]
+        outof = [tr for tr in s.sc_trans.items if tr[2] == 3]
+        t_in = into[0][0] if into else None
+        t_out = outof[0][0] if outof else None
+        _answer(r, V, "R1", "m_safetyCarStatus == 3 OBSERVED on %d "
+                "packet(s); entered %s, left %s%s"
+                % (n3,
+                   "%.1fs (from %s)" % (t_in, into[0][2]) if into
+                   else "before the capture",
+                   "%.1fs (to %s)" % (t_out, outof[0][3]) if outof
+                   else "after the capture",
+                   "; duration %.1fs" % (t_out - t_in)
+                   if t_in is not None and t_out is not None else ""))
+    r.w()
+
+    r.w("R2  DOES STLG FIRE ONCE OR TWICE? (load-bearing for the state "
+        "layer's start detector)")
+    stlg = [(t, f.get("numLights")) for (t, st2, code, f) in ev.events
+            if code == "STLG"]
+    lgots = [t for (t, st2, code, f) in ev.events if code == "LGOT"]
+    if not stlg and not lgots:
+        _unanswered(r, V, "R2", "no STLG or LGOT events in this capture")
+    else:
+        groups = []
+        for (t, n) in stlg:
+            if groups and t - groups[-1][-1][0] <= 10.0:
+                groups[-1].append((t, n))
+            else:
+                groups.append([(t, n)])
+        first_lap_t = (lt.lap_log.items[0][0] if lt.lap_log.items
+                       else None)
+        seq = [(t, code) for (t, st2, code, f) in ev.events
+               if first_lap_t is None or t <= first_lap_t + 1.0]
+        _answer(r, V, "R2", "STLG fired in %d sequence(s) (%d events); "
+                "LGOT fired %d time(s) -- %s"
+                % (len(groups), len(stlg), len(lgots),
+                   "ONE start sequence only" if len(groups) <= 1 else
+                   "MORE THAN ONE STLG SEQUENCE: the state layer's "
+                   "single-start detector is WRONG for sessions like "
+                   "this"))
+        for g in groups[:4]:
+            r.w("R2    sequence: %s"
+                % ", ".join("%.1fs (lights %s)" % (t, n) for t, n in g))
+        r.w("R2    ordered events to the first racing lap%s: %s"
+            % (" (%.1fs)" % first_lap_t if first_lap_t else "",
+               " ".join("%s@%.0fs" % (code, t)
+                        for t, code in seq[:20]) or "none"))
+        if len(groups) == 1 and lgots:
+            gap = lgots[0] - groups[0][-1][0]
+            r.w("R2    the single STLG sequence ends %.1fs before LGOT "
+                "(%.1fs) -- it sits on the standing-start side of the "
+                "formation lap" % (gap, lgots[0]))
+    r.w()
+
+    if d.grid_snapshot is None:
+        _unanswered(r, V, "R3", "no lights-out instant captured (no "
+                    "LGOT), so the lap counter across the formation "
+                    "interval cannot be read")
+    else:
+        snap = d.grid_snapshot
+        laps_at_lgot = Counter(snap[4][c] for c in d.real)
+        td_vals = [snap[5][c] for c in d.real]
+        pre_lgot_crossings = sum(1 for item in lt.lap_log.items
+                                 if item[0] < snap[0])
+        _answer(r, V, "R3", "at lights-out m_currentLapNum reads %s "
+                "across real cars; %d lap increment(s) occurred before "
+                "lights-out; m_totalDistance at lights-out spans %.0f.."
+                "%.0f m -- %s"
+                % (", ".join("%s x%d" % (v, n)
+                             for v, n in laps_at_lgot.most_common()),
+                   pre_lgot_crossings,
+                   min(td_vals), max(td_vals),
+                   "the formation lap DID advance the counters"
+                   if pre_lgot_crossings or max(td_vals) > 1000.0 else
+                   "the counters HELD through the pre-start phase"))
+    r.w()
+
+    lgot_t = ev.lgot_time
+    if lgot_t is None:
+        _unanswered(r, V, "R4", "no LGOT event, so the pre-start "
+                    "interval has no defined end to report against")
+    else:
+        drv_seq = [(t, c, old, new) for (t, st2, c, old, new)
+                   in lt.drv_trans.items if t <= lgot_t]
+        pit_seq = [(t, c, old, new) for (t, st2, c, old, new)
+                   in lt.pit_trans.items if t <= lgot_t]
+        _answer(r, V, "R4", "from session start to LGOT (%.1fs): %d "
+                "m_driverStatus transition(s), %d m_pitStatus "
+                "transition(s)" % (lgot_t, len(drv_seq), len(pit_seq)))
+        for (t, c, old, new) in drv_seq[:12]:
+            r.w("R4    %.1fs car %d driverStatus %s -> %s"
+                % (t, c, _dname(old, FIELDS.DRIVER_STATUS),
+                   _dname(new, FIELDS.DRIVER_STATUS)))
+        for (t, c, old, new) in pit_seq[:8]:
+            r.w("R4    %.1fs car %d pitStatus %s -> %s"
+                % (t, c, _dname(old, FIELDS.PIT_STATUS),
+                   _dname(new, FIELDS.PIT_STATUS)))
+    r.w()
+
+    form_pena = [(t, f) for (t, st2, code, f) in ev.events
+                 if code == "PENA"
+                 and f.get("infringementType") in (39, 40)]
+    if form_pena:
+        _answer(r, V, "R5", "%d formation-lap infringement(s):"
+                % len(form_pena))
+        for (t, f) in form_pena[:8]:
+            r.w("R5    %.1fs car %s: %s"
+                % (t, f.get("vehicleIdx"),
+                   _dname(f.get("infringementType"),
+                          FIELDS.INFRINGEMENT_TYPES)))
+    else:
+        _answer(r, V, "R5", "no PENA event carried infringement type 39 "
+                "(formation lap below allowed speed) or 40 (formation "
+                "lap parking) -- absence is the finding")
+    r.w()
+
+
 # --- the dispatcher --------------------------------------------------------
 
 V4_BUILDERS = OrderedDict((
@@ -5854,7 +6610,8 @@ V4_BUILDERS = OrderedDict((
     ("E", build_group_e), ("F", build_group_f), ("H", build_group_h),
     ("I", build_group_i), ("J", build_group_j), ("K", build_group_k),
     ("L", build_group_l), ("M", build_group_m), ("N", build_group_n),
-    ("O", build_group_o), ("P", build_group_p),
+    ("O", build_group_o), ("P", build_group_p), ("Q", build_group_q),
+    ("R", build_group_r),
 ))
 
 
@@ -5870,7 +6627,7 @@ def build_v4_groups(r, a, decode, cross, verdicts):
 # SECTION 17 -- CLI (was SECTION 9 in v0.6a)
 # ===========================================================================
 
-VALID_GROUPS = tuple("ABCDEFGHIJKLMNOP")
+VALID_GROUPS = tuple("ABCDEFGHIJKLMNOPQR")
 
 
 def parse_groups(text):

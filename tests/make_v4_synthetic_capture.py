@@ -52,6 +52,14 @@ CARS = list(range(20))
 SPECTATED = 6
 RESTRICTED = {17, 18}
 
+# Scenario switches, set by build(): a rain variant exercises Group Q's
+# answered paths (forecast lead, wet surfaces, inter stop, DRSD reason 0);
+# formation=0 exercises Group R's gate.
+CONFIG = {"rain": False, "formation": 1}
+RAIN_FORECAST_T = 80.0      # forecast first shows rain here...
+RAIN_START_T = 200.0        # ...predicting rain at +2 min = here
+WET_STOP_CAR = 5
+
 _packers = {}
 
 
@@ -139,6 +147,16 @@ def positions_at(t):
 
 def pit_state(c, t):
     """(pitStatus, numPitStops, inlane_ms, stoptimer_ms, timer_active)"""
+    if CONFIG["rain"] and c == WET_STOP_CAR:
+        # The wet-tyre stop for Q7: rain starts, car 5 boxes for inters.
+        n = 1 if t >= 252.0 else 0
+        if 240.0 <= t < 250.0:
+            return (1, n, int((t - 240.0) * 1000), 0, 1)
+        if 250.0 <= t < 258.0:
+            return (2, n, int((t - 240.0) * 1000), 2500, 1)
+        if 258.0 <= t < 262.0:
+            return (1, n, int((t - 240.0) * 1000), 2500, 1)
+        return (0, n, 0, 0, 0)
     if c != 3:
         return (0, 0, 0, 0, 0)
     n = 1 if t >= 210.0 else 0
@@ -153,6 +171,8 @@ def pit_state(c, t):
 
 
 def compound(c, t):
+    if CONFIG["rain"] and c == WET_STOP_CAR and t >= 254.0:
+        return (7, 7)                              # inters in the rain
     if c == 3 and t >= 212.0:
         return (18, 18)                            # hard after the stop
     return (16, 16)                                # soft
@@ -160,6 +180,9 @@ def compound(c, t):
 
 def tyre_age(c, t):
     lap, _ = lap_and_dist(c, t)
+    if CONFIG["rain"] and c == WET_STOP_CAR and t >= 254.0:
+        stop_lap, _ = lap_and_dist(c, 254.0)
+        return max(0, lap - stop_lap)
     if c == 3 and t >= 212.0:
         stop_lap, _ = lap_and_dist(c, 212.0)
         return max(0, lap - stop_lap)
@@ -169,9 +192,18 @@ def tyre_age(c, t):
 def wear(c, t):
     if c in RESTRICTED:
         return 0.0
+    if CONFIG["rain"] and c == WET_STOP_CAR and t >= 254.0:
+        return 0.2 * (t - 254.0) / 10.0
     if c == 3 and t >= 212.0:
         return 0.2 * (t - 212.0) / 10.0
-    return min(60.0, 0.05 * max(0.0, t - LGOT_T))
+    base = min(60.0, 0.05 * max(0.0, t - LGOT_T))
+    if CONFIG["rain"] and c == 8:
+        # Whole-percent quantisation with 1-point jitter: the D-6 case.
+        w = float(int(base))
+        if int(t) % 37 == 0:
+            w = max(0.0, w - 1.0)
+        return w
+    return base
 
 
 def sc_active(t):
@@ -235,9 +267,16 @@ def motion_payload(t):
 
 def session_payload(t):
     v = defaults("Session")
+    rain = CONFIG["rain"]
+    if rain:
+        weather = 0 if t < RAIN_START_T else 3
+        track_temp = 30 if t < RAIN_START_T + 50.0 else 28
+    else:
+        weather = 0 if t < 150.0 else 1
+        track_temp = 29 + (1 if 100.0 < t < 300.0 else 0)
     m = {
-        "m_weather": 0 if t < 150.0 else 1,
-        "m_trackTemperature": 29 + (1 if 100.0 < t < 300.0 else 0),
+        "m_weather": weather,
+        "m_trackTemperature": track_temp,
         "m_airTemperature": 24,
         "m_totalLaps": 5,
         "m_trackLength": int(TRACK_LEN),
@@ -264,7 +303,7 @@ def session_payload(t):
         "m_carDamageRate": 1,
         "m_collisions": 1,
         "m_safetyCar": 1,
-        "m_formationLap": 1,
+        "m_formationLap": CONFIG["formation"],
         "m_redFlags": 2,
         "m_gameMode": 3,
         "m_ruleSet": 0,
@@ -278,9 +317,27 @@ def session_payload(t):
         m["m_marshalZones[%d].m_zoneFlag" % z] = flag
     for s in range(4):
         m["m_weatherForecastSamples[%d].m_sessionType" % s] = 15
-        m["m_weatherForecastSamples[%d].m_timeOffset" % s] = 15 * (s + 1)
-        m["m_weatherForecastSamples[%d].m_weather" % s] = 1
-        m["m_weatherForecastSamples[%d].m_rainPercentage" % s] = 10 * s
+        if rain and t >= RAIN_FORECAST_T:
+            # Sample 0 predicts rain 2 minutes out, i.e. at RAIN_START_T.
+            m["m_weatherForecastSamples[%d].m_timeOffset" % s] = \
+                2 + 15 * s
+            m["m_weatherForecastSamples[%d].m_weather" % s] = 3
+            m["m_weatherForecastSamples[%d].m_rainPercentage" % s] = \
+                min(90, 40 + 10 * s)
+            m["m_weatherForecastSamples[%d].m_trackTemperatureChange"
+              % s] = 1
+            m["m_weatherForecastSamples[%d].m_airTemperatureChange"
+              % s] = 2
+        else:
+            m["m_weatherForecastSamples[%d].m_timeOffset" % s] = \
+                15 * (s + 1)
+            m["m_weatherForecastSamples[%d].m_weather" % s] = 1
+            m["m_weatherForecastSamples[%d].m_rainPercentage" % s] = \
+                0 if rain else 10 * s
+            m["m_weatherForecastSamples[%d].m_trackTemperatureChange"
+              % s] = 2 if rain else 0
+            m["m_weatherForecastSamples[%d].m_airTemperatureChange"
+              % s] = 2 if rain else 0
     fill("Session", v, m)
     return packer("Session").pack(*v)
 
@@ -308,9 +365,13 @@ def lapdata_payload(t):
                 "m_sector2TimeMSPart": 2650 if sector >= 2 else 0,
                 "m_sector2TimeMinutesPart": 0 if sector < 2 else 0,
                 "m_deltaToCarInFrontMSPart": front_gap,
-                "m_deltaToRaceLeaderMSPart": (0 if pos[c] == 1
-                                              else (450 * pos[c]) % 60000),
-                "m_deltaToRaceLeaderMinutesPart": 0 if pos[c] < 12 else 1,
+                # In the rain variant, delta-to-leader populates for ONE
+                # car only -- the E1 NOT POPULATED tier (defect D-2).
+                "m_deltaToRaceLeaderMSPart": (
+                    (900 if c == 1 else 0) if CONFIG["rain"]
+                    else 0 if pos[c] == 1 else (450 * pos[c]) % 60000),
+                "m_deltaToRaceLeaderMinutesPart": (
+                    0 if CONFIG["rain"] else 0 if pos[c] < 12 else 1),
                 "m_lapDistance": ld,
                 "m_totalDistance": total,
                 "m_safetyCarDelta": 1.5 if sc_active(t) else 0.0,
@@ -326,7 +387,10 @@ def lapdata_payload(t):
                 "m_gridPosition": c + 1,
                 "m_driverStatus": driver_status(c, t),
                 "m_resultStatus": result_status(c, t),
-                "m_pitLaneTimerActive": tact,
+                # Rain variant, car 9: the D-5 anomaly -- timer flagged
+                # active for a car that never pits, measuring nothing.
+                "m_pitLaneTimerActive": (1 if CONFIG["rain"] and c == 9
+                                         else tact),
                 "m_pitLaneTimeInLaneInMS": inlane,
                 "m_pitStopTimerInMS": stopt,
                 "m_speedTrapFastestSpeed": (320.5 if c == 2 and t >= 105.0
@@ -368,6 +432,14 @@ def participants_payload(t):
             if c >= 14 and c != 12:
                 m["m_driverId"] = 50 + c
             fill("ParticipantData", v, m)
+        elif CONFIG["rain"] and c == 20:
+            # Cosmetic residue on an unoccupied slot: the D-4 case (no
+            # name, no status, no motion -- just default styling bytes).
+            fill("ParticipantData", v, {
+                "m_numColours": 1,
+                "m_liveryColours[0].red": 180,
+                "m_techLevel": 5,
+            })
         parts.append(packer("ParticipantData").pack(*v))
     return b"".join(parts)
 
@@ -400,6 +472,9 @@ def telemetry_payload(t):
                 surf = 7                            # grass
             if c == 12 and 320.0 <= t <= 324.0:
                 surf = 4                            # gravel
+            if CONFIG["rain"] and t >= RAIN_START_T + 15.0 \
+                    and c in (4, 6):
+                surf = 8                            # water on track
             m = {
                 "m_speed": int(car_speed(c) * 3.6) if racing else 0,
                 "m_throttle": 0.9 if racing else 0.0,
@@ -427,6 +502,8 @@ def telemetry_payload(t):
 def status_payload(t):
     parts = []
     drs_allowed = 1 if (120.0 <= t and not sc_active(t)) else 0
+    if CONFIG["rain"] and t >= RAIN_START_T + 5.0:
+        drs_allowed = 0                             # DRSD: track too wet
     for c in range(MAX_CARS):
         v = defaults("CarStatusData")
         if c in CARS:
@@ -650,7 +727,14 @@ EVENTS = [
 ]
 
 
-def build(path, seconds=408.0, hz=10.0):
+RAIN_EVENTS = [
+    (RAIN_START_T + 5.0, "DRSD", {"reason": 0}),
+]
+
+
+def build(path, seconds=408.0, hz=10.0, rain=False, formation=1):
+    CONFIG["rain"] = rain
+    CONFIG["formation"] = formation
     hdr = {
         "magic": "F1HOOVER-CAPTURE",
         "format_version": 1,
@@ -667,7 +751,7 @@ def build(path, seconds=408.0, hz=10.0):
     }
     step = 1.0 / hz
     n = int(seconds / step)
-    ev_q = sorted(EVENTS)
+    ev_q = sorted(EVENTS + (RAIN_EVENTS if rain else []))
     ev_i = 0
     with open(path, "wb") as fh:
         fh.write((json.dumps(hdr, sort_keys=True) + "\n").encode("utf-8"))
@@ -719,3 +803,6 @@ if __name__ == "__main__":
     if out != "." and not os.path.isdir(out):
         os.makedirs(out)
     build(os.path.join(out, "v4_synthetic_race.bin"))
+    build(os.path.join(out, "v5_synthetic_rain.bin"), rain=True)
+    build(os.path.join(out, "v5_synthetic_formation_off.bin"),
+          seconds=150.0, formation=0)
