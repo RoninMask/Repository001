@@ -46,7 +46,7 @@
     },
     "participation": {
       "human_vs_human": 2.2,
-      "human_vs_ai": 1.6,
+      "human_vs_ai": 2.2,
       "human_alone": 1.4,
       "ai_vs_ai": 0.5
     },

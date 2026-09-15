@@ -1,0 +1,115 @@
+{
+  "league": "league_2026",
+  "roster_version": "1",
+  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names.",
+  "drivers": [
+    {
+      "driver_id": "d_pure",
+      "match": {
+        "handle": "PuRe R3Z",
+        "network_id": null,
+        "race_number": 13
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Pure",
+        "full": "Pure Rez",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": "McLaren",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    },
+    {
+      "driver_id": "d_valor",
+      "match": {
+        "handle": "VaLoR",
+        "network_id": null,
+        "race_number": 21
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Valor",
+        "full": "Valor",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": "McLaren",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    },
+    {
+      "driver_id": "d_ronin",
+      "match": {
+        "handle": "Ronin0700VII",
+        "network_id": null,
+        "race_number": 77
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Ronin",
+        "full": "Ronin",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": "Mercedes",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    },
+    {
+      "driver_id": "d_faze",
+      "match": {
+        "handle": "Faze Noob3146",
+        "network_id": null,
+        "race_number": 2
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Faze",
+        "full": "Faze Noob",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": "Red Bull",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    },
+    {
+      "driver_id": "d_raider",
+      "match": {
+        "handle": "Raider968Raider",
+        "network_id": null,
+        "race_number": 2
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Raider",
+        "full": "Raider",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": "Ferrari",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    },
+    {
+      "driver_id": "d_the_car",
+      "match": {
+        "handle": null,
+        "network_id": null,
+        "race_number": null
+      },
+      "level": "C",
+      "spoken": {
+        "short": "the car",
+        "full": "the car",
+        "rung": 6,
+        "possessive_ok": false
+      },
+      "participation": "human",
+      "team": "the car",
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+    }
+  ]
+}
