@@ -1,0 +1,31 @@
+{
+  "race_id": "silverstone_s02",
+  "evidence_doc": "Hoover_T11_V2_Consolidated_Analysis_V1_16SEP26",
+  "anchors": [
+    {"id": "AN-S2-counts", "kind": "record_counts", "packets": 602012, "markers": 2},
+    {"id": "AN-S2-winner", "kind": "classified_winner", "car": 10, "name_contains": "Norris"},
+    {"id": "AN-S2-humans", "kind": "humans", "cars": [21]}
+  ],
+  "assertions": [
+    {"id": "E-S2-01", "check": "A21", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "VaLoR (car 21) on screen as Norris wins (D-63)."},
+    {"id": "E-S2-02", "check": "A28", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Norris 4.8 s of shot time all race (D-63)."},
+    {"id": "E-S2-03", "check": "A26", "scope": {"sub": "b"}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Human share 30.8%, below the 60-70% band."},
+    {"id": "E-S2-04a", "check": "A1", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
+     "evidence": "Single-channel scheduler; no overlaps."},
+    {"id": "E-S2-04b", "check": "A7", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
+     "evidence": "No raw gamertags in this race."},
+    {"id": "E-S2-05a", "check": "H2", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "2 marker records (D-22)."},
+    {"id": "E-S2-05b", "check": "H3", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Manifest histogram over by 43,359 (D-20)."},
+    {"id": "E-S2-06", "check": "A19", "scope": {"text_contains": "pit lane"}, "v2": "observe",
+     "evidence": "T-09: Gemini reports 'peels into the pit lane from.'"},
+    {"id": "E-S2-07", "check": null, "scope": {"metric": "filler_count"}, "v2": "observe",
+     "evidence": "T-09: count NS_* lines; see the detector report's line counts."},
+    {"id": "E-S2-08", "check": null, "scope": {"metric": "truth_note"}, "v2": "observe",
+     "evidence": "T-01: weather and temperatures over the race; see the truth report."}
+  ]
+}

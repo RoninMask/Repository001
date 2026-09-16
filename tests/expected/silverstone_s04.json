@@ -1,0 +1,41 @@
+{
+  "race_id": "silverstone_s04",
+  "evidence_doc": "Hoover_T11_V2_Consolidated_Analysis_V1_16SEP26",
+  "anchors": [
+    {"id": "AN-S4-counts", "kind": "record_counts", "packets": 625842, "markers": 3},
+    {"id": "AN-S4-bearman", "kind": "result_status", "car": 18, "status": 4},
+    {"id": "AN-S4-winner", "kind": "classified_winner", "car": 17, "name_contains": "Norris"}
+  ],
+  "assertions": [
+    {"id": "E-S4-01", "check": "A17", "scope": {"cars": [18]}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Bearman (car 18): penalty, two passes and a pit entry after retirement (D-59)."},
+    {"id": "E-S4-02", "check": "A19", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "'closing the door.' x6 (D-60)."},
+    {"id": "E-S4-03", "check": "A20", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Camera enabled on replay; 992 direct-select misses (D-64)."},
+    {"id": "E-S4-04", "check": "A31", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "19 rejoin lines in 39 s (D-61)."},
+    {"id": "E-S4-05", "check": "A16", "scope": {"sub": "after_finish"}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "6 filler lines after the flag (D-46)."},
+    {"id": "E-S4-06", "check": "A15", "scope": {"sub": "a"}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "'Under way' and 'lights out' aired about 2.5 minutes before the first lights-out event (D-38, D-39)."},
+    {"id": "E-S4-07a", "check": "A1", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
+     "evidence": "Single-channel scheduler; no overlaps."},
+    {"id": "E-S4-07b", "check": "A7", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
+     "evidence": "No raw gamertags in this race."},
+    {"id": "E-S4-11a", "check": "H2", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "3 marker records (D-22)."},
+    {"id": "E-S4-11b", "check": "H3", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
+     "evidence": "Manifest histogram over by 204,932 (D-20, D-22)."},
+    {"id": "E-S4-08", "check": "A6", "scope": {"occurrence": "winner"}, "v2": "observe",
+     "evidence": "'Norris takes the win' aired 79 s before the chequered line; check against leader finish."},
+    {"id": "E-S4-09a", "check": "A21", "scope": {}, "v2": "observe",
+     "evidence": "No successful shots; report N/A."},
+    {"id": "E-S4-09b", "check": "A26", "scope": {}, "v2": "observe",
+     "evidence": "No successful shots; report N/A."},
+    {"id": "E-S4-09c", "check": "A28", "scope": {}, "v2": "observe",
+     "evidence": "No successful shots; report N/A."},
+    {"id": "E-S4-10", "check": null, "scope": {"metric": "truth_note"}, "v2": "observe",
+     "evidence": "T-02: are the two lights-out events start and restart? See the truth report timeline."}
+  ]
+}

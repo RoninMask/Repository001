@@ -1,0 +1,36 @@
+{
+  "race_id": "fx_clean",
+  "evidence_doc": "synthetic fixture: a clean race; every detector must pass (brief section 10.1)",
+  "anchors": [
+    {"id": "AN-FC-counts", "kind": "record_counts", "packets": 364, "markers": 0},
+    {"id": "AN-FC-lgot", "kind": "event_near", "code": "LGOT", "t": 1789530010.0},
+    {"id": "AN-FC-winner", "kind": "classified_winner", "car": 0, "name_contains": "Verstappen"},
+    {"id": "AN-FC-humans", "kind": "humans", "cars": [3, 4]}
+  ],
+  "assertions": [
+    {"id": "E-FC-A1", "check": "A1", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A6", "check": "A6", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A7", "check": "A7", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A11", "check": "A11", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A14", "check": "A14", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A15", "check": "A15", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A16", "check": "A16", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A17", "check": "A17", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A18", "check": "A18", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A19", "check": "A19", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A20", "check": "A20", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A21", "check": "A21", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A22", "check": "A22", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A23", "check": "A23", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A25", "check": "A25", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A26", "check": "A26", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A27", "check": "A27", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A28", "check": "A28", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A29", "check": "A29", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A30", "check": "A30", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-A31", "check": "A31", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-H1", "check": "H1", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-H2", "check": "H2", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."},
+    {"id": "E-FC-H3", "check": "H3", "scope": {}, "v2": "pass", "gated": true, "evidence": "Clean fixture."}
+  ]
+}
