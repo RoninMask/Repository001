@@ -1,0 +1,42 @@
+{
+  "race_id": "fx_silverstone",
+  "evidence_doc": "synthetic fixture mirroring silverstone_bin1 (brief section 10.1)",
+  "anchors": [
+    {"id": "AN-FS-counts", "kind": "record_counts", "packets": 1319, "markers": 2},
+    {"id": "AN-FS-lgot", "kind": "event_near", "code": "LGOT", "t": 1789506448.594},
+    {"id": "AN-FS-rtmt19", "kind": "event_near", "code": "RTMT", "t": 1789506458.119,
+     "match": {"vehicle_idx": 19}},
+    {"id": "AN-FS-pena5", "kind": "event_near", "code": "PENA", "t": 1789506462.014,
+     "match": {"penalty_type": 5, "infringement_type": 4, "vehicle_idx": 14}}
+  ],
+  "assertions": [
+    {"id": "E-FS-01", "check": "A15", "scope": {"sub": "a"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: start call 3.2 s before the LGOT."},
+    {"id": "E-FS-02", "check": "A15", "scope": {"sub": "b"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: three start calls within 30 s of the LGOT."},
+    {"id": "E-FS-03", "check": "A17", "scope": {"cars": [19]}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: pit line for car 19 after its RTMT."},
+    {"id": "E-FS-04", "check": "A18", "scope": {"kind": "SPEED_TRAP"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: 'quickest' at 322.7 after 325.2 aired."},
+    {"id": "E-FS-05", "check": "A22", "scope": {"penalty_type": 5}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: PENA type 5 warning aired as 'penalty'."},
+    {"id": "E-FS-06", "check": "A24", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: the parity twin loses the chequered line."},
+    {"id": "E-FS-07", "check": "A29", "scope": {"cars": [18]}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: Ronin re-passed in the final 60 s; last line says the wrong order."},
+    {"id": "E-FS-08", "check": "A1", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: no overlapping lines."},
+    {"id": "E-FS-09", "check": "A7", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: no raw gamertags in texts."},
+    {"id": "E-FS-10", "check": "A6", "scope": {"occurrence": "winner"}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: winner named within the window."},
+    {"id": "E-FS-11", "check": "A19", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: no truncation."},
+    {"id": "E-FS-12", "check": "H1", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: byte accounting balanced."},
+    {"id": "E-FS-13", "check": "H2", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: 2 marker records."},
+    {"id": "E-FS-14", "check": "H3", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: manifest histogram over by 44."}
+  ]
+}

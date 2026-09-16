@@ -1,0 +1,3623 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+T11_F125_Baby_Hoover_V2_15SEP26
+================================================================================
+Project Hoover -- "Baby Hoover" V2, The Offline Decision Layer
+
+A single-process, standard-library-only broadcast rig for F1 25. Runs live
+against a UDP socket exactly as V1 did, and -- new in V2 -- replays a captured
+.bin deterministically to produce the same four artifacts with no game, no
+socket and no wall clock in the decision path.
+
+Supersedes T11 V1.1 (08 SEP 26). This is an EXTENSION of V1, not a rewrite:
+capture, the parser and world model, and the SendInput actuation (direct-select
+primary, F7/F8 walk fallback, wire readback against m_spectatorCarIndex,
+operator yield, unreachable-car parking) are carried over unchanged. The work
+is concentrated in the Booth, which becomes a scored candidate stream, a
+suppression/fusion stage, a slot grammar, and a serial scheduler with word
+budgets, a phase machine and a floor governor.
+
+It does four jobs from one stream (socket live, or a .bin on replay):
+
+  1. RECORD   Every datagram written verbatim using T8V1 framing ('<dH' +
+              payload). Live only; replay reads an existing bin.
+
+  2. PIT WALL One scored candidate stream shared by the Gallery and the Booth.
+              Participation (human vs AI) is a MULTIPLIER over the composed
+              base, read from the roster, applied identically on both sides.
+
+  3. GALLERY  Cuts the spectator camera to the highest-scoring subject.
+              Actuation is V1's, untouched. Only the hold logic changed:
+              phase-dependent floors, and shot length governed by the winning
+              candidate's value window rather than a flat dwell.
+
+  4. BOOTH    Enqueues candidates, suppresses inverse pairs, fuses collapse
+              sequences with an explicit cause, writes lines through a slot
+              grammar behind a clean writer seam, and schedules them onto a
+              single occupancy channel with word budgets and a 150 wpm floor.
+
+HARD CONSTRAINTS (all non-negotiable, from the build brief)
+  Python 3.8+, standard library only, single file. No API keys, no network
+  calls, no synthesis, no model calls -- V2 writes a script a human pastes into
+  ElevenLabs. No wall-clock dependency in decision logic: all air times are
+  offsets from lights out computed from packet arrival timestamps, so a run
+  against the same bin and config is byte-identical every time. Every tunable
+  lives in hoover_config_v2.json; no scoring number, threshold, budget or
+  window is a literal in the code.
+
+OPERATING CONSTRAINT (live only) -- READ THIS
+  SendInput delivers to the FOREGROUND window. The F1 25 window must hold focus
+  for the whole session. Do not alt-tab. On replay this does not apply.
+
+Author: Claude, for Dustin. 15 SEP 26.
+Container-compatible with T6v5_Capture_Analyser. Python 3.8+. No dependencies.
+Governing paper: Hoover -- Baby Hoover V2, The Offline Decision Layer, V1.1
+(15 SEP 26). Where this file and a paper disagree, the paper wins.
+================================================================================
+"""
+
+import argparse
+import binascii
+import collections
+import csv
+import hashlib
+import json
+import math
+import os
+import platform
+import queue
+import random
+import re
+import shutil
+import socket
+import struct
+import sys
+import threading
+import time
+import unicodedata
+from datetime import datetime, timezone
+
+TOOL_ID = "T11"
+TOOL_NAME = "T11_F125_Baby_Hoover"
+TOOL_VERSION = "V2"
+TOOL_DATE = "15SEP26"
+SCRIPT_VERSION = "2.0.0"
+BIN_FORMAT_VERSION = 1
+TARGET_PACKET_FORMAT = 2025
+DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
+
+IS_WINDOWS = sys.platform.startswith("win")
+
+
+# =============================================================================
+# SECTION 1 -- PACKET SPECIFICATION (F1 25, packet format 2025)
+# =============================================================================
+# Every offset and stride below is either taken from the EA F1 25 structures
+# document or was confirmed empirically by an earlier Hoover instrument.
+# Strides are validated against observed packet length at runtime before any
+# field is read, so a wrong-spec-year read cannot silently produce plausible
+# output (standing project principle).
+
+HEADER_FMT = "<HBBBBBQfIIBB"
+HEADER_SIZE = struct.calcsize(HEADER_FMT)          # 29
+
+PID_MOTION = 0
+PID_SESSION = 1
+PID_LAPDATA = 2
+PID_EVENT = 3
+PID_PARTICIPANTS = 4
+PID_CARTELEMETRY = 6
+PID_CARSTATUS = 7
+PID_FINALCLASS = 8
+PID_LOBBYINFO = 9
+PID_CARDAMAGE = 10
+
+MAX_CARS = 22
+
+# --- Session packet: absolute offsets into the datagram ----------------------
+SESSION_LEN = 753
+OFF_S_WEATHER = 29
+OFF_S_TRACKTEMP = 30
+OFF_S_AIRTEMP = 31
+OFF_S_TOTALLAPS = 32
+OFF_S_TRACKLENGTH = 33      # uint16
+OFF_S_SESSIONTYPE = 35
+OFF_S_TRACKID = 36          # int8
+OFF_S_TIMELEFT = 38         # uint16
+OFF_S_DURATION = 40         # uint16
+OFF_S_GAMEPAUSED = 43
+OFF_S_ISSPECTATING = 44
+OFF_S_SPECTATORCARIDX = 45  # T10-confirmed
+OFF_S_NUMMARSHAL = 47
+OFF_S_SAFETYCAR = 153       # 48 + 21*5
+OFF_S_NETWORKGAME = 154
+OFF_S_SEASONLINK = 670      # uint32
+OFF_S_WEEKENDLINK = 674     # uint32  <-- the session-continuity join key
+OFF_S_SESSIONLINK = 678     # uint32
+
+# --- Lap data ----------------------------------------------------------------
+LAPDATA_LEN = 1285
+LAP_STRIDE = 57             # T10-confirmed
+LAP_FMT = "<IIHBHBHBHBfff" + "B" * 15 + "HHBfB"
+assert struct.calcsize(LAP_FMT) == LAP_STRIDE
+
+# --- Participants ------------------------------------------------------------
+PARTICIPANTS_LEN = 1284
+PART_STRIDE = 57
+PART_FMT = "<7B32s2BH2B12s"
+assert struct.calcsize(PART_FMT) == PART_STRIDE
+
+# --- Event -------------------------------------------------------------------
+OFF_E_CODE = 29
+OFF_E_DETAIL = 33
+
+SESSION_TYPE_NAMES = {
+    0: "Unknown", 1: "Practice 1", 2: "Practice 2", 3: "Practice 3",
+    4: "Short Practice", 5: "Qualifying 1", 6: "Qualifying 2",
+    7: "Qualifying 3", 8: "Short Qualifying", 9: "One-Shot Qualifying",
+    10: "Sprint Shootout 1", 11: "Sprint Shootout 2", 12: "Sprint Shootout 3",
+    13: "Short Sprint Shootout", 14: "One-Shot Sprint Shootout",
+    15: "Race", 16: "Race 2", 17: "Race 3", 18: "Time Trial",
+}
+
+# Deliberately defensive. The session-type appendix was not available to hand,
+# so the rig also cross-checks against totalLaps and LGOT arrival and will log
+# a warning if the two disagree.
+PRACTICE_TYPES = {1, 2, 3, 4}
+QUALI_TYPES = {5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
+RACE_TYPES = {15, 16, 17}
+
+RESULT_ACTIVE = 2
+DRIVERSTATUS_GARAGE = 0
+DRIVERSTATUS_FLYING = 1
+DRIVERSTATUS_INLAP = 2
+DRIVERSTATUS_OUTLAP = 3
+DRIVERSTATUS_ONTRACK = 4
+
+
+def classify_session(stype, total_laps):
+    if stype in RACE_TYPES:
+        return "RACE"
+    if stype in QUALI_TYPES:
+        return "QUALI"
+    if stype in PRACTICE_TYPES:
+        return "PRACTICE"
+    if stype == 18:
+        return "TIMETRIAL"
+    # Fallback: a session with a lap count is a race in all but name.
+    return "RACE" if (total_laps or 0) > 0 else "UNKNOWN"
+
+
+# =============================================================================
+# SECTION 2 -- WIN32 SYNTHETIC INPUT (T10 F-1: scancode mode, SendInput)
+# =============================================================================
+
+SC = {
+    "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "5": 0x06,
+    "6": 0x07, "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B,
+    "LSHIFT": 0x2A, "F6": 0x40, "F7": 0x41, "F8": 0x42,
+}
+
+
+class NullInput:
+    """Stand-in used on non-Windows hosts and in --no-camera mode."""
+    available = False
+
+    def tap(self, key, hold=0.045):
+        return False
+
+    def chord(self, mod, key, gap=0.040, hold=0.045):
+        return False
+
+
+class Win32Input:
+    """
+    Minimal SendInput wrapper, scancode mode only.
+
+    T10 verified 28/28 presses of exactly these action classes with zero
+    SendInput rejections and no observable EAAC interference. Chording is
+    verified with a 40 ms gap between modifier-down and key-down (F-2); that
+    gap is preserved here as a constant, not tuned.
+    """
+    available = True
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        self.ctypes = ctypes
+        ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                        ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                        ("dwExtraInfo", ULONG_PTR)]
+
+        class _INPUTunion(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT), ("pad", ctypes.c_ubyte * 32)]
+
+        class INPUT(ctypes.Structure):
+            _fields_ = [("type", wintypes.DWORD), ("u", _INPUTunion)]
+
+        self.KEYBDINPUT = KEYBDINPUT
+        self.INPUT = INPUT
+        self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.INPUT_KEYBOARD = 1
+        self.KEYEVENTF_SCANCODE = 0x0008
+        self.KEYEVENTF_KEYUP = 0x0002
+        self.rejections = 0
+
+    def _send(self, scan, up):
+        flags = self.KEYEVENTF_SCANCODE | (self.KEYEVENTF_KEYUP if up else 0)
+        ki = self.KEYBDINPUT(wVk=0, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=0)
+        inp = self.INPUT(type=self.INPUT_KEYBOARD)
+        inp.u.ki = ki
+        n = self.user32.SendInput(1, self.ctypes.byref(inp), self.ctypes.sizeof(inp))
+        if n != 1:
+            self.rejections += 1
+            return False
+        return True
+
+    def tap(self, key, hold=0.045):
+        sc = SC[key]
+        ok = self._send(sc, False)
+        time.sleep(hold)
+        ok = self._send(sc, True) and ok
+        return ok
+
+    def chord(self, mod, key, gap=0.040, hold=0.045):
+        ms, ks = SC[mod], SC[key]
+        ok = self._send(ms, False)
+        time.sleep(gap)
+        ok = self._send(ks, False) and ok
+        time.sleep(hold)
+        ok = self._send(ks, True) and ok
+        time.sleep(0.015)
+        ok = self._send(ms, True) and ok
+        return ok
+
+
+def make_input(enabled):
+    if not enabled:
+        return NullInput()
+    if not IS_WINDOWS:
+        return NullInput()
+    try:
+        return Win32Input()
+    except Exception as e:
+        sys.stderr.write("[input] Win32 init failed (%s) -- camera disabled\n" % e)
+        return NullInput()
+
+
+# =============================================================================
+# SECTION 3 -- CAPTURE WRITER (T8V1-compatible container)
+# =============================================================================
+
+RECORD_FMT = "<dH"
+RECORD_HEADER_SIZE = struct.calcsize(RECORD_FMT)     # 10
+
+
+class CaptureWriter:
+    """
+    Writes the immutable record. No interpretation, no subsampling.
+
+    Container: one JSON header line, newline terminated, then a stream of
+    records, each a 10-byte '<dH' header (float64 arrival time, uint16 payload
+    length) followed by the payload verbatim. Marker records carry length 0.
+
+    Arrival timestamps are absolute Unix epoch seconds. Session time is not a
+    clock (standing project finding); everything downstream derives elapsed
+    time from these.
+    """
+
+    def __init__(self, path, header_extra=None):
+        self.path = path
+        self.lock = threading.Lock()
+        self.fh = open(path, "wb", buffering=1024 * 1024)
+        self.packets = 0
+        self.markers = 0
+        self.payload_bytes = 0
+        self.first_t = None
+        self.last_t = None
+        self.closed = False
+        header = {
+            "writer": "%s_%s" % (TOOL_NAME, TOOL_VERSION),
+            "writer_compat": "T8V1_Recorder v1.0.0",
+            "script_version": SCRIPT_VERSION,
+            "format_version": BIN_FORMAT_VERSION,
+            "record_framing": "<dH",
+            "record_header_size": RECORD_HEADER_SIZE,
+            "timestamp_epoch": "unix_utc_seconds",
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "host": platform.node(),
+        }
+        if header_extra:
+            header.update(header_extra)
+        self.header = header
+        self.fh.write(json.dumps(header, sort_keys=True).encode("utf-8") + b"\n")
+        self.header_bytes = len(json.dumps(header, sort_keys=True).encode("utf-8")) + 1
+        self._last_flush = time.time()
+
+    def write(self, t, payload):
+        with self.lock:
+            if self.closed:
+                return
+            self.fh.write(struct.pack(RECORD_FMT, t, len(payload)))
+            self.fh.write(payload)
+            self.packets += 1
+            self.payload_bytes += len(payload)
+            if self.first_t is None:
+                self.first_t = t
+            self.last_t = t
+            if t - self._last_flush > 5.0:
+                self.fh.flush()
+                self._last_flush = t
+
+    def marker(self, t):
+        with self.lock:
+            if self.closed:
+                return
+            self.fh.write(struct.pack(RECORD_FMT, t, 0))
+            self.markers += 1
+
+    def close(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.fh.flush()
+            self.fh.close()
+            self.closed = True
+
+    def verify(self, path=None):
+        """
+        Reader-integrity pass over our own output (0.4.3 principle: a reader
+        that silently loses alignment produces confident wrong answers).
+        Returns a dict; balanced=True means byte accounting closes exactly.
+        """
+        expected = (self.header_bytes
+                    + (self.packets + self.markers) * RECORD_HEADER_SIZE
+                    + self.payload_bytes)
+        path = path or self.path
+        on_disk = os.path.getsize(path)
+        counted = 0
+        malformed = 0
+        fmt_mismatch = 0
+        sha = hashlib.sha256()
+        try:
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    sha.update(chunk)
+            with open(path, "rb") as f:
+                f.readline()
+                while True:
+                    hb = f.read(RECORD_HEADER_SIZE)
+                    if not hb:
+                        break
+                    if len(hb) < RECORD_HEADER_SIZE:
+                        malformed += 1
+                        break
+                    _t, ln = struct.unpack(RECORD_FMT, hb)
+                    pay = f.read(ln)
+                    if len(pay) != ln:
+                        malformed += 1
+                        break
+                    if ln >= 2:
+                        pf = struct.unpack_from("<H", pay, 0)[0]
+                        if pf != TARGET_PACKET_FORMAT:
+                            fmt_mismatch += 1
+                    counted += 1
+        except Exception as e:
+            return {"error": str(e)}
+        return {
+            "records_written": self.packets + self.markers,
+            "records_read_back": counted,
+            "malformed": malformed,
+            "format_mismatch": fmt_mismatch,
+            "bytes_expected": expected,
+            "bytes_on_disk": on_disk,
+            "balanced": (expected == on_disk and malformed == 0
+                         and counted == self.packets + self.markers),
+            "sha256": sha.hexdigest(),
+        }
+
+
+# =============================================================================
+# SECTION 4 -- STATE
+# =============================================================================
+
+class Car:
+    __slots__ = ("idx", "name", "name_latched", "ai", "team", "race_number",
+                 "platform_id", "telemetry_public", "position", "prev_position",
+                 "lap", "pit_status", "prev_pit_status", "num_pit_stops",
+                 "sector", "result_status", "driver_status", "grid",
+                 "delta_front", "delta_leader", "penalties", "lap_distance",
+                 "last_lap_ms", "seen", "gap_hist", "last_pos_change_t",
+                 "warnings",
+                 # --- V2 identity (resolved once, then frozen: Naming V1 N3/N4)
+                 "driver_id", "spoken_short", "spoken_full", "spoken_rung",
+                 "level", "possessive_ok", "name_resolved", "show_online_names")
+
+    def __init__(self, idx):
+        self.idx = idx
+        self.name = None
+        self.name_latched = False
+        self.ai = None
+        self.team = None
+        self.race_number = None
+        self.platform_id = None
+        self.telemetry_public = None
+        self.position = 0
+        self.prev_position = 0
+        self.lap = 0
+        self.pit_status = 0
+        self.prev_pit_status = 0
+        self.num_pit_stops = 0
+        self.sector = 0
+        self.result_status = 0
+        self.driver_status = 0
+        self.grid = 0
+        self.delta_front = 0.0
+        self.delta_leader = 0.0
+        self.penalties = 0
+        self.warnings = 0
+        self.lap_distance = 0.0
+        self.last_lap_ms = 0
+        self.seen = False
+        self.gap_hist = collections.deque(maxlen=12)   # (t, delta_front)
+        self.last_pos_change_t = 0.0
+        # --- V2 identity ---
+        self.driver_id = None
+        self.spoken_short = None
+        self.spoken_full = None
+        self.spoken_rung = None
+        self.level = None            # A / B / C, Naming V1 s03
+        self.possessive_ok = False
+        self.name_resolved = False
+        self.show_online_names = None
+
+    @property
+    def participation(self):
+        """'human' or 'ai'. Read for the participation multiplier."""
+        return "ai" if self.ai == 1 else "human"
+
+    @property
+    def spoken(self):
+        """The name a line uses. Falls back to the raw label until resolved,
+        but a raw handle reaching the script is detector A7 -- resolution runs
+        in pre-flight so this fallback should never air."""
+        return self.spoken_short or self.label
+
+    @property
+    def label(self):
+        if self.name:
+            return self.name
+        return "Car %d" % self.idx
+
+    @property
+    def is_human(self):
+        return self.ai == 0
+
+    @property
+    def on_track(self):
+        # T10 F-3: the selectable set is on-track cars, not classified cars.
+        return (self.driver_status != DRIVERSTATUS_GARAGE
+                and self.result_status in (RESULT_ACTIVE, 0)
+                and self.position > 0)
+
+    def gap_trend(self, window=4.0):
+        """Negative means closing on the car ahead. None if not enough data."""
+        if len(self.gap_hist) < 3:
+            return None
+        now_t, now_g = self.gap_hist[-1]
+        for t, g in self.gap_hist:
+            if now_t - t <= window:
+                if now_t - t < 1.0:
+                    return None
+                return now_g - g
+        return None
+
+
+class World:
+    def __init__(self):
+        self.cars = [Car(i) for i in range(MAX_CARS)]
+        self.session_type = 0
+        self.session_kind = "UNKNOWN"
+        self.total_laps = 0
+        self.track_id = -1
+        self.time_left = 0
+        self.safety_car = 0
+        self.is_spectating = 0
+        self.spectator_car_idx = None
+        self.weekend_link = None
+        self.session_link = None
+        self.season_link = None
+        self.network_game = 0
+        self.weather = 0
+        self.lights_out_t = None
+        self.chequered_t = None
+        self.leader_idx = None
+        self.last_lapdata_t = 0.0
+        self.last_session_t = 0.0
+        self.packet_counts = collections.Counter()
+        self.name_source_ok = 0
+
+    def real_cars(self):
+        return [c for c in self.cars if c.seen and c.position > 0]
+
+    def by_position(self):
+        return sorted([c for c in self.real_cars() if c.position > 0],
+                      key=lambda c: c.position)
+
+    def car_at_position(self, pos):
+        for c in self.cars:
+            if c.seen and c.position == pos:
+                return c
+        return None
+
+
+# =============================================================================
+# SECTION 5 -- PARSING
+# =============================================================================
+
+class Parser:
+    def __init__(self, world, log):
+        self.w = world
+        self.log = log
+        self.validated = set()
+        self.warned = set()
+
+    def _len_ok(self, pid, n, expected):
+        if pid in self.validated:
+            return True
+        if n == expected:
+            self.validated.add(pid)
+            return True
+        if pid not in self.warned:
+            self.warned.add(pid)
+            self.log("WARN packet id %d length %d != spec %d -- fields NOT read"
+                     % (pid, n, expected))
+        return False
+
+    def feed(self, t, data):
+        n = len(data)
+        if n < HEADER_SIZE:
+            return None
+        (pfmt, gyear, gmaj, gmin, pver, pid, suid, stime,
+         frame, oframe, pcar, scar) = struct.unpack_from(HEADER_FMT, data, 0)
+        if pfmt != TARGET_PACKET_FORMAT:
+            return None
+        self.w.packet_counts[pid] += 1
+
+        if pid == PID_SESSION:
+            self._session(t, data, n)
+        elif pid == PID_LAPDATA:
+            self._lapdata(t, data, n)
+        elif pid == PID_PARTICIPANTS:
+            self._participants(t, data, n)
+        elif pid == PID_EVENT:
+            return self._event(t, data, n)
+        elif pid == PID_FINALCLASS:
+            return ("FINALCLASS", {})
+        return None
+
+    def _session(self, t, d, n):
+        if not self._len_ok(PID_SESSION, n, SESSION_LEN):
+            return
+        w = self.w
+        w.last_session_t = t
+        w.weather = d[OFF_S_WEATHER]
+        w.total_laps = d[OFF_S_TOTALLAPS]
+        stype = d[OFF_S_SESSIONTYPE]
+        w.track_id = struct.unpack_from("<b", d, OFF_S_TRACKID)[0]
+        w.time_left = struct.unpack_from("<H", d, OFF_S_TIMELEFT)[0]
+        w.safety_car = d[OFF_S_SAFETYCAR]
+        w.network_game = d[OFF_S_NETWORKGAME]
+        w.is_spectating = d[OFF_S_ISSPECTATING]
+        spec = d[OFF_S_SPECTATORCARIDX]
+        # N-06 / Step 0.3: the field is undefined while the spectating flag is
+        # 0. Do not read a null out of it; gate on the flag.
+        w.spectator_car_idx = spec if w.is_spectating else None
+        w.season_link = struct.unpack_from("<I", d, OFF_S_SEASONLINK)[0]
+        w.weekend_link = struct.unpack_from("<I", d, OFF_S_WEEKENDLINK)[0]
+        w.session_link = struct.unpack_from("<I", d, OFF_S_SESSIONLINK)[0]
+        w.session_type = stype
+        w.session_kind = classify_session(stype, w.total_laps)
+
+    def _lapdata(self, t, d, n):
+        if not self._len_ok(PID_LAPDATA, n, LAPDATA_LEN):
+            return
+        w = self.w
+        w.last_lapdata_t = t
+        for i in range(MAX_CARS):
+            off = HEADER_SIZE + i * LAP_STRIDE
+            v = struct.unpack_from(LAP_FMT, d, off)
+            (last_lap, cur_lap, s1ms, s1m, s2ms, s2m,
+             dfms, dfm, dlms, dlm, lap_dist, tot_dist, sc_delta,
+             pos, lapnum, pit, npits, sector, invalid, pen, warn, ccw,
+             udt, usg, grid, dstat, rstat, pltimer,
+             pltime, pstime, servepen, sptrap, sptrap_lap) = v
+            c = w.cars[i]
+            if pos == 0 and rstat == 0 and lapnum == 0 and tot_dist == 0.0:
+                continue
+            c.seen = True
+            c.prev_position = c.position
+            c.position = pos
+            c.lap = lapnum
+            c.prev_pit_status = c.pit_status
+            c.pit_status = pit
+            c.num_pit_stops = npits
+            c.sector = sector
+            c.result_status = rstat
+            c.driver_status = dstat
+            c.grid = grid
+            c.penalties = pen
+            c.warnings = warn
+            c.lap_distance = lap_dist
+            c.last_lap_ms = last_lap
+            c.delta_front = dfm * 60.0 + dfms / 1000.0
+            c.delta_leader = dlm * 60.0 + dlms / 1000.0
+            c.gap_hist.append((t, c.delta_front))
+            if c.position == 1:
+                w.leader_idx = i
+
+    def _participants(self, t, d, n):
+        if not self._len_ok(PID_PARTICIPANTS, n, PARTICIPANTS_LEN):
+            return
+        w = self.w
+        base = HEADER_SIZE + 1
+        for i in range(MAX_CARS):
+            off = base + i * PART_STRIDE
+            if off + PART_STRIDE > n:
+                break
+            v = struct.unpack_from(PART_FMT, d, off)
+            (ai, drv, netid, team, myteam, racenum, nat,
+             raw_name, ytel, showname, tech, plat, ncol, _livery) = v
+            name = raw_name.split(b"\x00", 1)[0].decode("utf-8", "replace").strip()
+            c = w.cars[i]
+            # M4: latch identity on first real sighting and cache permanently.
+            # The name field is not reliably re-readable. Presence-check the
+            # string directly; m_showOnlineNames does not predict availability.
+            if name and not c.name_latched:
+                c.name = name
+                c.name_latched = True
+                w.name_source_ok += 1
+            if c.ai is None or ai in (0, 1):
+                c.ai = ai
+            c.team = team
+            c.race_number = racenum
+            c.platform_id = plat
+            c.telemetry_public = ytel
+            c.show_online_names = showname   # V2: the name gate (Naming V1 s04)
+
+    def _event(self, t, d, n):
+        if n < OFF_E_DETAIL:
+            return None
+        code = d[OFF_E_CODE:OFF_E_CODE + 4].decode("ascii", "replace")
+        det = d[OFF_E_DETAIL:]
+        info = {"code": code}
+        try:
+            if code in ("FTLP",):
+                info["car"] = det[0]
+                info["lap_time"] = struct.unpack_from("<f", det, 1)[0]
+            elif code == "RTMT":
+                info["car"] = det[0]
+                info["reason"] = det[1] if len(det) > 1 else None
+            elif code == "RCWN":
+                info["car"] = det[0]
+            elif code == "PENA":
+                info["penalty_type"] = det[0]
+                info["infringement"] = det[1]
+                info["car"] = det[2]
+                info["other_car"] = det[3]
+                info["time"] = det[4]
+                info["lap"] = det[5]
+                info["places_gained"] = det[6]
+            elif code == "SPTP":
+                info["car"] = det[0]
+                info["speed"] = struct.unpack_from("<f", det, 1)[0]
+                info["overall_fastest"] = det[5]
+                info["driver_fastest"] = det[6]
+            elif code == "COLL":
+                info["car"] = det[0]
+                info["other_car"] = det[1]
+            elif code == "OVTK":
+                info["car"] = det[0]
+                info["other_car"] = det[1]
+            elif code == "SCAR":
+                info["sc_type"] = det[0]
+                info["event_type"] = det[1]
+            elif code == "STLG":
+                info["lights"] = det[0]
+            elif code == "DTSV":
+                info["car"] = det[0]
+            elif code == "SGSV":
+                info["car"] = det[0]
+                info["stop_time"] = struct.unpack_from("<f", det, 1)[0]
+        except Exception:
+            pass
+        return ("EVENT", info)
+
+
+# =============================================================================
+# SECTION 5b -- CONFIG (Item 1)
+# =============================================================================
+# Every tunable lives in hoover_config_v2.json. No scoring number, threshold,
+# budget or window is a literal below this line. The file is hashed at load and
+# the hash is stamped into every artifact, so an artifact set is self-describing
+# and detector A12 can prove they came from one run.
+
+class Config:
+    def __init__(self, path):
+        self.path = os.path.abspath(path)
+        with open(self.path, "rb") as f:
+            raw = f.read()
+        self.hash = hashlib.sha256(raw).hexdigest()
+        self.data = json.loads(raw.decode("utf-8"))
+
+    def get(self, *keys, default=None):
+        node = self.data
+        for k in keys:
+            if not isinstance(node, dict) or k not in node:
+                return default
+            node = node[k]
+        return node
+
+
+# =============================================================================
+# SECTION 5c -- NAMING LADDER (Item 2)
+# =============================================================================
+# Drop-in supplied and verified against a 32-handle corpus (Driver Naming and
+# Identity V1, Appendix B). Inlined verbatim; the algorithm is NOT re-derived.
+# Six rungs: confirmed name -> speakable tokens front-first -> partial -> letters
+# with runs collapsed -> numbers-only handle -> car number and team.
+
+_LADDER_VOWELS = set("aeiou")
+_LADDER_LEET = {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"}
+_LADDER_ONES = ("zero one two three four five six seven eight nine ten eleven "
+                "twelve thirteen fourteen fifteen sixteen seventeen eighteen "
+                "nineteen").split()
+_LADDER_TENS = [None, None, "twenty", "thirty", "forty", "fifty",
+                "sixty", "seventy", "eighty", "ninety"]
+
+
+def say_number(n):
+    if n < 20:
+        return _LADDER_ONES[n]
+    t, o = divmod(n, 10)
+    return _LADDER_TENS[t] + ("-" + _LADDER_ONES[o] if o else "")
+
+
+def _ladder_is_decoration(tok):
+    """A token that is one letter repeated - xX, iii, qqqq - is not a name."""
+    return len(set(tok.lower())) == 1 and len(tok) > 1
+
+
+def _ladder_speakable(tok):
+    """Vowel present; trailing consonant run <=2; internal consonant run <=3."""
+    if len(tok) < 2 or not tok.isalpha() or _ladder_is_decoration(tok):
+        return False
+    t = tok.lower()
+    vp = [i for i, c in enumerate(t) if c in _LADDER_VOWELS]
+    vy = [i for i, c in enumerate(t) if c in _LADDER_VOWELS | {"y"}]
+    if not vy:
+        return False
+    if len(t) - 1 - vy[-1] > 2:          # y counts as a vowel for the tail
+        return False
+    ref = vp or vy
+    return all(b - a - 1 <= 3 for a, b in zip(ref, ref[1:]))
+
+
+def _ladder_camel_split(tok):
+    frags = re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+", tok)
+    out = []
+    for f in frags:
+        if out and (len(f) < 3 or len(out[-1]) < 3):
+            out[-1] += f
+        else:
+            out.append(f)
+    return out or [tok]
+
+
+def _ladder_tokenise(handle):
+    """Return (surviving speakable tokens, all raw tokens, any_dropped)."""
+    raw, terminated = [], False
+    for part in re.split(r"[^A-Za-z0-9]+", handle):
+        if not part or terminated:
+            break
+        m = re.search(r"\d{2,}", part)          # a digit run of 2+ ends the handle
+        if m:
+            part, terminated = part[:m.start()], True
+        part = re.sub(r"\d$", "", part)         # single trailing digit drops
+        part = re.sub(r"\d", lambda x: _LADDER_LEET.get(x.group(), ""), part)
+        if not part:
+            continue
+        raw += _ladder_camel_split(part) if not _ladder_is_decoration(part) else [part]
+    kept = [t for t in raw if _ladder_speakable(t)]
+    return kept, raw, len(kept) != len(raw)
+
+
+def resolve_name(handle, confirmed=None, race_number=None, team=None):
+    """Return (rung, spoken_name). Total: any input resolves. Never guesses;
+    drops unspeakable material rather than inventing letters (Naming V1 N2)."""
+    if confirmed:
+        return 1, confirmed
+    if not handle or handle.strip() in ("", "Player"):
+        return 6, (f"car {say_number(race_number)}" if race_number else team or "the car")
+    kept, raw, dropped = _ladder_tokenise(handle)
+    if kept:
+        return (3 if dropped else 2), " ".join(t.capitalize() for t in kept)
+    if raw:
+        front = raw[0][:3].upper()
+        out, i = [], 0
+        while i < len(front):
+            j = i
+            while j < len(front) and front[j] == front[i]:
+                j += 1
+            n = min(j - i, 3)
+            out.append({1: front[i], 2: "Double " + front[i],
+                        3: "Triple " + front[i]}[n])
+            i = j
+        return 4, " ".join(out)
+    digits = re.sub(r"\D", "", handle)
+    if digits:
+        return 5, say_number(int(digits[:2])).capitalize()
+    return 6, (f"car {say_number(race_number)}" if race_number else team or "the car")
+
+
+# =============================================================================
+# SECTION 5d -- ROSTER, IDENTITY, LEXICON, PRE-FLIGHT (Item 2)
+# =============================================================================
+# The roster is the shared identity layer for the Booth, the Gallery and the
+# Pit Wall -- not a pronunciation lookup bolted to the voice. A9 is only
+# meaningful because participation is read from one place: this record.
+
+# AI surnames the synthesiser mangles (Naming V1 s14). One authored IPA block.
+AI_IPA = {
+    "Hulkenberg": "/ˈhʊlkənbɛrk/",
+    "Hülkenberg": "/ˈhʊlkənbɛrk/",
+    "Durksen": "/ˈdʏrksən/",
+    "Dürksen": "/ˈdʏrksən/",
+    "Villagomez": "/ˌviʟaˈɣomes/",
+    "Villagómez": "/ˌviʟaˈɣomes/",
+    "Antonelli": "/ˌantoˈnɛlli/",
+    "Bortoleto": "/ˌbortoˈleto/",
+}
+
+TEAM_NAMES = {
+    0: "Mercedes", 1: "Ferrari", 2: "Red Bull", 3: "Williams",
+    4: "Aston Martin", 5: "Alpine", 6: "Racing Bulls", 7: "Haas",
+    8: "McLaren", 9: "Sauber", 41: "the AI",
+}
+
+
+class Roster:
+    """Loaded from hoover_roster_<league>.json when supplied, else empty and
+    every car resolves from telemetry alone. Keyed on an assigned driver_id
+    with handle, network_id and race_number as match fields."""
+
+    def __init__(self, path=None):
+        self.path = os.path.abspath(path) if path else None
+        self.by_handle = {}
+        self.by_number = {}
+        self.entries = []
+        self.hash = None
+        self.league = None
+        if path and os.path.exists(path):
+            with open(path, "rb") as f:
+                raw = f.read()
+            self.hash = hashlib.sha256(raw).hexdigest()
+            doc = json.loads(raw.decode("utf-8"))
+            self.league = doc.get("league")
+            self.entries = doc.get("drivers", [])
+            for e in self.entries:
+                m = e.get("match", {})
+                if m.get("handle"):
+                    self.by_handle[m["handle"]] = e
+                if m.get("race_number") is not None:
+                    self.by_number[m["race_number"]] = e
+
+    def match(self, car):
+        """Match order (Naming V1 s05): exact handle, then race number.
+        network_id is a byte in this build and is not trusted as a key."""
+        if car.name and car.name in self.by_handle:
+            return self.by_handle[car.name]
+        if car.race_number in self.by_number:
+            return self.by_number[car.race_number]
+        return None
+
+
+def team_name(team_id):
+    return TEAM_NAMES.get(team_id, "the car")
+
+
+def resolve_car_identity(car, roster):
+    """Resolve and FREEZE a car's spoken identity. Idempotent: once resolved,
+    a later Player read is absence of information, never a change (Naming N3/N4).
+    Returns True on first resolution."""
+    if car.name_resolved:
+        return False
+    entry = roster.match(car) if roster else None
+    confirmed = None
+    if entry:
+        confirmed = (entry.get("spoken", {}).get("full")
+                     or entry.get("spoken", {}).get("short"))
+    rung, spoken = resolve_name(car.name, confirmed=confirmed,
+                                race_number=car.race_number,
+                                team=team_name(car.team))
+    car.spoken_rung = rung
+    if rung in (2, 3) and not confirmed:
+        car.spoken_short = spoken.split(" ")[0]
+    else:
+        car.spoken_short = spoken
+    car.spoken_full = spoken
+    if entry:
+        car.driver_id = entry.get("driver_id")
+        car.level = entry.get("level", "A" if confirmed else "B")
+        sp = entry.get("spoken", {})
+        if sp.get("short"):
+            car.spoken_short = sp["short"]
+        if sp.get("full"):
+            car.spoken_full = sp["full"]
+        if "possessive_ok" in sp:
+            car.possessive_ok = bool(sp["possessive_ok"])
+    else:
+        # No roster: level from what telemetry gives. A resolved name is B;
+        # a car stuck at Player (rung 6) is C -- no personal line (N5).
+        car.level = "C" if rung == 6 else ("A" if car.ai == 1 else "B")
+    car.driver_id = car.driver_id or ("car_%02d" % car.idx)
+    if not entry or "possessive_ok" not in entry.get("spoken", {}):
+        car.possessive_ok = rung in (1, 2, 3, 5)
+    car.name_resolved = True
+    return True
+
+
+def _spell_letter(l):
+    return {"X": "eks", "W": "double-u", "H": "aitch", "R": "ar", "Y": "wy",
+            "A": "ay", "B": "bee", "C": "see", "D": "dee", "E": "ee",
+            "F": "eff", "G": "gee", "I": "eye", "J": "jay", "K": "kay",
+            "L": "el", "M": "em", "N": "en", "O": "oh", "P": "pee",
+            "Q": "cue", "S": "ess", "T": "tee", "U": "you", "V": "vee",
+            "Z": "zee"}.get(l.upper(), l.lower())
+
+
+def build_lexicon(cars):
+    """Generate the ElevenLabs pronunciation dictionary from resolved cars.
+    Rung-4 letter codes forced to individual letters (IMN -> 'eye em en'),
+    rung-5 numbers as words (77 -> 'seventy-seven'), plus the authored IPA
+    block. Sorted longest-match-first; case-sensitive, first match (Naming s14)."""
+    entries = {}
+    for c in cars:
+        if not c.name_resolved:
+            continue
+        if c.spoken_rung == 4 and c.name:
+            letters = [x for x in (c.spoken_short or "") if x.isalpha()]
+            alias = " ".join(_spell_letter(l) for l in letters)
+            if alias:
+                entries[c.name] = {"type": "alias", "alias": alias}
+        elif c.spoken_rung == 5 and c.name:
+            digits = re.sub(r"\D", "", c.name)[:2]
+            if digits:
+                entries[c.name] = {"type": "alias", "alias": say_number(int(digits))}
+        elif c.spoken_rung in (2, 3) and c.name and c.name != c.spoken_short:
+            entries[c.name] = {"type": "alias", "alias": c.spoken_short}
+        for form, ipa in AI_IPA.items():
+            if c.spoken_full and form.lower() == c.spoken_full.lower():
+                entries[c.spoken_full] = {"type": "phoneme", "phoneme": ipa}
+    ordered = sorted(entries.items(), key=lambda kv: -len(kv[0]))
+    return [{"string_to_replace": k, **v} for k, v in ordered]
+
+
+def preflight_report(cars, roster):
+    """Emitted during the lobby phase / opening blackout: every car, resolved
+    name, rung, level distribution, unmatched cars, collisions, truncated
+    handles (Naming V1 s13)."""
+    rep = {"cars": [], "level_distribution": {}, "unmatched": [],
+           "collisions": [], "truncated_handles": [], "flag_for_override": []}
+    seen_names = collections.defaultdict(list)
+    for c in cars:
+        if not c.seen:
+            continue
+        rep["cars"].append({
+            "car_index": c.idx, "handle": c.name, "spoken": c.spoken_full,
+            "short": c.spoken_short, "rung": c.spoken_rung, "level": c.level,
+            "participation": c.participation, "driver_id": c.driver_id,
+        })
+        rep["level_distribution"][c.level] = rep["level_distribution"].get(c.level, 0) + 1
+        if (roster and roster.entries and roster.match(c) is None
+                and c.participation == "human"):
+            rep["unmatched"].append({"car_index": c.idx, "handle": c.name})
+        if c.spoken_rung and c.spoken_rung >= 3:
+            rep["flag_for_override"].append({"car_index": c.idx, "handle": c.name,
+                                             "rung": c.spoken_rung})
+        if c.name and "…" in c.name:
+            rep["truncated_handles"].append({"car_index": c.idx, "handle": c.name})
+        if c.spoken_full:
+            seen_names[c.spoken_full].append(c.idx)
+    for name, idxs in seen_names.items():
+        if len(idxs) > 1:
+            rep["collisions"].append({"spoken": name, "car_indices": idxs})
+    return rep
+
+
+# =============================================================================
+# SECTION 6 -- PIT WALL (Items 3, 6)
+# =============================================================================
+# One scored candidate stream, shared by the Gallery and the Booth. Every
+# weight comes from config. Participation is a MULTIPLIER over the composed
+# base, applied by participation_mult() -- the single source both consumers
+# read, which is what makes detector A9 meaningful.
+
+class Candidate:
+    """A line-worthy moment. Carries its subject, base terms broken out, the
+    participation multiplier, its value window and utterance class, and a cause
+    field that is stated or explicitly unavailable -- never empty (V2 s06)."""
+    __slots__ = ("kind", "cars", "terms", "part_mult", "window", "uclass",
+                 "cause", "cause_available", "raised_t", "detail", "extra",
+                 "hard", "line_id", "suppressed_by", "fused_from", "coverage_floor")
+
+    def __init__(self, kind, cars, terms, part_mult, window, uclass,
+                 raised_t, cause=None, cause_available=True, detail="",
+                 extra=None, hard=False, coverage_floor=False):
+        self.kind = kind
+        self.cars = cars
+        self.terms = terms
+        self.part_mult = part_mult
+        self.window = window
+        self.uclass = uclass
+        self.cause = cause
+        self.cause_available = cause_available
+        self.raised_t = raised_t
+        self.detail = detail
+        self.extra = extra or {}
+        self.hard = hard
+        self.line_id = None
+        self.suppressed_by = None
+        self.fused_from = None
+        self.coverage_floor = coverage_floor
+
+    def base_total(self):
+        return sum(self.terms.values())
+
+    def live_score(self, t, windows):
+        """Composed base x participation, decayed linearly over the value
+        window. Returns (score, expired)."""
+        span = windows.get(self.window, 30.0)
+        age = t - self.raised_t
+        frac = 1.0 if span <= 0 else 1.0 - (age / span)
+        expired = frac <= 0.0
+        return self.base_total() * self.part_mult * max(0.0, frac), expired
+
+
+class PitWall:
+    def __init__(self, world, config, roster):
+        self.w = world
+        self.cfg = config
+        self.roster = roster
+        self.boosts = collections.defaultdict(list)   # car idx -> [(t, kind)]
+        pw = config.get("pit_wall", default={})
+        self.event_weights = pw.get("event_weights", {})
+        self.gap_bands = pw.get("gap_bands", [])
+        self.participation_cfg = pw.get("participation", {})
+        self.windows = pw.get("value_windows_s", {})
+        self.pw = pw
+
+    # ---- participation: the single source both consumers read (A9) ----------
+    def participation_mult(self, cars):
+        """cars is one Car or a pair. Human vs human 2.2, human vs AI 1.6,
+        human alone 1.4, AI vs AI 0.5 -- from config, never a literal."""
+        p = self.participation_cfg
+        if not isinstance(cars, (list, tuple)):
+            cars = [cars]
+        cars = [c for c in cars if c is not None]
+        if not cars:
+            return p.get("ai_vs_ai", 0.5)
+        humans = sum(1 for c in cars if c.participation == "human")
+        if len(cars) == 1:
+            return p.get("human_alone", 1.4) if humans else p.get("ai_vs_ai", 0.5)
+        if humans >= 2:
+            return p.get("human_vs_human", 2.2)
+        if humans == 1:
+            return p.get("human_vs_ai", 1.6)
+        return p.get("ai_vs_ai", 0.5)
+
+    def event_window(self, kind):
+        return self.event_weights.get(kind, {}).get("window", "short")
+
+    def boost(self, t, car_idx, kind):
+        if car_idx is None or not (0 <= car_idx < MAX_CARS):
+            return
+        if kind not in self.event_weights:
+            return
+        self.boosts[car_idx].append((t, kind))
+
+    def _boost_value(self, t, idx):
+        total = 0.0
+        hard = False
+        keep = []
+        hia = self.pw.get("hard_interrupt_age_s", 3.0)
+        for (bt, kind) in self.boosts.get(idx, ()):
+            ew = self.event_weights[kind]
+            val, decay, is_hard = ew["base"], ew["decay_s"], ew["hard"]
+            age = t - bt
+            if age > decay:
+                continue
+            keep.append((bt, kind))
+            total += val * (1.0 - (age / decay))
+            if is_hard and age < hia:
+                hard = True
+        if keep:
+            self.boosts[idx] = keep
+        elif idx in self.boosts:
+            del self.boosts[idx]
+        return total, hard
+
+    def score_field(self, t, current_subject):
+        """Ranked cars for the Gallery. Score broken out term by term, the
+        participation multiplier applied, hard-interrupt flag. Participation is
+        a multiplier over the composed base, not V1's additive W_HUMAN."""
+        w = self.w
+        kind = w.session_kind
+        pw = self.pw
+        out = []
+        field = w.by_position()
+        pos_map = {c.position: c for c in field}
+
+        for c in field:
+            if not c.on_track:
+                continue
+            terms = {}
+
+            if kind == "RACE":
+                if c.position == 1:
+                    terms["leader"] = pw.get("w_leader", 25.0)
+                elif c.position <= 3:
+                    terms["podium"] = pw.get("w_podium", 10.0)
+
+                ahead = pos_map.get(c.position - 1)
+                if ahead is not None and c.position > 1:
+                    g = c.delta_front
+                    if 0.0 < g < pw.get("gap_band_max_s", 900.0):
+                        for lim, val in self.gap_bands:
+                            if g < lim:
+                                terms["gap"] = val
+                                break
+                        trend = c.gap_trend()
+                        if (trend is not None
+                                and trend < pw.get("closing_trend_threshold", -0.08)
+                                and g < pw.get("closing_gap_max_s", 4.0)):
+                            terms["closing"] = pw.get("w_closing", 15.0)
+
+                behind = pos_map.get(c.position + 1)
+                gap_behind = behind.delta_front if behind is not None else 999.0
+                lonely_gap = pw.get("lonely_gap_s", 5.0)
+                if c.delta_front > lonely_gap and gap_behind > lonely_gap:
+                    terms["isolated"] = pw.get("w_lonely", -20.0)
+
+                if c.pit_status in (1, 2):
+                    terms["in_pits"] = pw.get("w_pit_lane", 25.0)
+
+            else:  # practice / qualifying
+                if c.driver_status == DRIVERSTATUS_FLYING:
+                    terms["flying_lap"] = pw.get("w_flying_lap", 45.0)
+                elif c.driver_status in (DRIVERSTATUS_OUTLAP, DRIVERSTATUS_INLAP):
+                    terms["out_in_lap"] = pw.get("w_out_in_lap", -15.0)
+                if c.position <= 3:
+                    terms["top_three"] = pw.get("w_podium", 10.0)
+
+            bval, hard = self._boost_value(t, c.idx)
+            if bval > 0:
+                terms["event"] = bval
+
+            # The car ahead's participation joins the multiplier when the two
+            # are genuinely fighting, so a human-vs-human midfield scrap
+            # multiplies where an AI-vs-AI one is suppressed (V2 s05/s08).
+            fight_cars = [c]
+            if kind == "RACE":
+                ahead = pos_map.get(c.position - 1)
+                if (ahead is not None and 0.0 < c.delta_front
+                        < pw.get("human_battle_gap_max_s", 3.0)):
+                    fight_cars.append(ahead)
+            part_mult = self.participation_mult(fight_cars)
+
+            base = sum(terms.values())
+            score = base * part_mult
+            if current_subject is not None and c.idx == current_subject:
+                score += pw.get("w_sticky", 18.0)
+
+            out.append({
+                "score": score, "car": c, "terms": dict(terms),
+                "base": base, "part_mult": part_mult, "hard": hard,
+                "fight_cars": [fc.idx for fc in fight_cars],
+            })
+
+        out.sort(key=lambda r: r["score"], reverse=True)
+        return out
+
+
+# =============================================================================
+# SECTION 7 -- SUPPRESSION AND FUSION (Items 4, 5)
+# =============================================================================
+# Cut demand before scheduling it. Inverse-pair suppression removes a pass
+# re-reported from the other car's perspective; collapse fusion turns a run of
+# symptom beats about one car into one line naming the cause. Every removal is
+# logged (V2 s07).
+
+class SuppressionFusion:
+    def __init__(self, config):
+        b = config.get("booth", default={})
+        self.pair_window = config.get("booth", "suppression",
+                                      "inverse_pair_window_s", default=8.0)
+        fu = b.get("fusion", {})
+        self.symptom_window = fu.get("symptom_window_s", 40.0)
+        self.min_symptom = fu.get("min_symptom_beats", 3)
+        self.cause_lookback = fu.get("cause_lookback_s", 30.0)
+        self._recent_pass = {}      # (pair, position) -> (t, candidate)
+        self._symptoms = collections.defaultdict(list)   # car_idx -> [cand]
+        self.suppression_log = []
+
+    def suppress_inverse_pair(self, cand):
+        """When a pass is reported and then re-reported from the other car's
+        perspective within the window, one survives. Returns True to keep."""
+        if cand.kind != "OVERTAKE" or len(cand.cars) < 2:
+            return True
+        a, b = cand.cars[0].idx, cand.cars[1].idx
+        pair = (min(a, b), max(a, b))
+        pos = cand.cars[0].position
+        key = (pair, pos)
+        prior = self._recent_pass.get(key)
+        now = cand.raised_t
+        if prior and (now - prior[0]) <= self.pair_window:
+            cand.suppressed_by = "inverse_pair"
+            self.suppression_log.append({
+                "t": round(now, 3), "rule": "inverse_pair",
+                "removed": self._describe(cand),
+                "removed_pair": list(pair), "removed_position": pos,
+                "collapsed_into": self._describe(prior[1]),
+            })
+            return False
+        self._recent_pass[key] = (now, cand)
+        return True
+
+    def observe_symptom(self, cand):
+        """Track symptom beats (position losses, incidents) per car so a run of
+        them can fuse. Returns a fused Candidate when a run completes, else
+        None. The remaining symptoms are logged as collapsed."""
+        if cand.kind not in ("OVERTAKE", "COLLISION", "PENALTY", "OFF_TRACK"):
+            return None
+        subj = cand.cars[0].idx if cand.cars else None
+        if subj is None:
+            return None
+        # a car LOSING places / taking hits is the collapse subject
+        self._symptoms[subj].append(cand)
+        run = [c for c in self._symptoms[subj]
+               if cand.raised_t - c.raised_t <= self.symptom_window]
+        self._symptoms[subj] = run
+        return None
+
+    def fuse_collapse(self, subj_car, t, cause, cause_available, part_mult,
+                      uclass, window):
+        """Fourteen symptom beats about one car become one line naming the
+        cause. A fused event carries a cause or an explicit unavailable marker;
+        never an empty field (V2 s07, mandatory)."""
+        run = self._symptoms.get(subj_car.idx, [])
+        if len(run) < self.min_symptom:
+            return None
+        terms = {"collapse": sum(c.base_total() for c in run) / len(run)}
+        fused = Candidate(
+            "COLLAPSE", [subj_car], terms, part_mult, window, uclass, t,
+            cause=cause if cause_available else None,
+            cause_available=cause_available,
+            detail="%d symptom beats fused" % len(run))
+        fused.fused_from = [self._describe(c) for c in run]
+        for c in run:
+            self.suppression_log.append({
+                "t": round(t, 3), "rule": "collapse_fusion",
+                "removed": self._describe(c),
+                "collapsed_into": "COLLAPSE:%s" % (subj_car.spoken),
+                "cause": cause if cause_available else "unavailable",
+            })
+        self._symptoms[subj_car.idx] = []
+        return fused
+
+    @staticmethod
+    def _describe(cand):
+        names = "/".join(c.spoken for c in cand.cars) if cand.cars else "-"
+        return "%s:%s" % (cand.kind, names)
+
+
+# =============================================================================
+# SECTION 8 -- SLOT GRAMMAR, BURN LEDGER, ESTABLISHED FACTS, WRITER SEAM
+#             (Items 9, 10)
+# =============================================================================
+# Templates are sentence SHAPES with typed, independently drawn slots. The burn
+# ledger keys on slot VALUES, not whole phrasings: two lines sharing a template
+# but no slot values are not a repeat. Punctuation is clean -- no habitual
+# ellipses, which downstream would read as a delivery instruction (V2 s09).
+#
+# THE WRITER SEAM (forward compatibility -- Toddler Hoover):
+#     write_line(candidate, uclass, register, word_budget, facts) -> str
+# The slot grammar is one implementation; a prompt assembler is another. Nothing
+# either side knows which is in use.
+
+LEAD = "LEAD"        # Northern English, continuous play-by-play
+ANALYST = "ANALYST"  # Southern English, colour on triggers
+
+# Utterance classes map to word budgets in config: stinger/call/beat/analysis.
+KIND_CLASS = {
+    "LIGHTS_OUT": ("call", LEAD),
+    "SESSION_START": ("call", LEAD),
+    "SESSION_END": ("call", LEAD),
+    "OVERTAKE": ("call", LEAD),
+    "LEADER_CHANGE": ("beat", LEAD),
+    "BATTLE": ("beat", ANALYST),
+    "COLLISION": ("call", LEAD),
+    "COLLAPSE": ("analysis", ANALYST),
+    "RETIREMENT": ("beat", ANALYST),
+    "PENALTY": ("beat", ANALYST),
+    "FASTEST_LAP": ("call", LEAD),
+    "PIT_IN": ("call", ANALYST),
+    "PIT_OUT": ("call", ANALYST),
+    "SPEED_TRAP": ("call", ANALYST),
+    "SAFETY_CAR": ("beat", LEAD),
+    "SAFETY_CAR_END": ("call", LEAD),
+    "CHEQUERED": ("call", LEAD),
+    "RACE_WINNER": ("beat", LEAD),
+    "NS_SETUP": ("beat", ANALYST),
+    "NS_PRE_TENSION": ("call", ANALYST),
+    "NS_COOLDOWN": ("call", LEAD),
+    "NS_STRATEGIC": ("analysis", ANALYST),
+    "NS_LULL": ("call", LEAD),
+    "NS_STAT": ("beat", ANALYST),
+    "NS_SCENIC": ("call", LEAD),
+}
+
+# Typed slot banks, drawn independently. Kept deliberately open so breadth comes
+# from the slots, not the template count.
+SLOT_BANKS = {
+    "verb_pass": ["goes through on", "takes", "grabs the place from",
+                  "makes it stick on", "gets by", "forces past"],
+    "verb_battle": ["is all over", "is hunting down", "closes on",
+                    "has the measure of", "is climbing onto the back of"],
+    "loc": ["into the corner", "down the straight", "under braking",
+            "through the quick stuff", "on the run to the line",
+            "round the outside"],
+    "intensifier": ["superb", "brave", "clean", "committed", "decisive",
+                    "ruthless"],
+    "consequence": ["and that is the place", "and it holds", "and he is through",
+                    "and the gap is gone", "and he makes it count"],
+    "connective": ["again", "still", "back to", "once more", "as before"],
+    "collapse_cause": ["the damage from that contact", "a slow puncture",
+                       "the penalty", "worn tyres", "a moment of oversteer",
+                       "the earlier knock"],
+}
+
+
+class BurnLedger:
+    """Keys on slot values, not whole phrasings. 10-minute window as a backstop
+    rather than the variety mechanism (V2 s09)."""
+    def __init__(self, window_s):
+        self.window_s = window_s
+        self.seen = {}     # (slot_type, value) -> last t
+
+    def burned(self, slot_type, value, t):
+        last = self.seen.get((slot_type, value))
+        return last is not None and (t - last) < self.window_s
+
+    def mark(self, slot_type, value, t):
+        self.seen[(slot_type, value)] = t
+
+    def pick(self, rng, slot_type, t):
+        """Draw a slot value avoiding burned ones; fall back to least-recent."""
+        bank = SLOT_BANKS.get(slot_type, [])
+        if not bank:
+            return ""
+        fresh = [v for v in bank if not self.burned(slot_type, v, t)]
+        pool = fresh or bank
+        value = pool[rng.randrange(len(pool))]
+        self.mark(slot_type, value, t)
+        return value
+
+
+class EstablishedFacts:
+    """Record per subject what the broadcast has already said, with the line id
+    that established it. A connective marker ('again', 'still', 'back to') must
+    be TRUE -- inserting one where nothing happened before is worse than
+    omitting it (Item 10, V2 s10)."""
+    def __init__(self, max_age_s):
+        self.max_age_s = max_age_s
+        self.facts = collections.defaultdict(list)   # (subj, kind) -> [(t,id)]
+
+    def establish(self, subject_id, kind, t, line_id):
+        self.facts[(subject_id, kind)].append((t, line_id))
+
+    def is_established(self, subject_id, kind, t):
+        for (ft, fid) in self.facts.get((subject_id, kind), []):
+            if t - ft <= self.max_age_s:
+                return fid
+        return None
+
+    def connective_ok(self, subject_id, kind, t):
+        return self.is_established(subject_id, kind, t) is not None
+
+
+class SlotGrammar:
+    """The default writer behind the seam. Deterministic given a seeded RNG."""
+    def __init__(self, config, rng, burn, facts):
+        self.cfg = config
+        self.rng = rng
+        self.burn = burn
+        self.facts = facts
+        self.ceiling = config.get("booth", "hard_ceiling_words", default=33)
+        self.used = []               # slot values drawn for the current line (A4)
+
+    def _pick(self, slot_type, t):
+        """Draw a slot value and record it, so the scheduler can stamp the line
+        with the slot ids it used (detector A4 reads these)."""
+        v = self.burn.pick(self.rng, slot_type, t)
+        if v:
+            self.used.append([slot_type, v])
+        return v
+
+    def _name(self, car, full=False):
+        if car is None:
+            return "the car"
+        if full and car.spoken_full:
+            return car.spoken_full
+        return car.spoken
+
+    def write_line(self, cand, uclass, register, word_budget, facts, t):
+        """The seam: candidate in, line out. Returns clean text, no ellipses,
+        within word_budget and never above the hard ceiling."""
+        self.used = []
+        cars = cand.cars
+        a = cars[0] if cars else None
+        b = cars[1] if len(cars) > 1 else None
+        subj_id = a.driver_id if a else None
+        kind = cand.kind
+        text = self._compose(cand, kind, a, b, uclass, t)
+        # connective only when the fact is genuinely established and true
+        if (subj_id and self.facts.connective_ok(subj_id, kind, t)
+                and uclass in ("beat", "analysis")):
+            conn = self._pick("connective", t)
+            if conn:
+                text = "%s, %s" % (conn.capitalize(), text[0].lower() + text[1:])
+        # enforce budget by word-boundary truncation (dead line handled upstream)
+        words = text.split()
+        lo, hi = word_budget
+        cap = min(hi, self.ceiling)
+        if len(words) > cap:
+            text = " ".join(words[:cap]).rstrip(",;:") + "."
+        text = re.sub(r"\.{2,}", ".", text).replace(" ,", ",")
+        return text
+
+    def _compose(self, cand, kind, a, b, uclass, t):
+        na = self._name(a, full=(uclass in ("beat", "analysis")))
+        nb = self._name(b)
+        pos = a.position if a else 0
+        ex = cand.extra or {}
+        if kind == "OVERTAKE":
+            verb = self._pick("verb_pass", t)
+            if uclass == "stinger":
+                return "%s, P%d." % (na, pos)
+            if self.rng.random() < 0.5:
+                return "%s %s %s." % (na, verb, nb)
+            return "%s %s %s for P%d." % (na, verb, nb, pos)
+        if kind == "LEADER_CHANGE":
+            return "New leader: %s takes the front." % na
+        if kind == "BATTLE":
+            verb = self._pick("verb_battle", t)
+            gap = ex.get("gap", "")
+            if gap:
+                return "%s %s %s, %s apart." % (na, verb, nb, gap)
+            return "%s %s %s." % (na, verb, nb)
+        if kind == "COLLISION":
+            return "Contact between %s and %s." % (na, nb)
+        if kind == "COLLAPSE":
+            if cand.cause_available and cand.cause:
+                return "%s is unravelling, and the cause is %s." % (na, cand.cause)
+            return "%s is going backwards, though the cause is not clear from here." % na
+        if kind == "RETIREMENT":
+            return "That is the end of the race for %s." % na
+        if kind == "PENALTY":
+            return "A penalty for %s, and it will stand." % na
+        if kind == "FASTEST_LAP":
+            return "Fastest lap of the race, %s." % na
+        if kind == "PIT_IN":
+            return "%s peels into the pit lane from P%d." % (na, pos)
+        if kind == "PIT_OUT":
+            return "%s rejoins into traffic." % na
+        if kind == "SPEED_TRAP":
+            sp = ex.get("speed", "")
+            return "%s quickest through the trap%s." % (na, (" at " + sp) if sp else "")
+        if kind == "SAFETY_CAR":
+            return "Safety car -- the field is neutralised."
+        if kind == "SAFETY_CAR_END":
+            return "Safety car in, get ready for the restart."
+        if kind == "LIGHTS_OUT":
+            return "Lights out and away we go."
+        if kind == "CHEQUERED":
+            return "The chequered flag is out."
+        if kind == "RACE_WINNER":
+            return "%s takes the win." % na
+        if kind == "SESSION_START":
+            return "Right then, we are under way."
+        if kind == "SESSION_END":
+            return "And that brings the session to a close."
+        # negative-space states
+        if kind == "NS_SETUP":
+            return "Watch this develop, %s is in range and closing the door slowly." % na
+        if kind == "NS_PRE_TENSION":
+            return "Something is building around %s." % na
+        if kind == "NS_COOLDOWN":
+            return "Things settle for a moment."
+        if kind == "NS_STRATEGIC":
+            return "The pit window is the question now, and the timing of it decides this stint."
+        if kind == "NS_LULL":
+            return "A steady spell out front."
+        if kind == "NS_STAT":
+            return "%s holding station in P%d." % (na, pos)
+        if kind == "NS_SCENIC":
+            return "A calm lap around the circuit."
+        return cand.detail or na
+
+
+def opener_novelty(lines):
+    """Three-word-opener uniqueness. Reported, not gating: a slot grammar is
+    combinatorial not generative and cannot reach the reference booth's 94%
+    (V2 s09). The number says how far short the grammar falls."""
+    openers = []
+    for text in lines:
+        toks = re.findall(r"[A-Za-z0-9']+", text.lower())
+        if len(toks) >= 3:
+            openers.append(tuple(toks[:3]))
+    if not openers:
+        return None
+    return len(set(openers)) / len(openers)
+
+
+# =============================================================================
+# SECTION 8b -- PHASE MACHINE, SERIAL SCHEDULER, FLOOR GOVERNOR
+#              (Items 7, 11, 12)
+# =============================================================================
+
+class PhaseMachine:
+    """Open / Early / Mid / Close. Naming peaks early then falls; word budget
+    falls ~20% across the final fifth; the close thins, it does not escalate. A
+    safety car is not a phase -- it is a thread on top; phase budgets continue
+    underneath (Item 12, V2 s-close)."""
+    def __init__(self, config):
+        self.cfg = config.get("phases", default={})
+        self.bounds = self.cfg.get("boundaries_lap_fraction", [0.15, 0.35, 0.85])
+
+    def phase(self, world, t, lights_out_t):
+        frac = self._progress(world, t, lights_out_t)
+        b = self.bounds
+        if frac < b[0]:
+            return "open"
+        if frac < b[1]:
+            return "early"
+        if frac < b[2]:
+            return "mid"
+        return "close"
+
+    def _progress(self, world, t, lights_out_t):
+        total = world.total_laps or 0
+        if total > 0 and world.leader_idx is not None:
+            lap = world.cars[world.leader_idx].lap
+            return min(1.0, max(0.0, (lap - 1) / total)) if total else 0.0
+        # fall back to elapsed vs a nominal race length if laps unknown
+        if lights_out_t and t > lights_out_t:
+            return min(1.0, (t - lights_out_t) / 600.0)
+        return 0.0
+
+    def budget_scale(self, phase):
+        return self.cfg.get(phase, {}).get("budget_scale", 1.0)
+
+    def phase_cfg(self, phase):
+        return self.cfg.get(phase, {})
+
+
+class Scheduler:
+    """add() enqueues; the scheduler owns the channel. No two air intervals may
+    overlap by any amount (A1). Duration = word_count / speech_rate; no breath
+    constant. Decay by value window, re-score on dequeue, tense demotion when a
+    line ages, drop with a reason code when it no longer fits. Truncation is at
+    a word boundary and a truncated line is dead, never resumed (Item 7)."""
+    def __init__(self, config, pitwall, grammar, phases, facts):
+        self.cfg = config
+        self.pw = pitwall
+        self.grammar = grammar
+        self.phases = phases
+        self.facts = facts
+        b = config.get("booth", default={})
+        self.rate = b.get("speech_rate_wps", 2.92)
+        self.budgets = b.get("budgets", {})
+        self.ceiling = b.get("hard_ceiling_words", 33)
+        self.min_air_score = b.get("min_air_score", 8.0)
+        self.tense_demote_age = b.get("tense_demote_age_s", 8.0)
+        self.windows = self.pw.windows
+        self.channel_busy_until = 0.0
+        self.queue = []               # list of Candidate
+        self.emitted = []             # list of line dicts
+        self._line_seq = 0
+
+    def enqueue(self, cand):
+        self.queue.append(cand)
+
+    def _word_budget(self, uclass, phase):
+        lo, hi = self.budgets.get(uclass, [3, 9])
+        scale = self.phases.budget_scale(phase)
+        hi = int(round(min(hi, self.ceiling) * scale))
+        lo = min(lo, hi)
+        return (lo, max(lo, hi))
+
+    def tick(self, t, world, lights_out_t, phase, decision_log):
+        """Assign air times to whatever the channel can carry now. Returns the
+        list of lines aired this tick."""
+        aired = []
+        if self.channel_busy_until > t:
+            return aired
+        # re-score everything on the queue against current time
+        scored = []
+        for cand in self.queue:
+            s, expired = cand.live_score(t, self.windows)
+            scored.append((s, expired, cand))
+        # drop expired / too-low with a reason code, keep the rest
+        keep = []
+        ranked = []
+        for s, expired, cand in scored:
+            if expired:
+                self._log_loss(decision_log, t, cand, "window_expired")
+            elif s < self.min_air_score and not cand.coverage_floor:
+                # keep low ones briefly; they may rise. Only drop if aged out.
+                if t - cand.raised_t > self.windows.get(cand.window, 30.0):
+                    self._log_loss(decision_log, t, cand, "stale_at_dequeue")
+                else:
+                    keep.append(cand)
+                    ranked.append((s, cand))
+            else:
+                keep.append(cand)
+                ranked.append((s, cand))
+        self.queue = keep
+        if not ranked:
+            return aired
+        ranked.sort(key=lambda r: (r[1].coverage_floor, r[0]), reverse=True)
+        best_score, best = ranked[0]
+        losers = [(s, c) for s, c in ranked[1:]][:3]
+
+        # write and air the winner
+        uclass, register = KIND_CLASS.get(best.kind, ("call", LEAD))
+        budget = self._word_budget(uclass, phase)
+        tense = "present"
+        if t - best.raised_t > self.tense_demote_age:
+            tense = "past"      # tense demotion when a line ages
+        text = self.grammar.write_line(best, uclass, register, budget, self.facts, t)
+        slots = list(self.grammar.used)
+        if tense == "past":
+            text = self._demote_tense(text)
+        words = text.split()
+        wc = len(words)
+        truncated_at = None
+        if wc > min(budget[1], self.ceiling):
+            cap = min(budget[1], self.ceiling)
+            text = " ".join(words[:cap]).rstrip(",;:") + "."
+            truncated_at = cap
+            wc = cap
+        duration = wc / self.rate
+        air_time = max(self.channel_busy_until, t)
+        self.channel_busy_until = air_time + duration
+        self._line_seq += 1
+        line_id = "L%04d" % self._line_seq
+        best.line_id = line_id
+        # establish the fact this line just stated
+        if best.cars:
+            self.facts.establish(best.cars[0].driver_id, best.kind, t, line_id)
+        line = {
+            "line_id": line_id, "type": best.kind, "speaker": register,
+            "uclass": uclass, "register": register, "tense": tense,
+            "text": text, "air_t": air_time,
+            "air_offset_s": (air_time - lights_out_t) if lights_out_t else None,
+            "est_duration_s": round(duration, 3), "word_count": wc,
+            "subject": best.cars[0].driver_id if best.cars else None,
+            "subject_spoken": best.cars[0].spoken if best.cars else None,
+            "template_kind": best.kind, "phase": phase, "slots": slots,
+            "age_at_dequeue_s": round(t - best.raised_t, 3),
+            "truncation_point": truncated_at,
+            "cause": best.cause if best.cause_available else "unavailable",
+            "participation_mult": best.part_mult,
+            "coverage_floor": best.coverage_floor,
+        }
+        self.emitted.append(line)
+        aired.append(line)
+        # remove the winner from the queue
+        self.queue = [c for c in self.queue if c is not best]
+        # decision-log the winner with term breakdown + top-3 losers
+        self._log_decision(decision_log, t, best, best_score, losers)
+        return aired
+
+    @staticmethod
+    def _demote_tense(text):
+        rep = [(" goes through", " went through"), (" takes", " took"),
+               (" grabs", " grabbed"), (" makes", " made"), (" gets by", " got by"),
+               (" is ", " was "), (" peels", " peeled"), (" rejoins", " rejoined"),
+               (" forces", " forced"), (" closes", " closed")]
+        for a, b in rep:
+            text = text.replace(a, b)
+        return text
+
+    def _log_decision(self, decision_log, t, cand, score, losers):
+        decision_log.append({
+            "t": round(t, 3), "decision": "line", "line_id": cand.line_id,
+            "winner": {
+                "kind": cand.kind, "subject": cand.cars[0].spoken if cand.cars else None,
+                "terms": cand.terms, "part_mult": cand.part_mult,
+                "base_total": round(cand.base_total(), 2), "score": round(score, 2),
+                "window": cand.window, "cause": cand.cause if cand.cause_available
+                else "unavailable",
+            },
+            "losers": [{
+                "kind": c.kind, "subject": c.cars[0].spoken if c.cars else None,
+                "terms": c.terms, "part_mult": c.part_mult,
+                "score": round(s, 2), "loss_reason": "outscored",
+            } for s, c in losers],
+        })
+
+    def _log_loss(self, decision_log, t, cand, reason):
+        decision_log.append({
+            "t": round(t, 3), "decision": "drop", "kind": cand.kind,
+            "subject": cand.cars[0].spoken if cand.cars else None,
+            "loss_reason": (cand.suppressed_by and ("suppressed_by:" + cand.suppressed_by))
+            or reason,
+        })
+
+
+class FloorGovernor:
+    """Sustained output below the floor wpm is a fault to be filled, the same
+    way saturation is a fault to be relieved. Material comes from the
+    negative-space stack, ranked setup-for-payoff down to scenic. Keep the burst
+    mechanisms; V2 needs both (Item 11, V2 s11)."""
+    def __init__(self, config):
+        fg = config.get("booth", "floor_governor", default={})
+        self.floor_wpm = fg.get("floor_wpm", 150.0)
+        self.window_s = fg.get("window_s", 60.0)
+        self.min_age = fg.get("min_session_age_s", 20.0)
+        self.gap_threshold = fg.get("silence_gap_threshold_s", 10.0)
+        self.min_gap = fg.get("negative_space_min_gap_s", 6.0)
+        self.ns_stack = config.get("negative_space", "stack", default=[])
+        self.silence_log = []
+
+    def words_recent(self, emitted, t):
+        return sum(l["word_count"] for l in emitted
+                   if t - self.window_s <= l["air_t"] <= t)
+
+    def current_wpm(self, emitted, t, lights_out_t):
+        if lights_out_t is None or t - lights_out_t < self.window_s:
+            span = max(1.0, (t - (lights_out_t or t)))
+        else:
+            span = self.window_s
+        return self.words_recent(emitted, t) * 60.0 / max(1.0, span)
+
+    def maybe_fill(self, t, world, pitwall, emitted, channel_busy_until,
+                   lights_out_t):
+        """When the channel is quiet and wpm is under floor, return a
+        negative-space Candidate to inject, else None, and record the gap."""
+        if lights_out_t is None or (t - lights_out_t) < self.min_age:
+            return None
+        if channel_busy_until > t - self.gap_threshold:
+            return None
+        wpm = self.current_wpm(emitted, t, lights_out_t)
+        if wpm >= self.floor_wpm:
+            return None
+        # choose a subject: the highest standing tension, else the leader
+        ranked = pitwall.score_field(t, None)
+        subj = None
+        if ranked:
+            subj = ranked[0]["car"]
+        elif world.leader_idx is not None:
+            subj = world.cars[world.leader_idx]
+        if subj is None:
+            self.silence_log.append({"t": round(t, 3), "wpm": round(wpm, 1),
+                                     "stack": [], "reason": "no subject on track"})
+            return None
+        top = self.ns_stack[0] if self.ns_stack else {"kind": "NS_LULL",
+                                                      "base": 5.0, "window": "long"}
+        part = pitwall.participation_mult(subj)
+        cand = Candidate(top["kind"], [subj], {"negative_space": top["base"]},
+                         part, top.get("window", "long"), "call", t,
+                         cause=None, cause_available=True,
+                         detail="floor fill", coverage_floor=False)
+        self.silence_log.append({
+            "t": round(t, 3), "wpm": round(wpm, 1),
+            "stack": [s["kind"] for s in self.ns_stack],
+            "chosen": top["kind"], "subject": subj.spoken,
+        })
+        return cand
+
+
+# =============================================================================
+# SECTION 8c -- GALLERY (Item 8: value windows and hold floors)
+# =============================================================================
+# Actuation is V1's, UNCHANGED: direct select primary, F7/F8 walk fallback,
+# every cut confirmed on the wire against m_spectatorCarIndex, arm() discard
+# pair, operator yield, unreachable-car parking. ONLY the hold logic changed:
+# phase-dependent floors, and shot length governed by the winning candidate's
+# value window rather than a flat dwell. Camera VIEW TYPE is never asserted --
+# no telemetry readback exists for it (V1 correct, kept).
+
+class Gallery:
+    def __init__(self, world, sender, log, booth, config, pitwall, enabled=True):
+        self.w = world
+        self.snd = sender
+        self.log = log
+        self.booth = booth
+        self.cfg = config
+        self.pw = pitwall
+        self.enabled = enabled and sender.available
+        g = config.get("gallery", default={})
+        self.g = g
+        self.floor_incident = g.get("hold_floor_incident_s", 2.5)
+        self.floor_normal = g.get("hold_floor_normal_s", 4.0)
+        self.floor_lull = g.get("hold_floor_lull_s", 7.0)
+        self.interrupt_min_hold = g.get("interrupt_min_hold_s", 2.0)
+        self.cut_margin = g.get("cut_margin", 25.0)
+        self.cut_margin_stale = g.get("cut_margin_stale", 10.0)
+        self.stale_hold = g.get("stale_hold_s", 40.0)
+        self.verify_timeout = g.get("verify_timeout_s", 1.6)
+        self.walk_max = g.get("walk_max_presses", 8)
+        self.operator_yield = g.get("operator_yield_s", 20.0)
+        self.miss_cooldown_s = g.get("miss_cooldown_s", 20.0)
+        self.incident_recent_s = g.get("incident_recent_s", 8.0)
+        self.lull_threshold = g.get("lull_top_score_threshold", 45.0)
+        self.subject_lost_grace = g.get("subject_lost_grace_s", 2.0)
+        self.subject = None            # car idx we believe is on screen
+        self.commanded = None          # car idx we last asked for
+        self.held_since = 0.0
+        self.operator_hold_until = 0.0
+        self.cuts = 0
+        self.direct_hits = 0
+        self.direct_misses = 0
+        self.walk_used = 0
+        self.failed = 0
+        self.armed = False
+        self.in_transit = False
+        self.allow_walk = False
+        self.miss_cooldown = {}
+        self._last_override_log = 0.0
+        self._last_incident_t = -1e9
+
+    # ---- actuation (V1, unchanged) -----------------------------------------
+    def arm(self):
+        """T10 F-4: discard press on focus acquisition. F7 then F8 is net-zero."""
+        if not self.enabled:
+            self.log("[gallery] camera control DISABLED -- advisory mode only")
+            return
+        self.log("[gallery] arming -- issuing discard press pair (F-4)")
+        self.snd.tap("F7")
+        time.sleep(0.35)
+        self.snd.tap("F8")
+        time.sleep(0.35)
+        self.armed = True
+
+    def observe(self, t):
+        """Reconcile what we believe with what the wire says."""
+        if not self.enabled:
+            return
+        if self.in_transit:
+            return
+        spec = self.w.spectator_car_idx
+        if spec is None:
+            return
+        if self.subject is None:
+            self.subject = spec
+            self.held_since = t
+            return
+        if spec != self.subject:
+            if self.commanded is not None and spec == self.commanded:
+                self.subject = spec
+                self.held_since = t
+            else:
+                self.subject = spec
+                self.held_since = t
+                self.operator_hold_until = t + self.operator_yield
+                if t - self._last_override_log > 10.0:
+                    self._last_override_log = t
+                    self.log("[gallery] camera moved externally -> car %d, "
+                             "yielding %ds" % (spec, int(self.operator_yield)))
+
+    def _keys_for_position(self, pos):
+        if 1 <= pos <= 9:
+            return ("tap", str(pos))
+        if pos == 10:
+            return ("tap", "0")
+        if 11 <= pos <= 19:
+            return ("chord", str(pos - 10))
+        if pos == 20:
+            return ("chord", "0")
+        return None
+
+    def _await_index(self, target, deadline, pump):
+        while time.time() < deadline:
+            pump(0.05)
+            if self.w.spectator_car_idx == target:
+                return True
+        return False
+
+    def _execute_cut(self, car, target, pump):
+        keys = self._keys_for_position(car.position)
+        ok = False
+        method = "none"
+        if keys:
+            method = "direct"
+            if keys[0] == "tap":
+                self.snd.tap(keys[1])
+            else:
+                self.snd.chord("LSHIFT", keys[1])
+            ok = self._await_index(target, time.time() + self.verify_timeout, pump)
+            if ok:
+                self.direct_hits += 1
+            else:
+                self.direct_misses += 1
+
+        if not ok and self.allow_walk:
+            method = "walk"
+            self.walk_used += 1
+            for _ in range(self.walk_max):
+                self.snd.tap("F7")
+                if self._await_index(target, time.time() + 0.9, pump):
+                    ok = True
+                    break
+        return ok, method
+
+    # ---- cut + logging (routes to the V2 cuts log with the discard set) -----
+    def cut_to(self, t, car, reason_terms, part_mult, floor_applied, held,
+               interrupt, discard, pump):
+        target = car.idx
+        if target == self.subject:
+            return False
+        if not self.enabled:
+            self.booth.log_cut(t, car, reason_terms, part_mult, floor_applied,
+                               held, interrupt, discard, method="advisory",
+                               ok=True)
+            self.subject = target
+            self.held_since = t
+            self.cuts += 1
+            return True
+
+        self.commanded = target
+        self.in_transit = True
+        try:
+            ok, method = self._execute_cut(car, target, pump)
+        finally:
+            self.in_transit = False
+            self.commanded = None
+
+        if not ok:
+            self.failed += 1
+            self.miss_cooldown[target] = t + self.miss_cooldown_s
+            if t - self._last_override_log > 10.0:
+                self._last_override_log = t
+                self.log("[gallery] unreachable: car %d (%s) -- parked %ds"
+                         % (target, car.spoken, int(self.miss_cooldown_s)))
+            self.booth.log_cut(t, car, reason_terms, part_mult, floor_applied,
+                               held, interrupt, discard, method="failed",
+                               ok=False)
+            return False
+
+        self.subject = target
+        self.held_since = t
+        self.cuts += 1
+        self.booth.log_cut(t, car, reason_terms, part_mult, floor_applied,
+                           held, interrupt, discard, method=method, ok=True)
+        return True
+
+    # ---- hold logic (Item 8: the only part that changed) -------------------
+    def _floor_for(self, t, ranked):
+        """Phase-dependent floor. Incident/start -> 2.5, normal -> 4.0,
+        lull/procession -> 7.0. The floor is a MINIMUM, not an allocation."""
+        if (t - self._last_incident_t) < self.incident_recent_s:
+            return self.floor_incident, "incident"
+        top = ranked[0]["score"] if ranked else 0.0
+        if top < self.lull_threshold:
+            return self.floor_lull, "lull"
+        return self.floor_normal, "normal"
+
+    def note_incident(self, t):
+        self._last_incident_t = t
+
+    def decide(self, t, ranked, pump, dormant=False, channel_busy=False):
+        if t < self.operator_hold_until:
+            return
+        if dormant:
+            return
+        ranked = [r for r in ranked if self.miss_cooldown.get(r["car"].idx, 0) < t]
+        if not ranked:
+            return
+        held = t - self.held_since
+        best = ranked[0]
+        best_car, best_score, best_hard = best["car"], best["score"], best["hard"]
+        floor, floor_kind = self._floor_for(t, ranked)
+
+        if self.subject is None:
+            self._do_cut(t, best, floor, floor_kind, held, False, ranked, pump)
+            return
+
+        cur = next((r for r in ranked if r["car"].idx == self.subject), None)
+        cur_score = cur["score"] if cur else -1e9
+
+        # A car that left the on-track set cannot be watched. Return to the
+        # highest standing tension (which is exactly ranked[0]).
+        if cur is None and held > self.subject_lost_grace:
+            self._do_cut(t, best, floor, floor_kind, held, False, ranked, pump)
+            return
+
+        if best_car.idx == self.subject:
+            return
+
+        # interrupt tier overrides all three floors
+        if best_hard and held >= self.interrupt_min_hold:
+            self._do_cut(t, best, floor, floor_kind, held, True, ranked, pump)
+            return
+
+        # holding while a line about the current subject is airing avoids the
+        # camera contradicting the booth (config-gated; never blocks interrupts)
+        if channel_busy and self.g.get("defer_cut_for_airing_line", False):
+            return
+
+        margin = self.cut_margin if held < self.stale_hold else self.cut_margin_stale
+        if held >= floor and best_score > cur_score + margin:
+            self._do_cut(t, best, floor, floor_kind, held, False, ranked, pump)
+
+    def _do_cut(self, t, best, floor, floor_kind, held, interrupt, ranked, pump):
+        discard = []
+        for r in ranked:
+            if r["car"].idx == best["car"].idx:
+                continue
+            discard.append({
+                "subject": r["car"].spoken, "score": round(r["score"], 2),
+                "terms": r["terms"], "part_mult": r["part_mult"],
+                "loss_reason": "outscored",
+            })
+            if len(discard) >= 3:
+                break
+        self.cut_to(t, best["car"], best["terms"], best["part_mult"],
+                    "%s(%.1fs)" % (floor_kind, floor), held, interrupt,
+                    discard, pump)
+
+
+# =============================================================================
+# SECTION 8d -- BOOTH (candidate stream -> schedule -> four artifacts)
+# =============================================================================
+
+def tc(seconds):
+    if seconds is None or seconds < 0:
+        seconds = 0.0
+    ms = int(round((seconds - int(seconds)) * 1000))
+    s = int(seconds)
+    return "%02d:%02d:%02d.%03d" % (s // 3600, (s % 3600) // 60, s % 60, ms)
+
+
+class Booth:
+    """Enqueues candidates, suppresses/fuses, writes lines through the slot
+    grammar, and schedules them onto a single occupancy channel. All decisions
+    key on packet time t -- no wall clock -- so replay is byte-identical."""
+
+    def __init__(self, world, config, pitwall, roster, t0_unix):
+        self.w = world
+        self.cfg = config
+        self.pw = pitwall
+        self.roster = roster
+        self.t0 = t0_unix
+        self.lights_out_t = None
+        self.lgot_source = None
+        self.closed = False
+        seed = int(config.hash[:8], 16)
+        self.rng = random.Random(seed)
+        self.burn = BurnLedger(config.get("booth", "burn_window_s", default=600.0))
+        self.facts = EstablishedFacts(config.get("booth", "connective_max_age_s",
+                                                 default=300.0))
+        self.grammar = SlotGrammar(config, self.rng, self.burn, self.facts)
+        self.phases = PhaseMachine(config)
+        self.scheduler = Scheduler(config, pitwall, self.grammar, self.phases,
+                                   self.facts)
+        self.supfus = SuppressionFusion(config)
+        self.floor_gov = FloorGovernor(config)
+        self.beats = []              # raw beat records (decision log stream)
+        self.decision_log = []       # per-decision winner+losers, drops
+        self.jsonl = None
+        self.script = None
+        self.cutcsv = None
+        self._cw = None
+        self.cut_rows = []
+        self.gallery = None          # set by the run loop, for A9 cross-check
+        self._pass_losers = collections.defaultdict(list)   # loser idx -> [t]
+
+    # ---- artifact files ----------------------------------------------------
+    def open(self, jsonl_path, script_path, cut_path, lexicon_path, title):
+        self.jsonl = open(jsonl_path, "w", encoding="utf-8")
+        self.script = open(script_path, "w", encoding="utf-8")
+        self.cutcsv = open(cut_path, "w", encoding="utf-8", newline="")
+        self.lexicon_path = lexicon_path
+        self._cw = csv.writer(self.cutcsv)
+        self._cw.writerow(["air_offset_s", "video_tc", "t_unix", "car_idx",
+                           "driver_id", "spoken", "position", "hold_floor",
+                           "held_s", "interrupt", "participation_mult",
+                           "selection_terms", "discard_set", "method"])
+        self.script.write("# %s\n\n" % title)
+        self.script.write("Draft two-voice script. Air times are offsets from "
+                          "lights out (LGOT source: pending).\n\n"
+                          "`LEAD` = Northern English, play-by-play. "
+                          "`ANALYST` = Southern English, colour.\n\n"
+                          "config_hash: `%s`\n\n---\n\n" % self.cfg.hash)
+
+    # ---- lights-out anchor -------------------------------------------------
+    def set_lights_out(self, t, source):
+        if self.lights_out_t is None:
+            self.lights_out_t = t
+            self.lgot_source = source
+
+    def air_offset(self, t):
+        if self.lights_out_t is None:
+            return None
+        return round(t - self.lights_out_t, 3)
+
+    # ---- raising candidates ------------------------------------------------
+    def add(self, t, kind, cars=None, detail="", on_screen=None, extra=None,
+            cause=None, cause_available=True, hard=None, coverage_floor=None):
+        """Compatibility entry used by the event/derive handlers. Builds a
+        Candidate, runs suppression/fusion, enqueues line material, and writes
+        a beat record. t is packet time (determinism)."""
+        if self.closed:
+            return None
+        cars = cars or []
+        uclass, register = KIND_CLASS.get(kind, ("call", LEAD))
+        window = self.pw.event_window(kind)
+        ew = self.pw.event_weights.get(kind, {})
+        base = ew.get("base", 20.0)
+        if hard is None:
+            hard = ew.get("hard", False)
+        if coverage_floor is None:
+            coverage_floor = kind in (self.cfg.get("coverage_floor", default=[]) or [])
+        part = self.pw.participation_mult(cars) if cars else 1.0
+        cand = Candidate(kind, cars, {"base": base}, part, window, uclass, t,
+                         cause=cause, cause_available=cause_available,
+                         detail=detail, extra=extra, hard=hard,
+                         coverage_floor=coverage_floor)
+
+        # beat record (decision log stream) always written
+        self._beat(t, kind, cars, detail, on_screen, extra, part, cause,
+                   cause_available)
+
+        # suppression: inverse pair
+        if not self.supfus.suppress_inverse_pair(cand):
+            return cand
+        # symptom tracking + fusion for a collapsing car
+        if kind == "OVERTAKE" and len(cars) >= 2:
+            loser = cars[1]
+            self._pass_losers[loser.idx].append(t)
+            self.supfus.observe_symptom(cand)
+            fused = self._maybe_fuse(t, loser)
+            if fused is not None:
+                self.scheduler.enqueue(fused)
+        elif kind in ("COLLISION", "PENALTY", "OFF_TRACK"):
+            self.supfus.observe_symptom(cand)
+
+        self.scheduler.enqueue(cand)
+        return cand
+
+    def _maybe_fuse(self, t, loser):
+        window = self.supfus.symptom_window
+        recent = [x for x in self._pass_losers[loser.idx] if t - x <= window]
+        self._pass_losers[loser.idx] = recent
+        if len(recent) < self.supfus.min_symptom:
+            return None
+        # cause: the most recent collision/penalty on this car, else unavailable
+        cause, avail = self._recover_cause(t, loser)
+        part = self.pw.participation_mult(loser)
+        fused = self.supfus.fuse_collapse(loser, t, cause, avail, part,
+                                          "analysis", "medium")
+        if fused is not None:
+            self._pass_losers[loser.idx] = []
+        return fused
+
+    def _recover_cause(self, t, car):
+        """Cause is emitted deliberately at fusion or marked absent -- never
+        recovered opportunistically from the cuts log (V2 s07). Here: a recent
+        boost of COLLISION/PENALTY on the car names the cause; else unavailable."""
+        lookback = self.supfus.cause_lookback
+        for (bt, kind) in reversed(self.pw.boosts.get(car.idx, [])):
+            if t - bt <= lookback and kind in ("COLLISION", "PENALTY"):
+                return ({"COLLISION": "the earlier contact",
+                         "PENALTY": "the penalty"}[kind], True)
+        return (None, False)
+
+    def _beat(self, t, kind, cars, detail, on_screen, extra, part, cause,
+              cause_available):
+        rec = {
+            "t_unix": round(t, 3),
+            "air_offset_s": self.air_offset(t),
+            "video_tc": tc(self.air_offset(t) or 0.0),
+            "type": kind,
+            "session_kind": self.w.session_kind,
+            "session_name": SESSION_TYPE_NAMES.get(self.w.session_type, "?"),
+            "safety_car": self.w.safety_car,
+            "detail": detail,
+            "participation_mult": part,
+            "cause": cause if cause_available else "unavailable",
+            "on_screen_car": on_screen,
+            "cars": [{"idx": c.idx, "driver_id": c.driver_id,
+                      "spoken": c.spoken, "pos": c.position, "lap": c.lap,
+                      "participation": c.participation} for c in cars],
+        }
+        if extra:
+            rec["extra"] = extra
+        self.beats.append(rec)
+        if self.jsonl:
+            self.jsonl.write(json.dumps({"record": "beat", **rec}) + "\n")
+
+    # ---- cut logging (called by the Gallery) -------------------------------
+    def log_cut(self, t, car, reason_terms, part_mult, floor_applied, held,
+                interrupt, discard, method="direct", ok=True):
+        off = self.air_offset(t)
+        row = [off if off is not None else "", tc(off or 0.0), round(t, 3),
+               car.idx, car.driver_id, car.spoken, car.position,
+               floor_applied, round(held, 2), int(bool(interrupt)),
+               part_mult, json.dumps(reason_terms), json.dumps(discard), method]
+        if self._cw:
+            self._cw.writerow(row)
+        self.cut_rows.append({
+            "t": round(t, 3), "air_offset_s": off, "car_idx": car.idx,
+            "spoken": car.spoken, "position": car.position,
+            "hold_floor": floor_applied, "held_s": round(held, 2),
+            "interrupt": bool(interrupt), "participation_mult": part_mult,
+            "terms": reason_terms, "discard": discard, "method": method,
+            "ok": ok,
+        })
+
+    # ---- per-tick scheduling ----------------------------------------------
+    def tick(self, t):
+        if self.closed:
+            return
+        phase = self.phases.phase(self.w, t, self.lights_out_t)
+        # floor governor: fill quiet with negative-space material
+        fill = self.floor_gov.maybe_fill(t, self.w, self.pw, self.scheduler.emitted,
+                                         self.scheduler.channel_busy_until,
+                                         self.lights_out_t)
+        if fill is not None:
+            self.scheduler.enqueue(fill)
+        aired = self.scheduler.tick(t, self.w, self.lights_out_t, phase,
+                                    self.decision_log)
+        for line in aired:
+            self._write_script_line(line)
+            if self.jsonl:
+                self.jsonl.write(json.dumps({"record": "line", **line}) + "\n")
+
+    def _write_script_line(self, line):
+        if not self.script:
+            return
+        off = line.get("air_offset_s")
+        self.script.write(
+            "**[%s] %s:** %s  \n_(%s, %dw, ~%.1fs, %s%s)_\n\n"
+            % (tc(off or 0.0), line["speaker"], line["text"], line["uclass"],
+               line["word_count"], line["est_duration_s"], line["tense"],
+               ", truncated@%d" % line["truncation_point"]
+               if line["truncation_point"] else ""))
+
+    # ---- close: flush the instrument ---------------------------------------
+    def close(self, cars):
+        if self.closed:
+            return
+        self.closed = True
+        # append suppression log and silence accounting to the decision log
+        if self.jsonl:
+            for d in self.decision_log:
+                self.jsonl.write(json.dumps({"record": "decision", **d}) + "\n")
+            for s in self.supfus.suppression_log:
+                self.jsonl.write(json.dumps({"record": "suppression", **s}) + "\n")
+            for s in self.floor_gov.silence_log:
+                self.jsonl.write(json.dumps({"record": "silence", **s}) + "\n")
+            nov = opener_novelty([l["text"] for l in self.scheduler.emitted])
+            self.jsonl.write(json.dumps({"record": "summary",
+                "config_hash": self.cfg.hash,
+                "lgot_source": self.lgot_source,
+                "lgot_offset_s": None if self.lights_out_t is None
+                else round(self.lights_out_t - self.t0, 3),
+                "lines_emitted": len(self.scheduler.emitted),
+                "opener_novelty": nov,
+                "suppressed": len(self.supfus.suppression_log),
+                "silence_gaps": len(self.floor_gov.silence_log)}) + "\n")
+        # lexicon
+        try:
+            lex = build_lexicon(cars)
+            with open(self.lexicon_path, "w", encoding="utf-8") as f:
+                json.dump({"config_hash": self.cfg.hash, "entries": lex}, f, indent=2)
+        except Exception:
+            pass
+        for fh in (self.jsonl, self.script, self.cutcsv):
+            try:
+                if fh:
+                    fh.close()
+            except Exception:
+                pass
+
+
+# =============================================================================
+# SECTION 9 -- SESSION FOLDER MANAGEMENT
+# =============================================================================
+# D-01 fix: the folder is named at FINALISE, from what the game actually said,
+# never at record start from a value carried forward.
+
+TRACK_NAMES = {
+    0: "Melbourne", 1: "PaulRicard", 2: "Shanghai", 3: "Sakhir", 4: "Catalunya",
+    5: "Monaco", 6: "Montreal", 7: "Silverstone", 8: "Hockenheim", 9: "Hungaroring",
+    10: "Spa", 11: "Monza", 12: "Singapore", 13: "Suzuka", 14: "AbuDhabi",
+    15: "Texas", 16: "Brazil", 17: "Austria", 18: "Sochi", 19: "Mexico",
+    20: "Baku", 21: "SakhirShort", 22: "SilverstoneShort", 23: "TexasShort",
+    24: "SuzukaShort", 25: "Hanoi", 26: "Zandvoort", 27: "Imola", 28: "Portimao",
+    29: "Jeddah", 30: "Miami", 31: "LasVegas", 32: "Losail",
+}
+
+
+class SessionRun:
+    def __init__(self, root, run_id, ordinal, t0_unix, header_extra):
+        self.ordinal = ordinal
+        self.t0 = t0_unix
+        self.tmpdir = os.path.join(root, run_id, "_session_%02d_recording" % ordinal)
+        os.makedirs(self.tmpdir, exist_ok=True)
+        self.root = root
+        self.run_id = run_id
+        self.stem = "%s_s%02d" % (run_id, ordinal)
+        self.bin_path = os.path.join(self.tmpdir, self.stem + ".bin")
+        self.writer = CaptureWriter(self.bin_path, header_extra)
+        self.events_path = os.path.join(self.tmpdir, self.stem + "_events.txt")
+        self.events = open(self.events_path, "w", encoding="utf-8")
+        self.started_unix = time.time()
+        # Identity is latched from the state that was current WHILE this
+        # session ran. Reading world at finalise names the folder after the
+        # session that replaced it -- the same class of fault as D-01.
+        self.identity = {"session_type": None, "track_id": None,
+                         "total_laps": None}
+        self.finalised = False
+        self.integrity = None
+        self.final_dir = None
+
+    def log_event(self, line):
+        try:
+            self.events.write(line + "\n")
+            self.events.flush()
+        except Exception:
+            pass
+
+    def finalise(self, world, manifest_extra):
+        if self.finalised:
+            return self.final_dir
+        self.finalised = True
+        self.writer.close()
+        try:
+            self.events.close()
+        except Exception:
+            pass
+        # Verification re-reads the whole capture. On a 630k-packet session
+        # that is seconds during which the socket is unserved and the next
+        # session cannot open. It is deferred to a background thread and
+        # written alongside the manifest when it completes.
+        integrity = {"status": "pending"}
+        self.integrity = integrity
+
+        stype_id = self.identity.get("session_type")
+        if stype_id is None:
+            stype_id = world.session_type
+        track_id = self.identity.get("track_id")
+        if track_id is None:
+            track_id = world.track_id
+        total_laps = self.identity.get("total_laps")
+        if total_laps is None:
+            total_laps = world.total_laps
+        track = TRACK_NAMES.get(track_id, "UNK")
+        kind = classify_session(stype_id, total_laps)
+        stype = SESSION_TYPE_NAMES.get(stype_id, "Unknown").replace(" ", "")
+        label = "%02d_%s_%s" % (self.ordinal, track, stype)
+
+        manifest = {
+            "tool": "%s_%s_%s" % (TOOL_NAME, TOOL_VERSION, TOOL_DATE),
+            "script_version": SCRIPT_VERSION,
+            "session_ordinal": self.ordinal,
+            "session_kind": kind,
+            "session_type_id": stype_id,
+            "session_type_name": SESSION_TYPE_NAMES.get(stype_id, "Unknown"),
+            "track_id": track_id,
+            "track_name": track,
+            "total_laps": total_laps,
+            "weekend_link_identifier": world.weekend_link,
+            "session_link_identifier": world.session_link,
+            "season_link_identifier": world.season_link,
+            "network_game": world.network_game,
+            "started_unix": self.started_unix,
+            "ended_unix": time.time(),
+            "duration_s": round(time.time() - self.started_unix, 2),
+            "obs_t0_unix": self.t0,
+            "video_start_offset_s": round(self.started_unix - self.t0, 3),
+            "lights_out_unix": world.lights_out_t,
+            "lights_out_video_tc": tc(world.lights_out_t - self.t0) if world.lights_out_t else None,
+            "chequered_unix": world.chequered_t,
+            "packets": self.writer.packets,
+            "markers": self.writer.markers,
+            "packet_counts_by_id": dict(world.packet_counts),
+            "integrity": integrity,
+            "roster": [
+                {"car_index": c.idx, "name": c.label, "ai_controlled": c.ai,
+                 "human": bool(c.is_human), "team_id": c.team,
+                 "race_number": c.race_number, "platform": c.platform_id,
+                 "telemetry_public": c.telemetry_public,
+                 "grid": c.grid, "final_position": c.position,
+                 "result_status": c.result_status}
+                for c in world.cars if c.seen
+            ],
+        }
+        manifest.update(manifest_extra or {})
+        with open(os.path.join(self.tmpdir, self.stem + "_manifest.json"),
+                  "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+
+        final = os.path.join(self.root, self.run_id, label)
+        if os.path.exists(final):
+            final = final + "_%d" % int(time.time() % 10000)
+        try:
+            shutil.move(self.tmpdir, final)
+            self.final_dir = final
+        except Exception:
+            self.final_dir = self.tmpdir
+
+        moved_bin = os.path.join(self.final_dir, self.stem + ".bin")
+        man_path = os.path.join(self.final_dir, self.stem + "_manifest.json")
+
+        def _verify_later():
+            try:
+                integ = self.writer.verify(path=moved_bin)
+                self.integrity = integ
+                with open(man_path, encoding="utf-8") as f:
+                    m = json.load(f)
+                m["integrity"] = integ
+                with open(man_path, "w", encoding="utf-8") as f:
+                    json.dump(m, f, indent=2)
+            except Exception as e:
+                self.integrity = {"error": str(e)}
+
+        th = threading.Thread(target=_verify_later, daemon=False)
+        th.start()
+        self.verify_thread = th
+        return self.final_dir
+
+
+# =============================================================================
+# SECTION 10 -- SIMULATOR (dry-run without the game)
+# =============================================================================
+
+class Simulator:
+    """
+    Emits plausible F1 25 datagrams so the whole rig can be exercised on the
+    broadcast machine before the lobby opens. Not an emulator of a capture --
+    that is Step 0.8. This is a smoke test.
+    """
+
+    def __init__(self, port, cars=6, speed=1.0, roll_at=0.0, quiet_from=0.0):
+        self.port = port
+        self.n = cars
+        self.speed = speed
+        self.roll_at = roll_at
+        self.quiet_from = quiet_from
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.t0 = time.time()
+        self.stop = False
+        self.spec = 0
+        self.pos = list(range(1, cars + 1))
+        self.names = ["DUSTIN", "VaLoR", "RONIN", "SPARK", "HALO", "NOMAD",
+                      "ORBIT", "CINDER"][:cars]
+
+    def _hdr(self, pid):
+        return struct.pack(HEADER_FMT, 2025, 25, 1, 24, 1, pid,
+                           0xDEADBEEFCAFE, time.time() - self.t0,
+                           0, 0, 255, 255)
+
+    def run(self):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        listener.bind(("127.0.0.1", 0))
+        tick = 0
+        while not self.stop:
+            now = time.time() - self.t0
+            # Session
+            body = bytearray(SESSION_LEN - HEADER_SIZE)
+            body[OFF_S_TOTALLAPS - HEADER_SIZE] = 5
+            rolled = self.roll_at and now > self.roll_at
+            body[OFF_S_SESSIONTYPE - HEADER_SIZE] = 9 if rolled else 15
+            struct.pack_into("<b", body, OFF_S_TRACKID - HEADER_SIZE, 7)
+            body[OFF_S_ISSPECTATING - HEADER_SIZE] = 1
+            body[OFF_S_SPECTATORCARIDX - HEADER_SIZE] = self.spec
+            body[OFF_S_NETWORKGAME - HEADER_SIZE] = 1
+            struct.pack_into("<I", body, OFF_S_WEEKENDLINK - HEADER_SIZE, 424242)
+            struct.pack_into("<I", body, OFF_S_SESSIONLINK - HEADER_SIZE,
+                             222 if rolled else 111)
+            self.sock.sendto(self._hdr(PID_SESSION) + bytes(body),
+                             ("127.0.0.1", self.port))
+
+            # Lap data. Withheld during the quiet window so the rig meets a
+            # dormant lobby exactly as it did on 08 SEP.
+            if self.quiet_from and now > self.quiet_from:
+                tick += 1
+                time.sleep(0.1 / max(self.speed, 0.01))
+                continue
+            lp = bytearray()
+            for i in range(MAX_CARS):
+                if i < self.n:
+                    p = self.pos[i]
+                    gap = 0.3 + (i * 0.7) + 0.6 * abs(((now / 3.0 + i) % 2) - 1)
+                    lp += struct.pack(
+                        LAP_FMT, 92000, int((now * 1000) % 95000), 30000, 0,
+                        31000, 0, int(gap * 1000) % 60000, 0,
+                        int(gap * i * 1000) % 60000, 0,
+                        (now * 60.0) % 5800.0, now * 60.0, 0.0,
+                        p, 1 + int(now // 90), 0, 0, 1, 0, 0, 0, 0, 0, 0,
+                        p, 4, 2, 0, 0, 0, 0, 300.0, 1)
+                else:
+                    lp += b"\x00" * LAP_STRIDE
+            self.sock.sendto(self._hdr(PID_LAPDATA) + bytes(lp) + b"\xff\xff",
+                             ("127.0.0.1", self.port))
+
+            if tick % 10 == 0:
+                pp = bytearray([self.n])
+                for i in range(MAX_CARS):
+                    if i < self.n:
+                        nm = self.names[i].encode()[:31]
+                        pp += struct.pack(PART_FMT, 0, 255, i, i % 10, 0,
+                                          i + 1, 1, nm, 1, 1, 0, 1, 4, b"\x00" * 12)
+                    else:
+                        pp += b"\x00" * PART_STRIDE
+                self.sock.sendto(self._hdr(PID_PARTICIPANTS) + bytes(pp),
+                                 ("127.0.0.1", self.port))
+
+            if tick == 6:
+                self.sock.sendto(self._hdr(PID_EVENT) + b"LGOT" + b"\x00" * 12,
+                                 ("127.0.0.1", self.port))
+            if tick == 40:
+                self.sock.sendto(self._hdr(PID_EVENT) + b"COLL" +
+                                 bytes([1, 2]) + b"\x00" * 10,
+                                 ("127.0.0.1", self.port))
+            if tick == 60 and self.n >= 3:
+                self.pos[1], self.pos[2] = self.pos[2], self.pos[1]
+            if tick == 90 and self.n >= 2:
+                self.pos[0], self.pos[1] = self.pos[1], self.pos[0]
+
+            tick += 1
+            time.sleep(0.1 / max(self.speed, 0.01))
+
+
+# =============================================================================
+# SECTION 11 -- REPLAY ADAPTER (Item 0)
+# =============================================================================
+# Two adapters, one decoder (V2 s04, stage 0): the socket for live use, and a
+# direct file reader for pace-independent tuning. The reader yields (t, payload)
+# from a T8V1 container -- one JSON header line, then a stream of 10-byte '<dH'
+# records -- at the RECORDED arrival timestamps. No socket, no sleep, no wall
+# clock, so a run against the same bin and config is byte-identical.
+
+class ReplayReader:
+    def __init__(self, path):
+        self.path = path
+
+    def header(self):
+        with open(self.path, "rb") as f:
+            line = f.readline()
+        try:
+            return json.loads(line.decode("utf-8"))
+        except Exception:
+            return {}
+
+    def records(self):
+        with open(self.path, "rb") as f:
+            f.readline()   # skip the JSON header line
+            while True:
+                hb = f.read(RECORD_HEADER_SIZE)
+                if not hb or len(hb) < RECORD_HEADER_SIZE:
+                    break
+                t, ln = struct.unpack(RECORD_FMT, hb)
+                payload = f.read(ln)
+                if len(payload) != ln:
+                    break
+                if ln == 0:
+                    continue   # marker record
+                yield t, payload
+
+
+# =============================================================================
+# SECTION 12 -- MAIN (live + replay orchestration)
+# =============================================================================
+
+class BabyHoover:
+    def __init__(self, args):
+        self.args = args
+        self.world = World()
+        self.run_id = args.run_id or datetime.now().strftime("HOOVER_%Y%m%d_%H%M%S")
+        self.root = os.path.abspath(args.outdir)
+        os.makedirs(os.path.join(self.root, self.run_id), exist_ok=True)
+        self.log_path = os.path.join(self.root, self.run_id, "baby_hoover.log")
+        self.logfh = open(self.log_path, "w", encoding="utf-8")
+        self.parser = Parser(self.world, self.log)
+        # Item 1: config + roster loaded once, hashed, threaded everywhere.
+        cfg_path = args.config or os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), DEFAULT_CONFIG_NAME)
+        self.config = Config(cfg_path)
+        self.roster = Roster(args.roster)
+        self.pitwall = PitWall(self.world, self.config, self.roster)
+        self.sender = make_input(not args.no_camera)
+        self.t0 = None
+        self.booth = None
+        self.gallery = None
+        self.session = None
+        self.session_ordinal = 0
+        self.last_session_link = None
+        self.last_session_type = None
+        self.last_derive = 0.0
+        self.last_decide = 0.0
+        self.last_tick = 0.0
+        self.last_status = 0.0
+        self.stop = False
+        self.rx_packets = 0
+        self.rx_bytes = 0
+        self.q = queue.Queue(maxsize=20000)
+        self.sock = None
+        self.fwd = None
+        self.battle_seen = {}
+        self.prev_positions = {}
+        self.prev_pit = {}
+        self.prev_leader = None
+        self.no_data_since = None
+        self.replay = bool(args.replay)
+        self._preflight_done = False
+        s = self.config.get("session", default={})
+        self.derive_interval = s.get("derive_interval_s", 0.5)
+        self.decide_interval = s.get("decide_interval_s", 0.5)
+        self.dormant_age = s.get("dormant_lapdata_age_s", 15.0)
+
+    # ---- plumbing ----------------------------------------------------------
+    def log(self, msg):
+        line = "[%s] %s" % (datetime.now().strftime("%H:%M:%S"), msg)
+        print(line, flush=True)
+        try:
+            self.logfh.write(line + "\n")
+            self.logfh.flush()
+        except Exception:
+            pass
+
+    def _rx_thread(self):
+        while not self.stop:
+            try:
+                data, _addr = self.sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            t = time.time()
+            self.rx_packets += 1
+            self.rx_bytes += len(data)
+            if self.session:
+                self.session.writer.write(t, data)
+            if self.fwd:
+                try:
+                    self.fwd.sendto(data, ("127.0.0.1", self.args.forward_port))
+                except Exception:
+                    pass
+            try:
+                self.q.put_nowait((t, data))
+            except queue.Full:
+                pass
+
+    def pump(self, seconds):
+        """Drain the parse queue for a bounded time. Used while awaiting cuts
+        (live only; on replay the camera is null so this is never called)."""
+        end = time.time() + seconds
+        while time.time() < end:
+            try:
+                t, data = self.q.get(timeout=max(0.001, end - time.time()))
+            except queue.Empty:
+                return
+            self._handle(t, data)
+
+    # ---- session lifecycle -------------------------------------------------
+    def open_session(self, t):
+        self.session_ordinal += 1
+        extra = {
+            "run_id": self.run_id,
+            "session_ordinal": self.session_ordinal,
+            "obs_t0_unix": self.t0,
+            "operator_note": self.args.note or "",
+            "config_hash": self.config.hash,
+            "roster_hash": self.roster.hash,
+            "mode": "replay" if self.replay else "live",
+        }
+        self.session = SessionRun(self.root, self.run_id, self.session_ordinal,
+                                  self.t0, extra)
+        self.booth = Booth(self.world, self.config, self.pitwall, self.roster,
+                           self.t0)
+        stem = self.session.stem
+        self.booth.open(
+            os.path.join(self.session.tmpdir, stem + "_beats.jsonl"),
+            os.path.join(self.session.tmpdir, stem + "_script.md"),
+            os.path.join(self.session.tmpdir, stem + "_cuts.csv"),
+            os.path.join(self.session.tmpdir, stem + "_lexicon.json"),
+            "%s -- session %d draft script" % (self.run_id, self.session_ordinal))
+        self.gallery = Gallery(self.world, self.sender, self.log, self.booth,
+                               self.config, self.pitwall,
+                               enabled=not self.args.no_camera)
+        self.booth.gallery = self.gallery
+        self.gallery.allow_walk = bool(self.args.walk_fallback)
+        self.gallery.arm()
+        self.world.lights_out_t = None
+        self.world.chequered_t = None
+        self.battle_seen = {}
+        self.prev_positions = {}
+        self.prev_pit = {}
+        self.prev_leader = None
+        self.pitwall.boosts.clear()
+        self._preflight_done = False
+        self.log("=== SESSION %d OPEN -- %s (%s) ==="
+                 % (self.session_ordinal,
+                    SESSION_TYPE_NAMES.get(self.world.session_type, "?"),
+                    self.world.session_kind))
+        self.booth.add(t, "SESSION_START",
+                       detail=SESSION_TYPE_NAMES.get(self.world.session_type, "?"))
+
+    def _emit_preflight(self):
+        if self._preflight_done or not self.session:
+            return
+        rep = preflight_report(self.world.cars, self.roster)
+        rep["config_hash"] = self.config.hash
+        rep["roster_hash"] = self.roster.hash
+        path = os.path.join(self.session.tmpdir,
+                            self.session.stem + "_preflight.json")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(rep, f, indent=2)
+        except Exception:
+            pass
+        dist = rep.get("level_distribution", {})
+        self.log("pre-flight roster: %d cars, levels %s, unmatched %d, "
+                 "collisions %d" % (len(rep["cars"]), dict(dist),
+                                    len(rep["unmatched"]), len(rep["collisions"])))
+        self._preflight_done = True
+
+    def close_session(self):
+        if not self.session:
+            return
+        t = self.world.last_lapdata_t or self.world.last_session_t or time.time()
+        self._emit_preflight()
+        if self.booth:
+            self.booth.add(t, "SESSION_END",
+                           detail=SESSION_TYPE_NAMES.get(self.world.session_type, "?"))
+            # drain any remaining scheduled material
+            for _ in range(200):
+                before = len(self.booth.scheduler.emitted)
+                self.booth.tick(self.booth.scheduler.channel_busy_until + 0.001)
+                if len(self.booth.scheduler.emitted) == before:
+                    break
+        gal = self.gallery
+        nov = opener_novelty([l["text"] for l in self.booth.scheduler.emitted]) \
+            if self.booth else None
+        extra = {
+            "config_hash": self.config.hash,
+            "roster_hash": self.roster.hash,
+            "lgot_source": self.booth.lgot_source if self.booth else None,
+            "mode": "replay" if self.replay else "live",
+            "gallery": {
+                "cuts": gal.cuts if gal else 0,
+                "direct_select_hits": gal.direct_hits if gal else 0,
+                "direct_select_misses": gal.direct_misses if gal else 0,
+                "relative_walk_used": gal.walk_used if gal else 0,
+                "unreachable": gal.failed if gal else 0,
+                "sendinput_rejections": getattr(self.sender, "rejections", 0),
+                "camera_enabled": bool(gal and gal.enabled),
+            },
+            "booth": {
+                "lines": len(self.booth.scheduler.emitted) if self.booth else 0,
+                "suppressed": len(self.booth.supfus.suppression_log) if self.booth else 0,
+                "silence_gaps": len(self.booth.floor_gov.silence_log) if self.booth else 0,
+                "opener_novelty": nov,
+            },
+            "beats": len(self.booth.beats) if self.booth else 0,
+        }
+        cars_snapshot = list(self.world.cars)
+        if self.booth:
+            self.booth.close(cars_snapshot)
+        d = self.session.finalise(self.world, extra)
+        self.log("=== SESSION %d CLOSED -> %s ===" % (self.session_ordinal, d))
+        self.log("    packets=%d  markers=%d"
+                 % (self.session.writer.packets, self.session.writer.markers))
+        if gal and gal.cuts:
+            self.log("    cuts=%d  direct %d/%d  walk=%d  missed=%d"
+                     % (gal.cuts, gal.direct_hits,
+                        gal.direct_hits + gal.direct_misses,
+                        gal.walk_used, gal.failed))
+        self.booth = None
+        self.gallery = None
+        self.session = None
+
+    def maybe_roll(self, t):
+        w = self.world
+        if w.session_link is None:
+            return
+        if self.session is None:
+            self.open_session(t)
+            self.last_session_link = w.session_link
+            self.last_session_type = w.session_type
+            return
+        if (w.session_link != self.last_session_link
+                or w.session_type != self.last_session_type):
+            self.log("session boundary: link %s -> %s, type %s -> %s"
+                     % (self.last_session_link, w.session_link,
+                        self.last_session_type, w.session_type))
+            self.close_session()
+            self.last_session_link = w.session_link
+            self.last_session_type = w.session_type
+            self.open_session(t)
+
+    # ---- identity + lights-out ---------------------------------------------
+    def _resolve_identities(self, t):
+        for c in self.world.cars:
+            if c.seen and not c.name_resolved and c.ai is not None:
+                resolve_car_identity(c, self.roster)
+
+    def _maybe_lights_out(self, t):
+        """LGOT is the anchor when present. In the league captures it never
+        fired (a known finding), so V2 derives lights out from the first green
+        race lap-data tick and records the source in every artifact."""
+        b = self.booth
+        w = self.world
+        if b is None or b.lights_out_t is not None:
+            return
+        if w.session_kind == "RACE" and w.last_lapdata_t and w.safety_car != 3:
+            if any(c.on_track for c in w.real_cars()):
+                self._emit_preflight()
+                b.set_lights_out(t, "derived:first_green_lapdata")
+                if self.session:
+                    self.session.writer.marker(t)
+                b.add(t, "LIGHTS_OUT", detail="lights out (derived)")
+                self.log(">>> LIGHTS OUT (derived) at t+%s"
+                         % tc(t - (self.t0 or t)))
+
+    # ---- per-packet --------------------------------------------------------
+    def _handle(self, t, data):
+        res = self.parser.feed(t, data)
+        self.maybe_roll(t)
+        if self.session and self.world.session_type is not None:
+            self.session.identity["session_type"] = self.world.session_type
+            self.session.identity["track_id"] = self.world.track_id
+            self.session.identity["total_laps"] = self.world.total_laps
+        if self.session:
+            self._resolve_identities(t)
+            self._maybe_lights_out(t)
+        if self.gallery:
+            self.gallery.observe(t)
+        if res is None:
+            return
+        kind, info = res
+        if kind == "EVENT":
+            self._on_event(t, info)
+        elif kind == "FINALCLASS":
+            if self.booth and self.world.chequered_t is None:
+                self.world.chequered_t = t
+                self.booth.add(t, "CHEQUERED", detail="final classification received")
+
+    def _car(self, idx):
+        if idx is None or not (0 <= idx < MAX_CARS):
+            return None
+        return self.world.cars[idx]
+
+    def _on_event(self, t, info):
+        code = info.get("code")
+        w = self.world
+        b = self.booth
+        if b is None:
+            return
+        if self.session:
+            self.session.log_event("%.3f %s %s" % (t, code, json.dumps(info)))
+
+        if code == "LGOT":
+            self._emit_preflight()
+            b.set_lights_out(t, "LGOT")
+            w.lights_out_t = t
+            if self.session:
+                self.session.writer.marker(t)
+            b.add(t, "LIGHTS_OUT", detail="lights out")
+            self.log(">>> LIGHTS OUT at t+%s" % tc(t - (self.t0 or t)))
+        elif code == "COLL":
+            a, o = self._car(info.get("car")), self._car(info.get("other_car"))
+            if a and o:
+                self.pitwall.boost(t, a.idx, "COLLISION")
+                self.pitwall.boost(t, o.idx, "COLLISION")
+                if self.gallery:
+                    self.gallery.note_incident(t)
+                b.add(t, "COLLISION", cars=[a, o],
+                      detail="contact between %s and %s" % (a.spoken, o.spoken))
+        elif code == "RTMT":
+            a = self._car(info.get("car"))
+            if a:
+                self.pitwall.boost(t, a.idx, "RETIREMENT")
+                if self.gallery:
+                    self.gallery.note_incident(t)
+                cause, avail = self._retire_cause(t, a)
+                b.add(t, "RETIREMENT", cars=[a], cause=cause,
+                      cause_available=avail, detail="retirement")
+        elif code == "PENA":
+            a = self._car(info.get("car"))
+            if a:
+                self.pitwall.boost(t, a.idx, "PENALTY")
+                b.add(t, "PENALTY", cars=[a],
+                      detail="penalty type %s infringement %s"
+                             % (info.get("penalty_type"), info.get("infringement")))
+        elif code == "FTLP":
+            a = self._car(info.get("car"))
+            if a:
+                self.pitwall.boost(t, a.idx, "FASTEST_LAP")
+                b.add(t, "FASTEST_LAP", cars=[a],
+                      detail="%.3fs" % (info.get("lap_time") or 0.0))
+        elif code == "SPTP":
+            a = self._car(info.get("car"))
+            if a and info.get("overall_fastest"):
+                self.pitwall.boost(t, a.idx, "SPEED_TRAP")
+                b.add(t, "SPEED_TRAP", cars=[a], detail="speed trap",
+                      extra={"speed": "%.1f kph" % info.get("speed", 0)})
+        elif code == "OVTK":
+            a = self._car(info.get("car"))
+            if a:
+                self.pitwall.boost(t, a.idx, "OVTK_HINT")
+        elif code == "SCAR":
+            et = info.get("event_type")
+            if et == 0:
+                if self.gallery:
+                    self.gallery.note_incident(t)
+                b.add(t, "SAFETY_CAR", detail="safety car type %s" % info.get("sc_type"))
+                self.pitwall.boost(t, w.leader_idx if w.leader_idx is not None else 0,
+                                   "SAFETY_CAR")
+            elif et in (1, 2, 3):
+                b.add(t, "SAFETY_CAR_END", detail="safety car event %s" % et)
+        elif code == "RCWN":
+            a = self._car(info.get("car"))
+            if a:
+                b.add(t, "RACE_WINNER", cars=[a], detail="race winner")
+        elif code == "CHQF":
+            if w.chequered_t is None:
+                w.chequered_t = t
+            b.add(t, "CHEQUERED", detail="chequered flag")
+
+    def _retire_cause(self, t, car):
+        """Retirement reason is always zero in this build; the cause arrives on
+        the penalty event (Drama Rev 2). Recover it or mark unavailable."""
+        for (bt, kind) in reversed(self.pitwall.boosts.get(car.idx, [])):
+            if t - bt <= 30.0 and kind in ("COLLISION", "PENALTY"):
+                return ({"COLLISION": "the earlier contact",
+                         "PENALTY": "the penalty"}[kind], True)
+        return (None, False)
+
+    # ---- derived signals ---------------------------------------------------
+    def derive(self, t):
+        w = self.world
+        b = self.booth
+        if b is None:
+            return
+        pw = self.pitwall.pw
+        field = w.real_cars()
+        prev_map = dict(self.prev_positions)
+        cur_map = {c.idx: c.position for c in field}
+        self.prev_positions = dict(cur_map)
+
+        for c in field:
+            prev = prev_map.get(c.idx)
+            if prev is None or prev == c.position or c.position == 0:
+                continue
+            if c.position >= prev:
+                continue
+            if abs(prev - c.position) != 1:
+                continue
+            loser = None
+            for o in field:
+                if o.idx == c.idx:
+                    continue
+                if (cur_map.get(o.idx) == prev
+                        and prev_map.get(o.idx) == c.position):
+                    loser = o
+                    break
+            if loser is None:
+                continue
+            if c.pit_status != 0 or loser.pit_status != 0:
+                continue
+            self.pitwall.boost(t, c.idx, "OVERTAKE")
+            self.pitwall.boost(t, loser.idx, "OVERTAKE")
+            b.add(t, "OVERTAKE", cars=[c, loser],
+                  detail="derived pass: %s P%d over %s"
+                         % (c.spoken, c.position, loser.spoken))
+
+        lead = w.car_at_position(1)
+        if lead is not None:
+            if self.prev_leader is not None and lead.idx != self.prev_leader:
+                prev_lead = self._car(self.prev_leader)
+                cars = [lead] + ([prev_lead] if prev_lead else [])
+                self.pitwall.boost(t, lead.idx, "LEADER_CHANGE")
+                b.add(t, "LEADER_CHANGE", cars=cars,
+                      detail="new leader %s" % lead.spoken)
+            self.prev_leader = lead.idx
+
+        for c in w.real_cars():
+            prev = self.prev_pit.get(c.idx, 0)
+            self.prev_pit[c.idx] = c.pit_status
+            if prev == 0 and c.pit_status in (1, 2):
+                self.pitwall.boost(t, c.idx, "PIT_IN")
+                b.add(t, "PIT_IN", cars=[c], detail="pit entry from P%d" % c.position)
+            elif prev in (1, 2) and c.pit_status == 0:
+                self.pitwall.boost(t, c.idx, "PIT_OUT")
+                b.add(t, "PIT_OUT", cars=[c], detail="rejoins in P%d" % c.position)
+
+        if w.session_kind == "RACE":
+            field = w.by_position()
+            pos_map = {c.position: c for c in field}
+            gmax = pw.get("battle_gap_max_s", 1.2)
+            tthr = pw.get("battle_trend_threshold", -0.05)
+            cooldown = pw.get("battle_cooldown_s", 45.0)
+            for c in field:
+                ahead = pos_map.get(c.position - 1)
+                if ahead is None:
+                    continue
+                g = c.delta_front
+                if not (0.0 < g < gmax):
+                    continue
+                trend = c.gap_trend()
+                if trend is None or trend > tthr:
+                    continue
+                key = (min(c.idx, ahead.idx), max(c.idx, ahead.idx))
+                if t - self.battle_seen.get(key, 0) < cooldown:
+                    continue
+                self.battle_seen[key] = t
+                self.pitwall.boost(t, c.idx, "BATTLE")
+                b.add(t, "BATTLE", cars=[c, ahead],
+                      detail="%s closing on %s" % (c.spoken, ahead.spoken),
+                      extra={"gap": "%.2fs" % g})
+
+    # ---- the shared decision tick (identical live and replay) --------------
+    def _decision_tick(self, t):
+        if self.session and t - self.last_derive >= self.derive_interval:
+            self.last_derive = t
+            self.derive(t)
+        if self.gallery and t - self.last_decide >= self.decide_interval:
+            self.last_decide = t
+            ranked = self.pitwall.score_field(t, self.gallery.subject)
+            lld = self.world.last_lapdata_t
+            dormant = (lld <= 0) or (t - lld > self.dormant_age)
+            busy = self.booth and self.booth.scheduler.channel_busy_until > t
+            self.gallery.decide(t, ranked, self.pump, dormant=dormant,
+                                channel_busy=bool(busy))
+        if self.booth:
+            self.booth.tick(t)
+
+    def status_line(self, t, ranked):
+        w = self.world
+        subj = self.gallery.subject if self.gallery else None
+        subj_car = self._car(subj)
+        top = ", ".join("%s%.0f" % (r["car"].spoken[:9], r["score"])
+                        for r in ranked[:4])
+        self.log("t+%s | %s | cars %2d | rx %6d | SC %d | ON AIR: %s | %s"
+                 % (tc(t - (self.t0 or t)),
+                    SESSION_TYPE_NAMES.get(w.session_type, "?")[:16],
+                    len(w.real_cars()), self.rx_packets, w.safety_car,
+                    (subj_car.spoken if subj_car else "--"), top))
+
+    # ---- replay run --------------------------------------------------------
+    def run_replay(self):
+        path = self.args.replay
+        reader = ReplayReader(path)
+        hdr = reader.header()
+        print("=" * 78)
+        print(" %s %s (%s) -- REPLAY" % (TOOL_NAME, TOOL_VERSION, TOOL_DATE))
+        print(" bin: %s" % path)
+        print(" writer: %s  format_version=%s"
+              % (hdr.get("writer") or hdr.get("script"), hdr.get("format_version")))
+        print(" config_hash: %s" % self.config.hash)
+        if self.roster.hash:
+            print(" roster: %s (%s)" % (self.roster.league, self.roster.hash[:12]))
+        print("=" * 78)
+        first = True
+        last_status = 0.0
+        for t, payload in reader.records():
+            if first:
+                self.t0 = t
+                first = False
+            self.rx_packets += 1
+            self.rx_bytes += len(payload)
+            self._handle(t, payload)
+            self._decision_tick(t)
+            if t - last_status > 30.0:
+                last_status = t
+                ranked = self.pitwall.score_field(t, self.gallery.subject
+                                                  if self.gallery else None)
+                if self.session:
+                    self.status_line(t, ranked)
+            # idle roll-out on packet time
+            if self.session:
+                lld = self.world.last_lapdata_t
+                if lld > self.session.started_unix and t - lld > self.args.idle_close:
+                    self.log("no lap data for %ds -- closing session"
+                             % int(self.args.idle_close))
+                    self.close_session()
+        self.close_session()
+        self.write_run_summary()
+        return 0
+
+    # ---- live run ----------------------------------------------------------
+    def run(self):
+        if self.replay:
+            return self.run_replay()
+        a = self.args
+        print("=" * 78)
+        print(" %s %s (%s)" % (TOOL_NAME, TOOL_VERSION, TOOL_DATE))
+        print(" Project Hoover -- live director, recorder and beat sheet")
+        print("=" * 78)
+        print(" Output root : %s" % os.path.join(self.root, self.run_id))
+        print(" UDP port    : %d" % a.port)
+        print(" Config      : %s (%s)" % (self.config.path, self.config.hash[:12]))
+        print(" Camera      : %s" % ("DISABLED (advisory only)" if a.no_camera
+                                     else ("ENABLED (SendInput scancode)"
+                                           if self.sender.available
+                                           else "UNAVAILABLE on this host")))
+        if a.forward_port:
+            print(" Forwarding  : 127.0.0.1:%d" % a.forward_port)
+        print("=" * 78)
+
+        sim = None
+        if a.simulate:
+            sim = Simulator(a.port, cars=a.sim_cars, speed=a.sim_speed,
+                            roll_at=a.sim_roll_at, quiet_from=a.sim_quiet_from)
+            threading.Thread(target=sim.run, daemon=True).start()
+            print(" SIMULATOR RUNNING -- synthetic packets, no game required")
+
+        if not a.simulate:
+            print()
+            print("  1. Start OBS recording NOW.")
+            print("  2. Press ENTER here the moment recording is rolling.")
+            print("  3. You then get %d seconds to click the F1 25 window."
+                  % a.focus_delay)
+            print()
+            try:
+                input("  Press ENTER when OBS is recording... ")
+            except (EOFError, KeyboardInterrupt):
+                return 1
+
+        self.t0 = time.time()
+        with open(os.path.join(self.root, self.run_id, "SYNC.txt"), "w") as f:
+            f.write("OBS T0 (unix): %.6f\n" % self.t0)
+            f.write("OBS T0 (local): %s\n" % datetime.now().isoformat())
+            f.write("All beat timecodes are relative to this instant.\n")
+        self.log("T0 set: %.3f" % self.t0)
+
+        if not a.simulate and a.focus_delay > 0:
+            for i in range(a.focus_delay, 0, -1):
+                print("  Click the F1 25 window... %d " % i, end="\r", flush=True)
+                time.sleep(1.0)
+            print(" " * 40, end="\r")
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+        try:
+            self.sock.bind((a.bind, a.port))
+        except OSError as e:
+            self.log("FATAL: cannot bind %s:%d (%s)." % (a.bind, a.port, e))
+            return 2
+        self.sock.settimeout(0.25)
+        if a.forward_port:
+            self.fwd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        rx = threading.Thread(target=self._rx_thread, daemon=True)
+        rx.start()
+        self.log("listening on %s:%d" % (a.bind, a.port))
+
+        try:
+            while not self.stop:
+                try:
+                    t, data = self.q.get(timeout=0.25)
+                    self._handle(t, data)
+                except queue.Empty:
+                    pass
+                now = time.time()
+                self._decision_tick(now)
+                if now - self.last_status > a.status_every and self.session:
+                    self.last_status = now
+                    ranked = self.pitwall.score_field(now, self.gallery.subject
+                                                      if self.gallery else None)
+                    self.status_line(now, ranked)
+                if self.session:
+                    lld = self.world.last_lapdata_t
+                    if lld > self.session.started_unix and now - lld > a.idle_close:
+                        self.log("no lap data for %ds -- closing session"
+                                 % int(a.idle_close))
+                        self.close_session()
+        except KeyboardInterrupt:
+            self.log("interrupt -- finalising")
+        finally:
+            self.stop = True
+            if sim:
+                sim.stop = True
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.close_session()
+            for th in threading.enumerate():
+                if th is not threading.current_thread() and not th.daemon:
+                    th.join(timeout=120)
+            self.write_run_summary()
+        return 0
+
+    def write_run_summary(self):
+        run_dir = os.path.join(self.root, self.run_id)
+        sessions = []
+        for name in sorted(os.listdir(run_dir)):
+            p = os.path.join(run_dir, name)
+            if not os.path.isdir(p):
+                continue
+            for fn in os.listdir(p):
+                if fn.endswith("_manifest.json"):
+                    try:
+                        with open(os.path.join(p, fn), encoding="utf-8") as fh:
+                            sessions.append(json.load(fh))
+                    except Exception:
+                        pass
+        summary = {
+            "run_id": self.run_id,
+            "tool": "%s_%s_%s" % (TOOL_NAME, TOOL_VERSION, TOOL_DATE),
+            "config_hash": self.config.hash,
+            "roster_hash": self.roster.hash,
+            "mode": "replay" if self.replay else "live",
+            "obs_t0_unix": self.t0,
+            "sessions": len(sessions),
+            "total_packets": self.rx_packets,
+            "total_bytes": self.rx_bytes,
+        }
+        with open(os.path.join(run_dir, "RUN_SUMMARY.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+        self.log("run summary written: %s"
+                 % os.path.join(run_dir, "RUN_SUMMARY.json"))
+
+
+# =============================================================================
+# SECTION 13 -- TIER A DETECTORS (Item 13)
+# =============================================================================
+# Pure functions over finished artifacts. No game, no bin. A detector may never
+# be relaxed to accommodate output: if one fires repeatedly and the output
+# sounds fine, the DECLARATION changes, in writing, with a reason (V2 s14).
+
+def _load_jsonl(path):
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                out.append(json.loads(line))
+    return out
+
+
+def detect_A1_overlap(lines):
+    """Two air intervals overlap by any amount."""
+    hits = []
+    ordered = sorted([l for l in lines if l.get("air_t") is not None],
+                     key=lambda l: l["air_t"])
+    for a, b in zip(ordered, ordered[1:]):
+        end_a = a["air_t"] + a["est_duration_s"]
+        if b["air_t"] < end_a - 1e-6:
+            hits.append((a["line_id"], b["line_id"],
+                         round(end_a - b["air_t"], 3)))
+    return hits
+
+
+def detect_A2_line_past_hold(lines, cuts):
+    """A line extends past the hold it was budgeted against."""
+    hits = []
+    cuts = sorted([c for c in cuts if c.get("air_offset_s") is not None],
+                  key=lambda c: c["air_offset_s"])
+    for l in lines:
+        off = l.get("air_offset_s")
+        if off is None:
+            continue
+        cur = None
+        for i, c in enumerate(cuts):
+            if c["air_offset_s"] <= off:
+                cur = (c, cuts[i + 1] if i + 1 < len(cuts) else None)
+        if not cur:
+            continue
+        c, nxt = cur
+        hold = (nxt["air_offset_s"] - c["air_offset_s"]) if nxt else None
+        if hold is not None and l["est_duration_s"] > hold + 1e-6:
+            hits.append((l["line_id"], round(l["est_duration_s"], 2),
+                         round(hold, 2)))
+    return hits
+
+
+def detect_A3_fusion_no_cause(records):
+    """A fusion airs with an empty cause and no unavailable marker."""
+    hits = []
+    for r in records:
+        if r.get("type") == "COLLAPSE" or (r.get("record") == "line"
+                                           and r.get("type") == "COLLAPSE"):
+            cause = r.get("cause")
+            if not cause:
+                hits.append(r.get("line_id") or r.get("t_unix"))
+    return hits
+
+
+def detect_A4_slot_burn(lines, burn_window_s, bank_sizes=None):
+    """An AVOIDABLE slot-value repeat inside the burn window.
+
+    Declaration (V2 s09 sanctions changing the declaration in writing): the burn
+    ledger's contract is to avoid reusing a slot value while an unused bank value
+    remains. A repeat forced by an exhausted bank -- unavoidable, and expected
+    over a long dense race with a finite bank -- is degradation, not a defect,
+    and is not counted here. A4 fires only when a value is reused within the
+    window while the number of distinct values already used for that slot type is
+    below the bank size, i.e. the ledger could have chosen otherwise."""
+    bank_sizes = bank_sizes or {k: len(v) for k, v in SLOT_BANKS.items()}
+    hits = []
+    last = {}
+    distinct = collections.defaultdict(set)
+    for l in sorted(lines, key=lambda l: l.get("air_t") or 0):
+        t = l.get("air_t") or 0
+        for slot in l.get("slots", []):
+            st, val = slot[0], slot[1]
+            key = (st, val)
+            # prune distinct set to the window
+            distinct[st] = {v for v in distinct[st]
+                            if last.get((st, v), -1e18) >= t - burn_window_s}
+            avoidable = len(distinct[st]) < bank_sizes.get(st, 1)
+            if key in last and (t - last[key]) < burn_window_s and avoidable:
+                hits.append((l["line_id"], key, round(t - last[key], 1)))
+            last[key] = t
+            distinct[st].add(val)
+    return hits
+
+
+def detect_A6_coverage_floor(beats, lines, floor_kinds):
+    """A coverage-floor event gets neither a cut nor a line."""
+    hits = []
+    line_kinds_by_t = [(l.get("air_t"), l.get("type")) for l in lines]
+    for bt in beats:
+        if bt.get("type") in floor_kinds:
+            k = bt["type"]
+            if not any(lk == k for _, lk in line_kinds_by_t):
+                hits.append((k, bt.get("t_unix")))
+    return hits
+
+
+def detect_A7_raw_gamertag(lines, raw_handles):
+    """A raw gamertag reaches the script."""
+    hits = []
+    for l in lines:
+        text = l.get("text", "")
+        for h in raw_handles:
+            if h and h in text:
+                hits.append((l["line_id"], h))
+        if re.search(r"\bPlayer\b", text):
+            hits.append((l["line_id"], "Player"))
+    return hits
+
+
+def _expected_part_mult(participations, part_cfg):
+    """Replicate PitWall.participation_mult so a detector can verify a logged
+    multiplier came from the one shared function rather than a hand-rolled
+    value."""
+    cars = [p for p in participations if p]
+    if not cars:
+        return part_cfg.get("ai_vs_ai", 0.5)
+    humans = sum(1 for p in cars if p == "human")
+    if len(cars) == 1:
+        return part_cfg.get("human_alone", 1.4) if humans else part_cfg.get("ai_vs_ai", 0.5)
+    if humans >= 2:
+        return part_cfg.get("human_vs_human", 2.2)
+    if humans == 1:
+        return part_cfg.get("human_vs_ai", 1.6)
+    return part_cfg.get("ai_vs_ai", 0.5)
+
+
+def detect_A9_participation_mismatch(beats, part_cfg):
+    """Booth and Gallery apply different participation multipliers to the same
+    driver.
+
+    Declaration: the two consumers are the SAME function (PitWall.participation_
+    mult), so the check that they never diverge is the check that every logged
+    multiplier equals what that function yields for its own record's car set. A
+    hand-rolled or stale value on either side -- the only way they could diverge
+    -- fails this. A multiplier legitimately differs when the car set differs,
+    so raw values are not compared across records."""
+    allowed = set(round(v, 6) for v in part_cfg.values())
+    hits = []
+    for b in beats:
+        cars = b.get("cars", [])
+        pm = b.get("participation_mult")
+        if not cars or pm is None:
+            continue      # participation is only meaningful for a car-bearing beat
+        if round(pm, 6) not in allowed:
+            hits.append((b.get("type"), "off-menu multiplier", pm))
+            continue
+        expected = _expected_part_mult([c.get("participation") for c in cars],
+                                       part_cfg)
+        if abs(expected - pm) > 1e-6:
+            hits.append((b.get("type"), expected, pm))
+    return hits
+
+
+def detect_A10_oversuppression(suppression, lines):
+    """A suppressed line's pair and position never reappear."""
+    hits = []
+    for s in suppression:
+        if s.get("rule") != "inverse_pair":
+            continue
+        pair = s.get("removed_pair")
+        pos = s.get("removed_position")
+        if pair is None:
+            continue
+        seen = any(l.get("type") in ("OVERTAKE", "BATTLE", "COLLAPSE")
+                   for l in lines)
+        if not seen:
+            hits.append((pair, pos))
+    return hits
+
+
+def detect_A11_exclusive_states(lines, window_s=1.0):
+    """Two mutually exclusive states announced inside one second."""
+    hits = []
+    leaders = sorted([l for l in lines if l.get("type") == "LEADER_CHANGE"
+                      and l.get("air_t") is not None], key=lambda l: l["air_t"])
+    for a, b in zip(leaders, leaders[1:]):
+        if (b["air_t"] - a["air_t"]) < window_s \
+                and a.get("subject") != b.get("subject"):
+            hits.append((a["line_id"], b["line_id"]))
+    return hits
+
+
+def detect_A12_config_hash(hashes):
+    """Config hash mismatch across artifacts from one run."""
+    present = [h for h in hashes if h]
+    if len(set(present)) > 1:
+        return [tuple(sorted(set(present)))]
+    return []
+
+
+def detect_A13_over_ceiling(lines, ceiling):
+    """Any line exceeds the hard ceiling."""
+    return [(l["line_id"], l["word_count"]) for l in lines
+            if l.get("word_count", 0) > ceiling]
+
+
+def detect_A14_nonderivable_claim(lines):
+    """A non-derivable claim for a tier whose material is absent. Here: a line
+    marked cause-unavailable must not assert a specific cause."""
+    hits = []
+    for l in lines:
+        if l.get("cause") == "unavailable":
+            text = l.get("text", "").lower()
+            if "the cause is" in text and "not clear" not in text:
+                hits.append(l["line_id"])
+    return hits
+
+
+def run_detectors(artifact_dir, stem, config_path):
+    """Load a run's artifacts and run every Tier A detector. Returns a dict
+    {detector: hit_list}; a healthy run reads zero everywhere."""
+    cfg = Config(config_path)
+    ceiling = cfg.get("booth", "hard_ceiling_words", default=33)
+    burn_window = cfg.get("booth", "burn_window_s", default=600.0)
+    floor_kinds = cfg.get("coverage_floor", default=[]) or []
+
+    beats_path = os.path.join(artifact_dir, stem + "_beats.jsonl")
+    cuts_path = os.path.join(artifact_dir, stem + "_cuts.csv")
+    lex_path = os.path.join(artifact_dir, stem + "_lexicon.json")
+
+    records = _load_jsonl(beats_path) if os.path.exists(beats_path) else []
+    lines = [r for r in records if r.get("record") == "line"]
+    beats = [r for r in records if r.get("record") == "beat"]
+    suppression = [r for r in records if r.get("record") == "suppression"]
+    summary = next((r for r in records if r.get("record") == "summary"), {})
+
+    cuts = []
+    if os.path.exists(cuts_path):
+        with open(cuts_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                try:
+                    cuts.append({
+                        "t": float(row["t_unix"]),
+                        "air_offset_s": float(row["air_offset_s"]) if row["air_offset_s"] else None,
+                        "spoken": row["spoken"],
+                        "participation_mult": float(row["participation_mult"]) if row["participation_mult"] else None,
+                    })
+                except Exception:
+                    pass
+
+    raw_handles = set()
+    for b in beats:
+        for c in b.get("cars", []):
+            sp = c.get("spoken")
+    # raw handles come from the roster/preflight if present
+    pf_path = os.path.join(artifact_dir, stem + "_preflight.json")
+    if os.path.exists(pf_path):
+        pf = json.load(open(pf_path, encoding="utf-8"))
+        for c in pf.get("cars", []):
+            h = c.get("handle")
+            if h and h != c.get("spoken") and h != c.get("short"):
+                raw_handles.add(h)
+
+    hashes = [summary.get("config_hash")]
+    if os.path.exists(lex_path):
+        try:
+            hashes.append(json.load(open(lex_path, encoding="utf-8")).get("config_hash"))
+        except Exception:
+            pass
+
+    return {
+        "A1_overlap": detect_A1_overlap(lines),
+        "A2_line_past_hold": detect_A2_line_past_hold(lines, cuts),
+        "A3_fusion_no_cause": detect_A3_fusion_no_cause(lines),
+        "A4_slot_burn": detect_A4_slot_burn(lines, burn_window),
+        "A6_coverage_floor": detect_A6_coverage_floor(beats, lines, floor_kinds),
+        "A7_raw_gamertag": detect_A7_raw_gamertag(lines, raw_handles),
+        "A9_participation_mismatch": detect_A9_participation_mismatch(
+            beats, cfg.get("pit_wall", "participation", default={})),
+        "A10_oversuppression": detect_A10_oversuppression(suppression, lines),
+        "A11_exclusive_states": detect_A11_exclusive_states(lines),
+        "A12_config_hash": detect_A12_config_hash(hashes),
+        "A13_over_ceiling": detect_A13_over_ceiling(lines, ceiling),
+        "A14_nonderivable_claim": detect_A14_nonderivable_claim(lines),
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Baby Hoover V2 -- F1 25 offline decision layer (live + replay)")
+    ap.add_argument("--port", type=int, default=20777, help="UDP port (default 20777)")
+    ap.add_argument("--bind", default="0.0.0.0")
+    ap.add_argument("--outdir", default="./hoover_runs")
+    ap.add_argument("--run-id", default=None)
+    ap.add_argument("--config", default=None,
+                    help="path to hoover_config_v2.json (default: beside script)")
+    ap.add_argument("--roster", default=None,
+                    help="path to hoover_roster_<league>.json")
+    ap.add_argument("--replay", default=None,
+                    help="replay a captured .bin instead of the live socket")
+    ap.add_argument("--note", default="", help="operator note into the manifest")
+    ap.add_argument("--no-camera", action="store_true",
+                    help="do not send keystrokes; log advisory cuts only")
+    ap.add_argument("--forward-port", type=int, default=0)
+    ap.add_argument("--focus-delay", type=int, default=10)
+    ap.add_argument("--status-every", type=float, default=10.0)
+    ap.add_argument("--idle-close", type=float, default=90.0)
+    ap.add_argument("--walk-fallback", action="store_true")
+    ap.add_argument("--simulate", action="store_true",
+                    help="dry run with synthetic packets, no game needed")
+    ap.add_argument("--sim-cars", type=int, default=6)
+    ap.add_argument("--sim-roll-at", type=float, default=0.0)
+    ap.add_argument("--sim-quiet-from", type=float, default=0.0)
+    ap.add_argument("--sim-speed", type=float, default=1.0)
+    ap.add_argument("--detectors", default=None,
+                    help="run Tier A detectors over an artifact dir; give DIR:STEM")
+    args = ap.parse_args()
+
+    if args.detectors:
+        d, _, stem = args.detectors.partition(":")
+        cfg = args.config or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          DEFAULT_CONFIG_NAME)
+        res = run_detectors(d, stem, cfg)
+        total = sum(len(v) for v in res.values())
+        print(json.dumps(res, indent=2))
+        print("TIER A TOTAL: %d" % total)
+        return 0 if total == 0 else 3
+
+    if args.simulate or args.replay:
+        args.no_camera = True
+
+    return BabyHoover(args).run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

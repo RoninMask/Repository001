@@ -1,0 +1,8 @@
+{
+  "silverstone_bin1": {"subfolder": "bin1_live_sim", "stem": null, "source": "replay",
+                       "parity_twin": {"subfolder": "bin1_test", "stem": null, "source": "fast"}},
+  "baku":             {"subfolder": "bin2_baku_live", "stem": null, "source": "replay"},
+  "austria":          {"subfolder": "bin_8_sep_race_austria/01_Austria_Race", "stem": "HOOVER_20260916_101841_s01", "source": "replay"},
+  "silverstone_s04":  {"subfolder": "bin_wx_1/04_Silverstone_Race", "stem": "HOOVER_20260916_061742_s04", "source": "replay"},
+  "silverstone_s02":  {"subfolder": "bin_wx_2/02_Silverstone_Race", "stem": "HOOVER_20260916_071539_s02", "source": "replay"}
+}

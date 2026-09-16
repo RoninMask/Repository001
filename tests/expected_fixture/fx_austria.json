@@ -1,0 +1,35 @@
+{
+  "race_id": "fx_austria",
+  "evidence_doc": "synthetic fixture mirroring austria (brief section 10.1)",
+  "anchors": [
+    {"id": "AN-FA-counts", "kind": "record_counts", "packets": 834, "markers": 1},
+    {"id": "AN-FA-no-lgot", "kind": "event_absent", "code": "LGOT"},
+    {"id": "AN-FA-winner", "kind": "classified_winner", "car": 15, "name_contains": "VaLoR"},
+    {"id": "AN-FA-car19", "kind": "participant", "car": 19, "race_number": 76, "team": 2,
+     "your_telemetry": 0, "human": true},
+    {"id": "AN-FA-car17", "kind": "participant", "car": 17, "race_number": 2, "team": 2},
+    {"id": "AN-FA-car18", "kind": "participant", "car": 18, "race_number": 2, "team": 1}
+  ],
+  "assertions": [
+    {"id": "E-FA-01", "check": "A15", "scope": {"sub": "c"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: 'Lights out' voiced; no LGOT in the capture."},
+    {"id": "E-FA-02", "check": "A6", "scope": {"occurrence": "winner"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: winner car 15 never named."},
+    {"id": "E-FA-03", "check": "A16", "scope": {"sub": "after_finish"}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: filler after leader finish."},
+    {"id": "E-FA-04", "check": "A21", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: car 4 on screen at leader finish."},
+    {"id": "E-FA-05", "check": "A27", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: 'car seventy-six' lower case; 'Car 19' in cuts."},
+    {"id": "E-FA-06", "check": "A1", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: no overlapping lines."},
+    {"id": "E-FA-07", "check": "A7", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: no raw gamertags in texts."},
+    {"id": "E-FA-08", "check": "H1", "scope": {}, "v2": "pass", "gated": true,
+     "evidence": "Fixture: byte accounting balanced."},
+    {"id": "E-FA-09", "check": "H2", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: 1 marker record."},
+    {"id": "E-FA-10", "check": "H3", "scope": {}, "v2": "fail", "gated": true,
+     "evidence": "Fixture: manifest histogram over by 18."}
+  ]
+}
