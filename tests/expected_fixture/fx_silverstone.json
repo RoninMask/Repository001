@@ -183,7 +183,9 @@
     {
       "id": "V3-FS-01",
       "check": "A15",
-      "scope": {},
+      "scope": {
+        "sub": "within"
+      },
       "v2": "observe",
       "v3": "pass",
       "gated": true,
@@ -194,7 +196,8 @@
       "id": "V3-FS-02",
       "check": "A6",
       "scope": {
-        "occurrence": "winner"
+        "occurrence": "winner",
+        "window_s": 5
       },
       "v2": "observe",
       "v3": "pass",
@@ -262,6 +265,18 @@
       "gated": true,
       "pass": 1,
       "evidence": "V3 fast vs V3 paced parity"
+    },
+    {
+      "id": "V3-FS-08",
+      "check": "A6",
+      "scope": {
+        "occurrence": "lead_change"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Four-swap lead flurry 600.0-612.0 grouped into one occurrence; a LEAD_CONTEST line names a car in it"
     },
     {
       "id": "V3-FS-32",

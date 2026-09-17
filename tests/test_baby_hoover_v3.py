@@ -82,8 +82,9 @@ def grid(world, n=6):
     world.last_lapdata_t = None
 
 
-def lap(world, order, statuses=None, pits=None, speeds=None):
-    """Set positions from order (list front-to-back) and optional overrides."""
+def lap(world, order, statuses=None, pits=None, speeds=None, lapnum=1):
+    """Set positions from order (list front-to-back) and optional overrides.
+    lapnum sets currentLapNum for all cars (A2's race-distance check)."""
     statuses = statuses or {}
     pits = pits or {}
     posn = {idx: i + 1 for i, idx in enumerate(order)}
@@ -95,6 +96,7 @@ def lap(world, order, statuses=None, pits=None, speeds=None):
         c.position = posn.get(c.idx, 0)
         c.result_status = statuses.get(c.idx, 2 if c.idx in posn else c.result_status)
         c.pit_status = pits.get(c.idx, 0)
+        c.lap = lapnum
 
 
 def kinds(model):
@@ -136,12 +138,13 @@ class TestAnchor(unittest.TestCase):
         m = make_model()
         w = m.w
         grid(w, 6)
-        # cars crawling, then accelerate past 30 km/h and hold for the sustain
+        # cars stationary, then accelerate past the speed floor and hold for
+        # the sustain (config: speed_kph 5, sustain_s 1.0)
         t = 1004.0
         while t <= 1004.5:
             w.last_lapdata_t = t
             lap(w, [0, 1, 2, 3, 4, 5])
-            m.on_speeds(t, {i: 5 for i in range(6)})
+            m.on_speeds(t, {i: 0 for i in range(6)})
             m.observe(t)
             t = round(t + 0.5, 3)
         self.assertIsNone(m.anchor_t)
@@ -250,12 +253,12 @@ class TestFinish(unittest.TestCase):
         m.on_event(1010.6, {"code": "LGOT"})
         # a car in P3 flips to finished first -> NOT a leader finish
         w.last_lapdata_t = 1200.0
-        lap(w, [0, 1, 2, 3], statuses={2: 3})
+        lap(w, [0, 1, 2, 3], statuses={2: 3}, lapnum=5)
         m.observe(1200.0)
         self.assertIsNone(m.leader_finish_t)
         # now the P1 car flips to finished -> leader finish
         w.last_lapdata_t = 1201.0
-        lap(w, [0, 1, 3], statuses={2: 3, 0: 3})
+        lap(w, [0, 1, 3], statuses={2: 3, 0: 3}, lapnum=5)
         m.observe(1201.0)
         self.assertEqual(m.leader_finish_t, 1201.0)
         self.assertEqual(m.road_winner, 0)
@@ -286,7 +289,7 @@ class TestFinish(unittest.TestCase):
         grid(w, 3)
         m.on_event(1010.6, {"code": "LGOT"})
         w.last_lapdata_t = 1200.0
-        lap(w, [0, 1, 2], statuses={0: 3})
+        lap(w, [0, 1, 2], statuses={0: 3}, lapnum=5)
         m.observe(1200.0)
 
 
@@ -564,6 +567,193 @@ class TestConfig(unittest.TestCase):
         m.observe(1104.0)
         self.assertNotIn("PASS", kinds(m))   # hold never met -> no pass
         os.unlink(path)
+
+
+class TestFixRound1(unittest.TestCase):
+    # A2: a car in P1 flipping to status 3 short of the race distance is NOT a
+    # finish (the Baku trap)
+    def test_p1_flip_short_of_distance_is_not_a_finish(self):
+        m = make_model()
+        w = m.w
+        grid(w, 4)
+        w.total_laps = 13
+        m.on_event(1010.6, {"code": "LGOT"})
+        w.last_lapdata_t = 1200.0
+        lap(w, [0, 1, 2, 3], statuses={0: 3, 1: 3, 2: 3, 3: 3}, lapnum=1)
+        m.observe(1200.0)
+        self.assertIsNone(m.leader_finish_t)     # only lap 1 of 13
+        self.assertFalse(any(c.kind == "WINNER" for c in m.claims_out))
+        m.on_event(1300.0, {"code": "SEND"})
+        m.check_idle_end(1400.0)
+        self.assertEqual(m.state, "ended_without_finish")
+
+    def test_finish_by_chqf_when_total_laps_unknown(self):
+        m = make_model()
+        w = m.w
+        grid(w, 3)
+        w.total_laps = 0
+        m.on_event(1010.6, {"code": "LGOT"})
+        w.last_lapdata_t = 1200.0
+        lap(w, [0, 1, 2], statuses={0: 3}, lapnum=1)
+        m.observe(1200.0)
+        self.assertIsNone(m.leader_finish_t)     # no CHQF yet
+        m.on_event(1201.0, {"code": "CHQF"})
+        w.last_lapdata_t = 1202.0
+        lap(w, [1, 2], statuses={0: 3}, lapnum=1)   # car 0 still P1 finished
+        # re-open the finish path: car 0 already recorded; use a fresh P1 car
+        m2 = make_model()
+        w2 = m2.w
+        grid(w2, 3)
+        w2.total_laps = 0
+        m2.on_event(1010.6, {"code": "LGOT"})
+        m2.on_event(1199.0, {"code": "CHQF"})
+        w2.last_lapdata_t = 1200.0
+        lap(w2, [0, 1, 2], statuses={0: 3}, lapnum=1)
+        m2.observe(1200.0)
+        self.assertEqual(m2.road_winner, 0)
+
+    def test_ordinals(self):
+        cases = {1: "first", 2: "second", 3: "third", 4: "fourth",
+                 10: "tenth", 11: "11th", 12: "12th", 13: "13th",
+                 21: "21st", 22: "22nd", 23: "23rd", 24: "24th",
+                 25: "25th", 31: "31st", 42: "42nd", 53: "53rd"}
+        for n, want in cases.items():
+            self.assertEqual(v3._ordinal(n), want, n)
+
+    def test_fc_stride_decodes_car_21(self):
+        # a synthetic Final Classification with car 21 in P1
+        import struct
+        buf = bytearray(v3.FINALCLASS_LEN)
+        buf[0:29] = fx_header(v3.PID_FINALCLASS)
+        buf[29] = 22
+        base = 30
+        for i in range(22):
+            off = base + i * v3.FC_STRIDE
+            pos = 1 if i == 21 else (i + 2)
+            struct.pack_into("<BBBBBBBId", buf, off, pos, 13, pos, 0, 0,
+                             3 if i == 21 else 3, 2, 90000, 5400.0)
+        fc = v3.decode_final_classification_v3(bytes(buf))
+        self.assertIsNotNone(fc)
+        self.assertEqual(fc["rows"][21]["position"], 1)
+        self.assertEqual(fc["rows"][21]["num_laps"], 13)
+
+    def test_correction_line(self):
+        m = make_model()
+        w = m.w
+        grid(w, 4)
+        w.total_laps = 5
+        m.on_event(1010.6, {"code": "LGOT"})
+        # human car 3 finishes on the road in P2
+        w.last_lapdata_t = 1200.0
+        lap(w, [0, 3, 1, 2], statuses={0: 3}, lapnum=5)
+        m.observe(1200.0)
+        w.last_lapdata_t = 1201.0
+        lap(w, [0, 3, 1, 2], statuses={0: 3, 3: 3}, lapnum=5)
+        m.observe(1201.0)
+        self.assertIn(3, m.result_aired_pos)
+        # classification puts the human in P3 instead -> one correction
+        fc = {"num_cars": 4, "rows": [
+            {"idx": i, "position": {0: 1, 3: 3, 1: 2, 2: 4}.get(i, 0),
+             "result_status": 3, "result_reason": 2} for i in range(v3.MAX_CARS)]}
+        m.claims_out = []
+        m.on_finalclass(1250.0, fc)
+        self.assertTrue(any(c.kind == "CORRECTION" and 3 in c.subjects
+                            for c in m.claims_out))
+
+    def test_penalty_blocked_after_finish(self):
+        m = make_model()
+        m.on_event(1010.6, {"code": "LGOT"})
+        m.state = "finishing"
+        booth = v3.V3Booth(m, m.cfg)
+        pen = v3.Claim("PENALTY", v3.CLASS_LIFECYCLE, [1], ["X"], 1200.0,
+                       facts={"pena_type": 4, "seconds": 5}, max_age_key="penalty")
+        self.assertTrue(booth._validate(pen, 1201.0).startswith("drop:state"))
+        # a retirement is still allowed in finishing
+        ret = v3.Claim("RETIREMENT", v3.CLASS_LIFECYCLE, [1], ["X"], 1200.0,
+                       max_age_key="retirement")
+        self.assertEqual(booth._validate(ret, 1201.0), "ok")
+
+    def test_idle_watchdog_from_config(self):
+        m = make_model()
+        self.assertEqual(m.idle_watchdog_s("green"), 90)
+        self.assertEqual(m.idle_watchdog_s("red_flag"), 600)
+        self.assertEqual(m.idle_watchdog_s("suspended"), 600)
+        self.assertEqual(m.idle_watchdog_s("restart_grid"), 600)
+
+    def test_penalty_after_contact_with_human(self):
+        m = make_model()
+        m.on_event(1010.6, {"code": "LGOT"})
+        set_car(m.w, 1, pos=2, ai=1, name="Hamilton")     # AI
+        set_car(m.w, 2, pos=3, ai=0, name="Kannedy")      # human
+        m.on_event(1040.0, {"code": "COLL", "car": 1, "other_car": 2})
+        m.on_event(1050.0, {"code": "PENA", "penalty_type": 4,
+                            "infringement": 0, "car": 1, "other_car": 255,
+                            "time": 5, "lap": 1, "places_gained": 0})
+        pen = [c for c in m.claims_out if c.kind == "PENALTY"][0]
+        self.assertIsNotNone(pen.facts.get("cause"))
+        booth = v3.V3Booth(m, m.cfg)
+        _, text = booth._text(pen, past=False)
+        self.assertIn("Kannedy", text)
+        # a human penalised (not AI) gets no contact naming
+        m2 = make_model()
+        m2.on_event(1010.6, {"code": "LGOT"})
+        set_car(m2.w, 1, pos=2, ai=0, name="Kannedy")
+        set_car(m2.w, 2, pos=3, ai=1, name="Hamilton")
+        m2.on_event(1040.0, {"code": "COLL", "car": 1, "other_car": 2})
+        m2.on_event(1050.0, {"code": "PENA", "penalty_type": 4,
+                             "infringement": 0, "car": 1, "other_car": 255,
+                             "time": 5, "lap": 1, "places_gained": 0})
+        pen2 = [c for c in m2.claims_out if c.kind == "PENALTY"][0]
+        self.assertIsNone(pen2.facts.get("cause"))
+
+    def test_contested_lead(self):
+        m = make_model()
+        w = m.w
+        grid(w, 4)
+        m.on_event(1010.6, {"code": "LGOT"})
+        # the lead swaps four times within the contest window
+        order_a = [0, 1, 2, 3]
+        order_b = [1, 0, 2, 3]
+        t = 1100.0
+        for k in range(4):
+            w.last_lapdata_t = t
+            lap(w, order_a if k % 2 == 0 else order_b)
+            m.observe(t)
+            t = round(t + 1.0, 3)
+        kinds_seen = [c.kind for c in m.claims_out]
+        self.assertIn("LEAD_CONTEST", kinds_seen)
+        # settle: no further change for contest_settle_s
+        t2 = t + m.contest_settle + 1.0
+        w.last_lapdata_t = t2
+        lap(w, order_b)      # leader stable
+        m.observe(t2)
+        self.assertIn("LEAD_SETTLED", [c.kind for c in m.claims_out])
+
+    def test_solo_lead_change_confirmed(self):
+        m = make_model()
+        w = m.w
+        grid(w, 4)
+        m.on_event(1010.6, {"code": "LGOT"})
+        w.last_lapdata_t = 1100.0
+        lap(w, [0, 1, 2, 3])
+        m.observe(1100.0)
+        m.claims_out = []
+        # a single lead change that holds -> one LEAD_CHANGE, not a contest
+        w.last_lapdata_t = 1101.0
+        lap(w, [1, 0, 2, 3])
+        m.observe(1101.0)
+        w.last_lapdata_t = 1104.0     # held > pass_hold_s
+        lap(w, [1, 0, 2, 3])
+        m.observe(1104.0)
+        kinds_seen = [c.kind for c in m.claims_out]
+        self.assertIn("LEAD_CHANGE", kinds_seen)
+        self.assertNotIn("LEAD_CONTEST", kinds_seen)
+
+
+def fx_header(pid):
+    import struct
+    return struct.pack(v3.HEADER_FMT, 2025, 25, 1, 0, 1, pid,
+                       12345678901234567, 0.0, 0, 0, 0, 255)
 
 
 if __name__ == "__main__":

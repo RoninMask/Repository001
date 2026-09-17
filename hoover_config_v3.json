@@ -334,9 +334,9 @@
   },
   "v3": {
     "fallback_anchor": {
-      "speed_kph": 30,
+      "speed_kph": 5,
       "min_fraction_cars": 0.5,
-      "sustain_s": 2.0
+      "sustain_s": 1.0
     },
     "idle_watchdog_s": {
       "default": 90,

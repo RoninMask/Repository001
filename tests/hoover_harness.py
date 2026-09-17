@@ -105,6 +105,10 @@ PARAMS = {
     "A33_window_s": 10.0,
     "A33_phrase": "ended",
     "A34_tol_s": 1.5,
+    "window_eps_s": 0.05,        # B1: both-edge slack so a line exactly at an
+    #                              event counts as at it, not before/after
+    "A6_lead_group_s": 20.0,     # B4: group lead changes within this into one
+    "A15_within_s": 1.0,         # tightened A15 "start call within N s of LGOT"
 }
 
 # Penalty type appendix.  The appendix is not in the spec text file, so it is
@@ -533,6 +537,7 @@ class Truth:
         self.leader_finish_t = None
         self.road_winner = None
         self.race_ended_without_finish = None   # SEND time when no finish/FC
+        self.chqf_seen = False
 
         self.classification = None      # last FC packet
         self.first_fc_t = None
@@ -612,10 +617,15 @@ class Truth:
                     if rs == RESULT_FINISHED and idx not in truth.finish_t:
                         truth.finish_t[idx] = t
                         truth.finish_pos[idx] = car["position"]
-                        # Leader finish: the first car to reach resultStatus 3
-                        # while it holds P1 in the latest lap data.
+                        # Leader finish (B2, mirrors the tool's A2): result
+                        # status 3, P1 in the latest lap data, AND the race
+                        # distance actually done (completed laps >= total laps
+                        # when known, else a CHQF event).  A mass status flip
+                        # at a stoppage (Baku) is short of distance, so it is
+                        # not a finish.
                         if (truth.leader_finish_t is None
-                                and car["position"] == 1):
+                                and car["position"] == 1
+                                and truth._distance_done(car)):
                             truth.leader_finish_t = t
                             truth.road_winner = idx
                 if leader_idx is not None:
@@ -638,6 +648,8 @@ class Truth:
                     if sp is not None and sp > best_speed:
                         best_speed = sp
                         truth.sptp_best.add(t, sp)
+                elif code == "CHQF":
+                    truth.chqf_seen = True
                 elif code == "SEND":
                     unclassified = (truth.classification is None
                                     and truth.leader_finish_t is None)
@@ -746,6 +758,14 @@ class Truth:
                 self.race_ended_without_finish = terminal[-1]
 
     # ---- queries ------------------------------------------------------------
+
+    def _distance_done(self, car):
+        """B2: the race distance is complete for this car (completed laps >=
+        total laps when known, else a CHQF event has been seen)."""
+        total = self.total_laps or 0
+        if total > 0:
+            return car["lap"] >= total
+        return self.chqf_seen
 
     def position_at(self, idx, t):
         """Last known position of car idx at or before t.  A car that has
@@ -1209,8 +1229,10 @@ def detect_A1(truth, run, p):
     return hits, None
 
 
-def _lines_between(lines, t_lo, t_hi):
-    return [l for l in lines if t_lo <= l.air_t <= t_hi]
+def _lines_between(lines, t_lo, t_hi, eps=None):
+    if eps is None:
+        eps = PARAMS["window_eps_s"]
+    return [l for l in lines if t_lo - eps <= l.air_t <= t_hi + eps]
 
 
 def detect_A6(truth, run, p):
@@ -1228,47 +1250,66 @@ def detect_A6(truth, run, p):
                 reason="no line containing 'red flag' within %.0fs" % w,
                 evidence="RDFL at %.3f" % e["t"]))
 
-    # Lead changes during Green.
+    # Lead changes during Green.  B4: group changes that fall within
+    # A6_lead_group_s of each other into ONE occurrence, timed at the first
+    # change, satisfied by any lead/pass line naming a car in the flurry.
+    group_s = p.get("A6_lead_group_s", 20.0)
+    lead_kinds = ("LEADER_CHANGE", "OVERTAKE", "LEAD_CHANGE", "PASS",
+                  "CONTESTED", "LEAD_CONTEST", "LEAD_SETTLED")
+    groups = []
     for (t, old, new) in truth.lead_changes_in_green():
-        found = [l for l in _lines_between(run.lines, t, t + w)
-                 if l.category == "track_action"
-                 and l.kind in ("LEADER_CHANGE", "OVERTAKE",
-                                "LEAD_CHANGE", "PASS", "CONTESTED")
-                 and (l.subject_idx == new or l.other_idx == new)]
+        if groups and t - groups[-1]["last_t"] <= group_s:
+            groups[-1]["last_t"] = t
+            groups[-1]["cars"].update((old, new))
+        else:
+            groups.append({"first_t": t, "last_t": t, "cars": {old, new}})
+    for g in groups:
+        cars = {c for c in g["cars"] if c is not None}
+        found = [l for l in _lines_between(run.lines, g["first_t"],
+                                           g["last_t"] + w)
+                 if l.category == "track_action" and l.kind in lead_kinds
+                 and ((l.subject_idx in cars) or (l.other_idx in cars))]
         if not found:
             hits.append(_hit(
-                t=t, occurrence="lead_change", cars=[new],
-                reason="no LEADER_CHANGE/OVERTAKE line naming the new "
-                       "leader within %.0fs" % w,
-                evidence="leader %s -> %s at %.3f (positions)"
-                % (old, new, t)))
+                t=g["first_t"], occurrence="lead_change", cars=sorted(cars),
+                reason="no lead/pass line naming a car in the lead flurry "
+                       "within %.0fs of the first change" % w,
+                evidence="lead flurry %.3f-%.3f, cars %s"
+                % (g["first_t"], g["last_t"], sorted(cars))))
 
-    # Winner.
+    # Winner.  Emits an occurrence carrying the delay to the nearest matching
+    # finish line; scope_filter honours a per-assertion window_s against it
+    # (default A6_window_s).  A race that ended without a finish names no
+    # winner (that is A33), so this occurrence is skipped.
     winner = truth.classified_winner
     occ_t = truth.leader_finish_t
-    if occ_t is None:
+    if occ_t is None and truth.race_ended_without_finish is None:
         occ_t = truth.first_fc_t
     if winner is not None and occ_t is not None:
         wname = truth.car_name(winner)
         spoken = {s.lower() for s in run.spoken_by_idx.get(winner, set())}
         spoken.add(wname.lower())
-        found = []
-        for l in _lines_between(run.lines, occ_t, occ_t + w):
-            if l.category != "finish":
+        delay = None
+        for l in sorted(run.lines, key=lambda x: x.air_t or 0.0):
+            if l.category != "finish" or l.air_t is None:
+                continue
+            if l.air_t < occ_t - p["window_eps_s"]:
                 continue
             if l.subject_idx == winner or any(
                     s in (l.text or "").lower() for s in spoken if s):
-                found.append(l)
-        if not found:
-            hits.append(_hit(
-                t=occ_t, occurrence="winner", cars=[winner],
-                reason="no finish-category line naming the classified "
-                       "winner within %.0fs" % w,
-                evidence="classified winner car %s (%s); occurrence at "
-                         "%.3f (%s)"
-                % (winner, wname, occ_t,
-                   "leader finish" if truth.leader_finish_t else
-                   "first Final Classification")))
+                delay = l.air_t - occ_t
+                break
+        hits.append(_hit(
+            t=occ_t, occurrence="winner", cars=[winner], delay=delay,
+            default_window=w,
+            reason=("no finish-category line naming the classified winner"
+                    if delay is None
+                    else "nearest winner line %.2fs after the occurrence"
+                    % delay),
+            evidence="classified winner car %s (%s); occurrence at %.3f (%s)"
+            % (winner, wname, occ_t,
+               "leader finish" if truth.leader_finish_t else
+               "first Final Classification")))
 
     # Safety car / VSC deployments.
     for e in truth.sc_deployments():
@@ -1370,21 +1411,43 @@ def detect_A15(truth, run, p):
     lights-out event in the capture."""
     hits = []
     w = p["A15_window_s"]
+    eps = p["window_eps_s"]
+    within = p.get("A15_within_s", 1.0)
     start_calls = [l for l in run.lines if l.category == "start_call"]
     lgots = [e["t"] for e in truth.events_by_code.get("LGOT", [])]
 
     if lgots:
         start = lgots[0]
         for l in start_calls:
-            if l.air_t < start:
+            if l.air_t < start - eps:
                 hits.append(_hit(
                     line_id=l.id, t=l.air_t, sub="a",
                     reason="start call %.1fs before the start LGOT"
                     % (start - l.air_t),
                     evidence="LGOT (start) at %.3f" % start,
                     text=l.text))
+        # sub="within": the start call nearest the anchor must be within
+        # A15_within_s of it (tightened scope, brief Part C).  Measured against
+        # the tool's own anchor (LGOT for an event start, the fallback time for
+        # a fallback start), so a legitimate fallback start is not penalised.
+        anchor_ref = start
+        man_anchor = (run.v3_manifest or {}).get("anchor") if run.v3_manifest \
+            else None
+        if man_anchor and man_anchor.get("t_unix") is not None:
+            anchor_ref = man_anchor["t_unix"]
+        near_start = [l for l in start_calls
+                      if abs(l.air_t - anchor_ref) <= w + eps]
+        if near_start:
+            closest = min(near_start, key=lambda l: abs(l.air_t - anchor_ref))
+            if abs(closest.air_t - anchor_ref) > within + eps:
+                hits.append(_hit(
+                    line_id=closest.id, t=closest.air_t, sub="within",
+                    reason="nearest start call %.2fs from the anchor "
+                           "(want within %.1fs)"
+                    % (abs(closest.air_t - anchor_ref), within),
+                    evidence="anchor at %.3f" % anchor_ref, text=closest.text))
         for lt in lgots:
-            near = [l for l in start_calls if abs(l.air_t - lt) <= w]
+            near = [l for l in start_calls if abs(l.air_t - lt) <= w + eps]
             if len(near) > 1:
                 for l in near[1:]:
                     hits.append(_hit(
@@ -1410,7 +1473,12 @@ def detect_A16(truth, run, p):
     """State gating: track_action or filler line inside a red flag or
     suspended window, or after leader finish."""
     hits = []
-    stopped = truth.red_windows + truth.suspended_windows
+    eps = p["window_eps_s"]
+    # shrink stopped windows by eps at both edges: a line exactly at a window
+    # boundary counts as at the transition, not inside it
+    stopped = [(a + eps, b - eps)
+               for (a, b) in truth.red_windows + truth.suspended_windows
+               if b - eps > a + eps]
     for l in run.lines:
         if l.category not in ("track_action", "filler"):
             continue
@@ -1422,7 +1490,7 @@ def detect_A16(truth, run, p):
                 reason="%s line inside a stopped window" % l.category,
                 evidence="window [%.3f, %.3f]" % win, text=l.text))
         elif (truth.leader_finish_t is not None
-              and l.air_t > truth.leader_finish_t):
+              and l.air_t > truth.leader_finish_t + eps):
             hits.append(_hit(
                 line_id=l.id, t=l.air_t, sub="after_finish",
                 reason="%s line after leader finish" % l.category,
@@ -1435,7 +1503,7 @@ def detect_A17(truth, run, p):
     """Retired car named: a line whose subject or other car has retired,
     airing after retirement + 1 s, category not retirement."""
     hits = []
-    grace = p["A17_grace_s"]
+    grace = p["A17_grace_s"] + p["window_eps_s"]
     for l in run.lines:
         if l.category == "retirement":
             continue
@@ -1774,7 +1842,7 @@ def detect_A25(truth, run, p):
     """One retirement line: more than one line about a retiring car within
     60 s of its retirement with category retirement/penalty/pit."""
     hits = []
-    w = p["A25_window_s"]
+    w = p["A25_window_s"] + p["window_eps_s"]
     for idx, rec in truth.retirements.items():
         rt = rec["t"]
         about = [l for l in run.lines
@@ -2207,7 +2275,7 @@ def detect_A33(truth, run, p):
     'ended' finish-line airs within 10 s of that SEND and no winner line airs."""
     if truth.race_ended_without_finish is None:
         return [], "no race_ended_without_finish in this capture"
-    w = p.get("A33_window_s", 10.0)
+    w = p.get("A33_window_s", 10.0) + p["window_eps_s"]
     t = truth.race_ended_without_finish
     phrase = p.get("A33_phrase", "ended")
     end_lines = [l for l in run.lines
@@ -2265,6 +2333,41 @@ def detect_A34(truth, run, p):
     return hits, None
 
 
+def _winner_lines(run):
+    return [l for l in run.lines
+            if l.category == "finish"
+            and ("takes the win" in (l.text or "").lower()
+                 or "chequered" in (l.text or "").lower())]
+
+
+def detect_A35(truth, run, p):
+    """False winner: a winner line when the wire has no leader finish, or one
+    naming a car other than the truth winner."""
+    hits = []
+    winners = _winner_lines(run)
+    if truth.leader_finish_t is None:
+        for l in winners:
+            hits.append(_hit(
+                line_id=l.id, t=l.air_t,
+                reason="winner line aired but the wire has no leader finish",
+                evidence="race_ended_without_finish=%s"
+                % (round(truth.race_ended_without_finish, 3)
+                   if truth.race_ended_without_finish else None),
+                text=l.text))
+    else:
+        for l in winners:
+            if (l.subject_idx is not None
+                    and l.subject_idx != truth.road_winner):
+                hits.append(_hit(
+                    line_id=l.id, t=l.air_t,
+                    cars=[l.subject_idx, truth.road_winner],
+                    reason="winner line names car %s; the wire winner is car "
+                           "%s" % (l.subject_idx, truth.road_winner),
+                    evidence="leader finish at %.3f"
+                    % truth.leader_finish_t, text=l.text))
+    return hits, None
+
+
 DETECTORS = {
     "A1": ("Overlap", detect_A1),
     "A6": ("Coverage floor", detect_A6),
@@ -2291,6 +2394,7 @@ DETECTORS = {
     "A32": ("State before speech", detect_A32),
     "A33": ("Race end call", detect_A33),
     "A34": ("Fallback anchor", detect_A34),
+    "A35": ("False winner", detect_A35),
     "H1": ("Byte accounting", detect_H1),
     "H2": ("Marker records", detect_H2),
     "H3": ("Manifest histogram", detect_H3),
@@ -2302,11 +2406,19 @@ DETECTORS = {
 # =============================================================================
 
 def scope_filter(hits, scope, truth):
-    if not scope:
-        return hits
+    scope = scope or {}
     out = []
     for h in hits:
         ok = True
+        # A "delay" occurrence (A6 winner) is a real failure only when the
+        # nearest matching line is missing or later than the effective window
+        # (the assertion's window_s, else the hit's default_window).
+        if "delay" in h:
+            eff = scope.get("window_s", h.get("default_window"))
+            d = h.get("delay")
+            if d is not None and eff is not None \
+                    and d <= eff + PARAMS["window_eps_s"]:
+                continue
         if "occurrence" in scope and h.get("occurrence") != scope["occurrence"]:
             ok = False
         if "sub" in scope and h.get("sub") != scope["sub"]:

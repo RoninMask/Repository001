@@ -368,6 +368,16 @@
       "gated": true,
       "pass": 1,
       "evidence": "No raw gamertags"
+    },
+    {
+      "id": "V3-FB-BK-08",
+      "check": "A35",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Pass 1 run 1: no false winner; race ended without a finish"
     }
   ]
 }

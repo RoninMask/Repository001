@@ -66,10 +66,11 @@ def make_session(session_type=15, track_id=7, total_laps=5, weather=0,
     return bytes(buf)
 
 
-def make_lapdata(order, statuses=None, pits=None):
+def make_lapdata(order, statuses=None, pits=None, lap=1):
     """order: active car idxs front to back (position = index + 1).
     statuses: idx -> resultStatus override (default 2 for cars in order,
-    0 for the rest).  pits: idx -> pitStatus."""
+    0 for the rest).  pits: idx -> pitStatus.  lap: currentLapNum for all
+    cars (so A2's race-distance check can be exercised)."""
     statuses = statuses or {}
     pits = pits or {}
     buf = bytearray(SPEC_SIZES[PID_LAPDATA])
@@ -83,7 +84,7 @@ def make_lapdata(order, statuses=None, pits=None):
         vals[11] = 0.0
         vals[12] = 0.0
         vals[13] = pos_of.get(idx, 0)          # carPosition
-        vals[14] = 1                           # currentLapNum
+        vals[14] = lap                         # currentLapNum
         vals[15] = pits.get(idx, 0)            # pitStatus
         vals[17] = 0                           # sector
         vals[25] = 4                           # driverStatus on track
@@ -350,12 +351,13 @@ class ArtefactWriter:
 
 
 def lapdata_stream(cap, t_from, t_to, order_fn, statuses_fn=None,
-                   pits_fn=None, step=0.5):
+                   pits_fn=None, step=0.5, lap_fn=None):
     t = t_from
     while t < t_to:
         cap.add(t, make_lapdata(order_fn(t),
                                 statuses_fn(t) if statuses_fn else None,
-                                pits_fn(t) if pits_fn else None))
+                                pits_fn(t) if pits_fn else None,
+                                lap=lap_fn(t) if lap_fn else 1))
         t = round(t + step, 3)
 
 
@@ -443,6 +445,13 @@ def build_fx_baku(root):
             st[19] = 7
         if t >= 1789507839.0:
             st[18] = 7
+        # Baku trap: the P1 car (car 2 after the restart) flips to FINISHED
+        # (result status 3) at the stoppage while still on lap 1 -- distance
+        # NOT done.  The A2 fix must refuse this as a leader finish; if the
+        # distance gate were removed this lure would air a false winner and
+        # A35 would catch it.  (Brief Part D, acceptance test 5.)
+        if t >= 1789507838.5:
+            st[2] = 3
         return st
 
     def status_fn(t):
@@ -563,11 +572,24 @@ def build_fx_silverstone(root):
     swapped = [0, 1, 2, 3, 4, 5, 18, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
                16, 17]
 
+    # Four-swap lead flurry: P1 changes hands between car 0 and car 1 four
+    # times inside a 12 s window.  B4 groups them into ONE occurrence timed
+    # at the first change; A3 airs a single LEAD_CONTEST line.  (Brief Part D,
+    # acceptance test 5.)
+    FLUR = 1789506600.0
+    lead_flip = [after_ret[1], after_ret[0]] + after_ret[2:]
+
     def order_fn(t):
         if t < RTMT19:
             return base
         if t < 1789506800.0:
-            return after_ret
+            if FLUR <= t < FLUR + 4:
+                return lead_flip          # change 1: leader 0 -> 1
+            if FLUR + 4 <= t < FLUR + 8:
+                return after_ret          # change 2: leader 1 -> 0
+            if FLUR + 8 <= t < FLUR + 12:
+                return lead_flip          # change 3: leader 0 -> 1
+            return after_ret              # change 4 at +12: leader 1 -> 0
         if t < 1789506927.599:
             return swapped
         return after_ret
@@ -584,7 +606,8 @@ def build_fx_silverstone(root):
         return st
 
     session_stream(cap, T0, END, lambda t: 0, track_id=7)
-    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn,
+                   lap_fn=lambda t: 5 if t >= 1789506925.0 else 1)
     speed_stream(cap, T0, END, lambda t: {i: (0 if t < LGOT else 200)
                                           for i in range(20)})
     for i in range(0, 40, 10):
@@ -731,7 +754,8 @@ def build_fx_austria(root):
         return {i: base for i in range(20)}
 
     session_stream(cap, T0, END, lambda t: 0, track_id=17)
-    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn,
+                   lap_fn=lambda t: 5 if t >= FIN - 15 else 1)
     speed_stream(cap, T0, END, speed_fn)
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))
@@ -823,7 +847,8 @@ def build_fx_clean(root):
         return st
 
     session_stream(cap, B, END, lambda t: 0, track_id=7)
-    lapdata_stream(cap, B + 0.25, END, order_fn, statuses_fn)
+    lapdata_stream(cap, B + 0.25, END, order_fn, statuses_fn,
+                   lap_fn=lambda t: 5 if t >= FIN - 15 else 1)
     for i in range(0, 20, 10):
         cap.add(B + 0.1 + i, make_participants(cars))
     events = [
@@ -931,7 +956,8 @@ def build_fx_s04(root):
         return {i: base for i in range(20)}
 
     session_stream(cap, T0, END, status_fn, track_id=7)
-    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn,
+                   lap_fn=lambda t: 5 if t >= FIN - 15 else 1)
     speed_stream(cap, T0, END, speed_fn)
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))

@@ -253,7 +253,9 @@
     {
       "id": "V3-S1-01",
       "check": "A15",
-      "scope": {},
+      "scope": {
+        "sub": "within"
+      },
       "v2": "observe",
       "v3": "pass",
       "gated": true,
@@ -264,7 +266,8 @@
       "id": "V3-S1-02",
       "check": "A6",
       "scope": {
-        "occurrence": "winner"
+        "occurrence": "winner",
+        "window_s": 5
       },
       "v2": "observe",
       "v3": "pass",

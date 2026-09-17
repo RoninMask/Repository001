@@ -3591,7 +3591,8 @@ V3_CONFIG_NAME = "hoover_config_v3.json"
 # Extra decoders V3 needs and V2 did not provide. These live outside the Booth
 # and Gallery sections (they decode packets), so A32 does not flag them.
 FINALCLASS_LEN = 1042
-FC_STRIDE = 45          # FinalClassificationData is 45 bytes per car (spec 4.5)
+FC_STRIDE = 46          # FinalClassificationData is 46 bytes per car
+#                         (7*u8, u32, double, 3*u8, 3*u8[8]); 29+1+22*46 = 1042
 CARTELEMETRY_LEN = 1352
 CARTEL_STRIDE = 60      # (1352 - 29 header - 3 trailing) / 22 = 60
 
@@ -3681,9 +3682,9 @@ class Claim:
         return {
             "claim_id": self.claim_id, "kind": self.kind,
             "subjects": self.subjects, "facts": self.facts,
-            "provenance": self.provenance, "created_t_unix": round(self.t_create, 3),
+            "provenance": self.provenance, "created_t_unix": round(self.t_create, 6),
             "outcome": self.outcome, "outcome_reason": self.outcome_reason,
-            "outcome_t_unix": (round(self.outcome_t, 3)
+            "outcome_t_unix": (round(self.outcome_t, 6)
                                if self.outcome_t is not None else None),
         }
 
@@ -3769,6 +3770,8 @@ class RaceModel:
         self.final_classification = None
         self.final_classification_t = None
         self.humans_result_done = set()
+        self.chqf_seen = False
+        self.result_aired_pos = {}    # idx -> position aired on the road
 
         # speed trap best
         self.session_best_speed = 0.0
@@ -3781,6 +3784,12 @@ class RaceModel:
         self._contest = {}            # pairkey -> dict
         self._collapse_marks = defaultdict(list)   # idx -> [(t, pos)]
         self._reported_pass = set()
+
+        # lead tracker (A3: contested lead)
+        self._last_leader = None
+        self._lead_events = []        # (t, leader) for each P1 change
+        self._lead_contest = None     # open contest dict or None
+        self._pending_lead = None     # (t, leader) awaiting a solo-change hold
 
         # claim sink installed by the run loop
         self.claims_out = []
@@ -3806,25 +3815,26 @@ class RaceModel:
         if new == self.state:
             return
         self.state_log.append({
-            "t_unix": round(t, 3), "t_rec": self._t_rec(t),
+            "t_unix": round(t, 6), "t_rec": self._t_rec(t),
             "from": self.state, "to": new, "trigger": trigger})
         self.log(">>> STATE %s -> %s (%s)" % (self.state, new, trigger))
         self.state = new
         self.state_since = t
 
     def _t_rec(self, t):
-        return None if self.rec_start is None else round(t - self.rec_start, 3)
+        return None if self.rec_start is None else round(t - self.rec_start, 6)
 
     rec_start = None
 
     def t_race(self, t):
         if self.anchor_t is None:
             return None
-        return round(t - self.anchor_t, 3)
+        return round(t - self.anchor_t, 6)
 
     # ---- the one gate both Booth and Gallery consult ------------------------
-    def allows(self, content_class, final_crossing=False):
+    def allows(self, content_class, final_crossing=False, kind=None):
         s = self.state
+        retire = kind in ("RETIREMENT", None)   # lifecycle "retirement only"
         if s in ("pre_start", "formation"):
             return content_class == CLASS_STATE and self._start_only()
         if s in ("green", "final_lap"):
@@ -3836,13 +3846,13 @@ class RaceModel:
             if content_class == CLASS_STATE:
                 return True
             if content_class == CLASS_LIFECYCLE:
-                return True    # retirement only (pit handled at creation)
+                return retire   # retirement only (A8: no penalty/pit while stopped)
             return False
         if s in ("finishing", "classified"):
             if final_crossing and content_class == CLASS_ACTION:
                 return True    # late settle of a contested pair (build paper 4.3)
             if content_class == CLASS_LIFECYCLE:
-                return True    # retirement only
+                return retire   # A8: retirement/correction only, no penalty/pit
             return content_class == CLASS_RESULT
         if s == "ended_without_finish":
             return content_class == CLASS_RESULT
@@ -3872,7 +3882,7 @@ class RaceModel:
             self._set_state(t, "red_flag", "RDFL")
             self.emit(Claim("RED_FLAG", CLASS_STATE, [], [], t,
                             facts={}, provenance=[{"code": "RDFL",
-                                                   "t_unix": round(t, 3)}],
+                                                   "t_unix": round(t, 6)}],
                             priority=92.0, hard=True))
         elif code == "SEND":
             self._on_send(t)
@@ -3889,7 +3899,17 @@ class RaceModel:
             self._retire_signal(t, info.get("car"), "RTMT")
         elif code == "SPTP":
             self._on_sptp(t, info)
-        # RCWN, CHQF, FTLP, DTSV, SGSV: corroboration only.
+        elif code == "CHQF":
+            self.chqf_seen = True     # corroboration; also gates a finish when
+            #                           the total-lap count is unknown (A2)
+        # RCWN, FTLP, DTSV, SGSV: corroboration only.
+
+    def _race_distance_done(self, c):
+        """A2: the race distance is actually complete for car c."""
+        total = self.w.total_laps or 0
+        if total > 0:
+            return c.lap >= total
+        return self.chqf_seen
 
     def _on_lgot(self, t):
         self.saw_lgot = True
@@ -3899,22 +3919,22 @@ class RaceModel:
             self._set_state(t, "green", "LGOT")
             self.emit(Claim("START", CLASS_STATE, [], [], t,
                             facts={"kind": "lights_out"},
-                            provenance=[{"code": "LGOT", "t_unix": round(t, 3)}],
+                            provenance=[{"code": "LGOT", "t_unix": round(t, 6)}],
                             priority=100.0, hard=True))
             self.log(">>> LIGHTS OUT (anchor) at %.3f" % t)
         else:
-            self.restarts.append({"t_unix": round(t, 3), "t_rec": self._t_rec(t)})
+            self.restarts.append({"t_unix": round(t, 6), "t_rec": self._t_rec(t)})
             self._set_state(t, "green", "LGOT(restart)")
             self.emit(Claim("RESTART", CLASS_STATE, [], [], t,
                             facts={"kind": "restart"},
-                            provenance=[{"code": "LGOT", "t_unix": round(t, 3)}],
+                            provenance=[{"code": "LGOT", "t_unix": round(t, 6)}],
                             priority=95.0, hard=True))
             self.log(">>> RESTART LIGHTS OUT at %.3f" % t)
 
     def _on_scar(self, t, info):
         sc_type = info.get("sc_type")
         event_type = info.get("event_type")
-        prov = [{"code": "SCAR", "t_unix": round(t, 3)}]
+        prov = [{"code": "SCAR", "t_unix": round(t, 6)}]
         if sc_type == 3:
             # formation safety car: state only, never voiced.
             if self.state == "pre_start":
@@ -3949,7 +3969,7 @@ class RaceModel:
         car = info.get("car")
         if car is None:
             return
-        prov = [{"code": "PENA", "t_unix": round(t, 3)}]
+        prov = [{"code": "PENA", "t_unix": round(t, 6)}]
         if pt == 16:
             self._retire_signal(t, car, "PENA16")
             return
@@ -3968,10 +3988,13 @@ class RaceModel:
                             priority=45.0, demotable=True, max_age_key="penalty"))
             return
         if pt in (0, 1, 2, 4, 6):
-            cause = self._contact_cause(t, car)
+            # A10: name the contact when an AI is penalised after a COLL with
+            # a human within cause_lookback_s
+            cause = self._penalty_contact_cause(t, car)
             self.emit(Claim("PENALTY", CLASS_LIFECYCLE, [car], [self._name(car)],
                             t, facts={"pena_type": pt,
-                                      "seconds": info.get("time")},
+                                      "seconds": info.get("time"),
+                                      "cause": cause},
                             provenance=prov, priority=50.0, demotable=True,
                             max_age_key="penalty"))
             if pt == 6:
@@ -3990,7 +4013,7 @@ class RaceModel:
         if info.get("overall_fastest") and car is not None:
             self.emit(Claim("SPEED_TRAP", CLASS_ACTION, [car], [self._name(car)],
                             t, facts={"speed": sp, "quickest": True},
-                            provenance=[{"code": "SPTP", "t_unix": round(t, 3)}],
+                            provenance=[{"code": "SPTP", "t_unix": round(t, 6)}],
                             priority=20.0, demotable=True))
 
     def _contact_cause(self, t, car):
@@ -3999,6 +4022,31 @@ class RaceModel:
                 other = b if a == car else a
                 return {"text": "that contact with %s" % self._name(other),
                         "provenance": "COLL"}
+        # A7.1: a meaningful Final Classification result reason is provenance too
+        cls_cause = self._classification_cause(car)
+        return cls_cause
+
+    def _penalty_contact_cause(self, t, car):
+        """A10: an AI penalised after a COLL with a human, within lookback."""
+        if 0 <= car < MAX_CARS and self.w.cars[car].is_human:
+            return None
+        for (ct, a, b) in reversed(self.colls):
+            if t - ct <= self.cause_lookback and car in (a, b):
+                other = b if a == car else a
+                if 0 <= other < MAX_CARS and self.w.cars[other].is_human:
+                    return {"text": "that contact with %s" % self._name(other),
+                            "provenance": "COLL"}
+        return None
+
+    def _classification_cause(self, car):
+        if not self.final_classification:
+            return None
+        row = self.final_classification["rows"][car]
+        reason = row.get("result_reason")
+        phrase = {3: "terminal damage", 6: "a black flag",
+                  7: "the red flag", 8: "a mechanical failure"}.get(reason)
+        if phrase:
+            return {"text": phrase, "provenance": "final_classification"}
         return None
 
     # ---- retirement / lifecycle --------------------------------------------
@@ -4015,7 +4063,7 @@ class RaceModel:
         cause = self._contact_cause(t, idx)
         self.emit(Claim("RETIREMENT", CLASS_LIFECYCLE, [idx], [self._name(idx)],
                         first_t, facts={"cause": cause},
-                        provenance=[{"code": kind, "t_unix": round(t, 3)}],
+                        provenance=[{"code": kind, "t_unix": round(t, 6)}],
                         priority=60.0, demotable=True, max_age_key="retirement"))
 
     # ---- per-observation (reads decoded World) -----------------------------
@@ -4055,15 +4103,80 @@ class RaceModel:
                 self.finish_t[c.idx] = t
                 self.finish_pos[c.idx] = c.position
                 self.car_state[c.idx] = "finished"
-                if self.leader_finish_t is None and c.position == 1:
+                # A2: a leader finish needs ALL of -- result status 3, P1 in
+                # the latest lap data, race state green/final_lap, and the
+                # race distance actually done (completed laps >= total laps
+                # when known; else a CHQF event). This stops a mass status
+                # flip at a stoppage (Baku) from reading as a finish.
+                if (self.leader_finish_t is None and c.position == 1
+                        and self.state in ("green", "final_lap")
+                        and self._race_distance_done(c)):
                     self._leader_finish(t, c.idx)
         self.leader_idx = leader
         if self.anchor_t is not None and self.state in ("green", "final_lap"):
             self._sample_positions(t)
+            self._lead_tracker(t, leader)
             self._run_pass_engine(t)
             self._maybe_final_lap(t)
         self._flush_pit(t)
         self._maybe_end_states(t)
+
+    # ---- lead tracker (A3: contested lead) ---------------------------------
+    def _lead_tracker(self, t, leader):
+        if leader is None:
+            return
+        if self._last_leader is None:
+            self._last_leader = leader
+            return
+        if leader == self._last_leader:
+            # leader stable: confirm a pending solo change, or settle a contest
+            if (self._pending_lead is not None
+                    and self._pending_lead[1] == leader
+                    and t - self._pending_lead[0] >= self.pass_hold):
+                a = leader
+                self.emit(Claim("LEAD_CHANGE", CLASS_ACTION, [a],
+                                [self._name(a)], self._pending_lead[0],
+                                facts={"for_p1": True}, priority=65.0,
+                                demotable=True, max_age_key="lead_change"))
+                self._pending_lead = None
+            self._maybe_settle_lead(t)
+            return
+        # the lead just changed
+        self._last_leader = leader
+        self._lead_events.append((t, leader))
+        recent = [e for e in self._lead_events
+                  if t - e[0] <= self.contest_window]
+        if len(recent) >= 2:
+            if self._lead_contest is None:
+                self._lead_contest = {"first_t": recent[0][0], "swaps": 0,
+                                      "interim": False}
+            self._lead_contest["swaps"] = len(recent) - 1
+            self._lead_contest["last_t"] = t
+            self._pending_lead = None      # suppress the solo line
+            if not self._lead_contest["interim"]:
+                self._lead_contest["interim"] = True
+                self.emit(Claim("LEAD_CONTEST", CLASS_ACTION, [leader],
+                                [self._name(leader)],
+                                self._lead_contest["first_t"],
+                                facts={"leader": leader}, priority=66.0,
+                                demotable=True, max_age_key="lead_change"))
+        else:
+            self._pending_lead = (t, leader)   # solo change, confirm on hold
+
+    def _maybe_settle_lead(self, t):
+        c = self._lead_contest
+        if not c or not c.get("interim"):
+            return
+        if t - c["last_t"] >= self.contest_settle:
+            leader = self._last_leader
+            self.emit(Claim("LEAD_SETTLED", CLASS_ACTION,
+                            [leader] if leader is not None else [],
+                            [self._name(leader)] if leader is not None else [],
+                            t, facts={"swaps": c["swaps"], "leader": leader},
+                            priority=64.0, demotable=True,
+                            max_age_key="lead_change"))
+            self._lead_contest = None
+            self._lead_events = []
 
     def _session_guard(self, t):
         pass   # single-session replay: guard handled by the run loop's opener
@@ -4189,17 +4302,14 @@ class RaceModel:
             rec["pending"] = new_pending
 
     def _emit_pass(self, t, a, b):
-        # lead change if for P1
+        # P1 is owned by the lead tracker (A3); the pass engine emits only
+        # non-lead passes so the two never double up on a lead change
         if self.pos_at(a, t) == 1 or self.last_pos.get(a) == 1:
-            self.emit(Claim("LEAD_CHANGE", CLASS_ACTION, [a, b],
-                            [self._name(a), self._name(b)], t,
-                            facts={"for_p1": True}, priority=65.0,
-                            demotable=True, max_age_key="lead_change"))
-        else:
-            self.emit(Claim("PASS", CLASS_ACTION, [a, b],
-                            [self._name(a), self._name(b)], t,
-                            facts={}, priority=45.0, demotable=True,
-                            max_age_key="pass"))
+            return
+        self.emit(Claim("PASS", CLASS_ACTION, [a, b],
+                        [self._name(a), self._name(b)], t,
+                        facts={}, priority=45.0, demotable=True,
+                        max_age_key="pass"))
 
     def _settle_contests(self, t):
         for key, rec in list(self._contest.items()):
@@ -4294,9 +4404,11 @@ class RaceModel:
                         and c.idx not in self.retired_at
                         and c.idx != self.road_winner):   # winner: WINNER call
                     self.humans_result_done.add(c.idx)
+                    pos = self.finish_pos.get(c.idx)
+                    self.result_aired_pos[c.idx] = pos
                     self.emit(Claim("RESULT", CLASS_RESULT, [c.idx],
                                     [self._name(c.idx)], self.finish_t[c.idx],
-                                    facts={"position": self.finish_pos.get(c.idx)},
+                                    facts={"position": pos},
                                     priority=40.0, max_age_key="result"))
 
     def on_finalclass(self, t, fc):
@@ -4306,9 +4418,30 @@ class RaceModel:
             self._set_state(t, "classified", "Final Classification")
         elif self.state in ("green", "final_lap", "suspended"):
             self._set_state(t, "classified", "Final Classification")
+        # A7.2: a human classified away from the position already aired gets
+        # one correction line
+        for idx, aired_pos in self.result_aired_pos.items():
+            row = fc["rows"][idx]
+            cls_pos = row.get("position")
+            if cls_pos and aired_pos and cls_pos != aired_pos:
+                self.emit(Claim("CORRECTION", CLASS_RESULT, [idx],
+                                [self._name(idx)], t,
+                                facts={"position": cls_pos},
+                                provenance=[{"packet_id": PID_FINALCLASS,
+                                             "t_unix": round(t, 6)}],
+                                priority=42.0, max_age_key="result"))
 
     def on_speeds(self, t, speeds):
         self.speeds = speeds
+
+    def idle_watchdog_s(self, state=None):
+        """A9: the idle watchdog from config -- 600 s in the stopped states,
+        90 s elsewhere."""
+        state = state or self.state
+        iw = self.v3.get("idle_watchdog_s", {}) or {}
+        if state in ("red_flag", "suspended", "restart_grid"):
+            return iw.get("stopped", 600)
+        return iw.get("default", 90)
 
     def check_idle_end(self, t):
         # a terminal SEND with no finish and no classification -> ended
@@ -4349,9 +4482,17 @@ def _num_word(n):
 
 
 def _ordinal(n):
-    words = {1: "wins", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+    """Finishing position as words for 1st-10th, then a correct numeric
+    ordinal (11th, 21st, 22nd, 23rd, ...)."""
+    words = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
              6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth"}
-    return words.get(n, "%dth" % n)
+    if n in words:
+        return words[n]
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return "%d%s" % (n, suffix)
 
 
 class V3Booth:
@@ -4412,7 +4553,7 @@ class V3Booth:
                 return "rewrite:not_best"
         # state gate
         final_crossing = bool(claim.facts.get("final_crossing"))
-        if not m.allows(claim.content_class, final_crossing):
+        if not m.allows(claim.content_class, final_crossing, kind=claim.kind):
             return "drop:state:%s" % m.state
         # age
         if (t - claim.t_create) > self._max_age_for(claim):
@@ -4442,7 +4583,15 @@ class V3Booth:
             return LEAD_V3, "%s %s %s." % (nm[0], v, nm[1])
         if k == "LEAD_CHANGE":
             v = "took the lead" if past else "takes the lead"
-            return LEAD_V3, "%s %s from %s." % (nm[0], v, nm[1])
+            if len(nm) >= 2:
+                return LEAD_V3, "%s %s from %s." % (nm[0], v, nm[1])
+            return LEAD_V3, "%s %s." % (nm[0], v)
+        if k == "LEAD_CONTEST":
+            return LEAD_V3, ("The lead is changing hands -- %s ahead for now."
+                             % nm[0])
+        if k == "LEAD_SETTLED":
+            return ANALYST_V3, ("After %s swaps, %s keeps the lead."
+                                % (_num_word(f.get("swaps", 0)), nm[0]))
         if k == "CONTESTED":
             return ANALYST_V3, ("After %s swaps, %s is ahead of %s."
                                 % (_num_word(f.get("swaps", 0)), nm[0], nm[1]))
@@ -4469,20 +4618,22 @@ class V3Booth:
         if k == "PENALTY":
             pt = f.get("pena_type")
             who = nm[0]
-            cause = self.model._contact_cause(claim.t_create, claim.subjects[0]) \
-                if False else None
+            cause = f.get("cause")
+            tail = (" after %s" % cause["text"]) if cause else ""
             if pt == 4:
-                return ANALYST_V3, ("A %s-second penalty for %s."
-                                    % (_num_word(f.get("seconds") or 0), who))
+                return ANALYST_V3, ("A %s-second penalty for %s%s."
+                                    % (_num_word(f.get("seconds") or 0), who,
+                                       tail))
             if pt == 0:
-                return ANALYST_V3, "A drive-through penalty for %s." % who
+                return ANALYST_V3, "A drive-through penalty for %s%s." % (who,
+                                                                         tail)
             if pt == 1:
-                return ANALYST_V3, "A stop-go penalty for %s." % who
+                return ANALYST_V3, "A stop-go penalty for %s%s." % (who, tail)
             if pt == 2:
-                return ANALYST_V3, "A grid penalty for %s." % who
+                return ANALYST_V3, "A grid penalty for %s%s." % (who, tail)
             if pt == 6:
                 return ANALYST_V3, "%s is disqualified." % who
-            return ANALYST_V3, "A penalty for %s." % who
+            return ANALYST_V3, "A penalty for %s%s." % (who, tail)
         if k == "RETIREMENT":
             cause = f.get("cause")
             v = "is out of the race" if not past else "retired"
@@ -4505,6 +4656,12 @@ class V3Booth:
             if nm and pos:
                 return LEAD_V3, "%s finishes %s." % (nm[0], _ordinal(pos))
             return LEAD_V3, "A result confirmed."
+        if k == "CORRECTION":
+            pos = f.get("position")
+            if nm and pos:
+                return LEAD_V3, "Correction -- %s is classified %s." % (
+                    nm[0], _ordinal(pos))
+            return LEAD_V3, "A classification correction."
         if k == "RACE_END":
             who = (" with %s in front" % nm[0]) if nm else ""
             return LEAD_V3, "The session has ended%s." % who
@@ -4557,14 +4714,14 @@ class V3Booth:
         claim.outcome_t = air_t
         cause = claim.facts.get("cause")
         rec = {
-            "line_id": line_id, "t_unix": round(air_t, 3),
+            "line_id": line_id, "t_unix": round(air_t, 6),
             "t_rec": self.model._t_rec(air_t),
             "t_race": self.model.t_race(air_t),
             "est_duration_s": round(duration, 3), "kind": claim.kind,
             "speaker": speaker, "text": text, "subjects": claim.subjects,
             "subjects_spoken": claim.names,
             "claim_id": claim.claim_id, "race_state": self.model.state,
-            "validated_at_t_unix": round(t, 3),
+            "validated_at_t_unix": round(t, 6),
             "tense": "past" if past else "present",
             "cause": ({"text": cause["text"], "provenance": cause["provenance"]}
                       if cause else None),
@@ -4626,7 +4783,7 @@ class V3Gallery:
         if self.cuts and self.cuts[-1]["held_s"] == "":
             self.cuts[-1]["held_s"] = round(t - self.cuts[-1]["_t"], 2)
         row = {
-            "t_unix": round(t, 3), "t_rec": self.model._t_rec(t),
+            "t_unix": round(t, 6), "t_rec": self.model._t_rec(t),
             "t_race": self.model.t_race(t), "car_idx": idx,
             "spoken": car.spoken, "position": car.position,
             "method": "advisory", "held_s": "", "race_state": self.model.state,
@@ -4827,20 +4984,25 @@ class BabyHooverV3:
             "source_capture": src_cap,
             "pace": self.pace,
             "actuation_state": self.actuation_state,
-            "anchor": ({"t_unix": round(m.anchor_t, 3),
+            "anchor": ({"t_unix": round(m.anchor_t, 6),
                         "t_rec": m._t_rec(m.anchor_t),
                         "source": m.anchor_source}
                        if m.anchor_t is not None else None),
             "restarts": m.restarts,
-            "leader_finish": ({"t_unix": round(m.leader_finish_t, 3),
+            "leader_finish": ({"t_unix": round(m.leader_finish_t, 6),
                                "car_idx": m.road_winner}
                               if m.leader_finish_t is not None else None),
-            "ended_without_finish": (round(m.ended_without_finish_t, 3)
+            "ended_without_finish": (round(m.ended_without_finish_t, 6)
                                      if m.ended_without_finish_t is not None
                                      else None),
             "final_classification": (
-                {"t_unix": round(m.final_classification_t, 3),
-                 "num_cars": m.final_classification["num_cars"]}
+                {"t_unix": round(m.final_classification_t, 6),
+                 "num_cars": m.final_classification["num_cars"],
+                 "positions": [{"car_idx": r["idx"], "position": r["position"],
+                                "result_status": r["result_status"],
+                                "result_reason": r["result_reason"]}
+                               for r in m.final_classification["rows"]
+                               if r["position"] > 0]}
                 if m.final_classification else None),
             "race_states": {k: {"count": v, "seconds": round(st_seconds[k], 2)}
                             for k, v in st_counts.items()},

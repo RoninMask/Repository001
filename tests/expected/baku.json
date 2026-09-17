@@ -379,7 +379,9 @@
     {
       "id": "V3-BK-04",
       "check": "A15",
-      "scope": {},
+      "scope": {
+        "sub": "within"
+      },
       "v2": "observe",
       "v3": "pass",
       "gated": true,
@@ -403,14 +405,16 @@
       "check": "A25",
       "scope": {
         "cars": [
-          17
+          17,
+          18,
+          19
         ]
       },
       "v2": "observe",
       "v3": "pass",
       "gated": true,
       "pass": 1,
-      "evidence": "Car 17: one retirement line"
+      "evidence": "Cars 17,18,19: one retirement line each"
     },
     {
       "id": "V3-BK-06",
@@ -443,6 +447,38 @@
       "gated": true,
       "pass": 1,
       "evidence": "State before speech: zero hits"
+    },
+    {
+      "id": "V3-BK-08",
+      "check": "A35",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "No false winner: race ended without a finish (Pass 1 run 1)"
+    },
+    {
+      "id": "V3-BK-09",
+      "check": "A33",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "One 'session ended' line within 10 s of SEND 839.635; no winner (Pass 1 run 1)"
+    },
+    {
+      "id": "V3-BK-10",
+      "check": "A6",
+      "scope": {
+        "occurrence": "lead_change"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Lead flurry 757.334-767.867 has a line within 10 s (Pass 1 run 1)"
     }
   ]
 }

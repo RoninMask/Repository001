@@ -258,6 +258,7 @@ class TestReaderAndTruth(unittest.TestCase):
         cap.add(B + 1, fx.make_lapdata([0, 1]))
         cap.add(B + 2, fx.make_event("RTMT", vehicle_idx=1, reason=3))
         cap.add(B + 3, fx.make_lapdata([0], statuses={1: 7}))
+        cap.add(B + 3.5, fx.make_event("CHQF"))   # race distance done
         cap.add(B + 4, fx.make_lapdata([0], statuses={0: 3, 1: 7}))
         cap.add(B + 5, fx.make_final_classification([0, 1]))
         cap.marker(B + 6)
@@ -389,12 +390,27 @@ class TestDetectors(unittest.TestCase):
 
     def test_A6_winner(self):
         tr = derived(base_truth())
+        # no winner line -> a winner occurrence survives scope_filter (delay None)
         hits, _ = hh.detect_A6(tr, make_run([]), P)
-        self.assertTrue(any(h["occurrence"] == "winner" for h in hits))
+        kept = hh.scope_filter(hits, {"occurrence": "winner"}, tr)
+        self.assertTrue(kept)
+        # a winner line 1s after the finish -> within default window, dropped
         run = make_run([L("W", B + 101, "RACE_WINNER",
                           "Verstappen takes the win.", subject=0)])
         hits, _ = hh.detect_A6(tr, run, P)
-        self.assertFalse(any(h["occurrence"] == "winner" for h in hits))
+        kept = hh.scope_filter(hits, {"occurrence": "winner"}, tr)
+        self.assertFalse(kept)
+        # but a 5s window_s scope keeps it only if beyond 5s: at 1s it passes
+        kept5 = hh.scope_filter(hits, {"occurrence": "winner", "window_s": 5},
+                                tr)
+        self.assertFalse(kept5)
+        # a winner line 8s after finish fails a 5s window but passes the default
+        run = make_run([L("W", B + 108, "RACE_WINNER",
+                          "Verstappen takes the win.", subject=0)])
+        hits, _ = hh.detect_A6(tr, run, P)
+        self.assertFalse(hh.scope_filter(hits, {"occurrence": "winner"}, tr))
+        self.assertTrue(hh.scope_filter(
+            hits, {"occurrence": "winner", "window_s": 5}, tr))
 
     def test_A6_safety_car_and_lead_change(self):
         tr = base_truth()
@@ -1050,6 +1066,57 @@ class TestV3Detectors(unittest.TestCase):
         self.assertFalse(ev["gated"])
         ev = hh.evaluate_assertion(a, results, tr, "v3", pass_scope=2)
         self.assertIn(ev["verdict"], ("UNEXPECTED FAIL", "MATCH"))
+
+    def test_A35_false_winner(self):
+        # a winner line when the wire has no leader finish fails
+        tr = base_truth(finish=False, classification=False)
+        add_ev(tr, B + 40, "SEND")
+        tr = derived(tr)
+        run = self._v3_run([(B + 41, "WINNER", "Norris takes the win!", [0])])
+        self.assertTrue(hh.detect_A35(tr, run, P)[0])
+        # no winner line -> pass
+        run = self._v3_run([(B + 41, "RACE_END", "The session has ended.", [])])
+        self.assertEqual(hh.detect_A35(tr, run, P)[0], [])
+        # a real leader finish naming the true winner -> pass
+        tr = derived(base_truth())    # road_winner 0
+        run = self._v3_run([(B + 101, "WINNER", "Verstappen takes the win!",
+                             [0])])
+        self.assertEqual(hh.detect_A35(tr, run, P)[0], [])
+        # winner line naming the wrong car -> fail
+        run = self._v3_run([(B + 101, "WINNER", "Ronin takes the win!", [1])])
+        self.assertTrue(hh.detect_A35(tr, run, P)[0])
+
+    def test_A6_lead_change_grouping(self):
+        # four lead swaps in a flurry, satisfied by ONE line naming a car in it
+        tr = base_truth()
+        tr.leader.add(B + 30, 1)
+        tr.leader.add(B + 32, 0)
+        tr.leader.add(B + 34, 1)
+        tr.leader.add(B + 36, 0)
+        tr = derived(tr)
+        run = self._v3_run([(B + 31, "LEAD_CONTEST",
+                             "The lead is changing hands.", [1])])
+        hits, _ = hh.detect_A6(tr, run, P)
+        lead_hits = [h for h in hits if h.get("occurrence") == "lead_change"]
+        self.assertEqual(len(lead_hits), 0)     # one grouped occurrence, covered
+        # nothing said -> one occurrence unmatched
+        hits, _ = hh.detect_A6(tr, self._v3_run([]), P)
+        lead_hits = [h for h in hits if h.get("occurrence") == "lead_change"]
+        self.assertEqual(len(lead_hits), 1)
+
+    def test_A15_within_scope(self):
+        tr = derived(base_truth())    # LGOT at B
+        # start call 0.5s from LGOT -> within 1.0s, no sub=within hit
+        run = self._v3_run([(B + 0.5, "START", "Lights out and away we go.",
+                             [])], manifest={"anchor": {"t_unix": B,
+                                                        "source": "event"}})
+        hits, _ = hh.detect_A15(tr, run, P)
+        self.assertFalse(any(h.get("sub") == "within" for h in hits))
+        # start call 3s from LGOT -> beyond 1.0s
+        run = self._v3_run([(B + 3.0, "START", "We are racing.", [])],
+                           manifest={"anchor": {"t_unix": B, "source": "event"}})
+        hits, _ = hh.detect_A15(tr, run, P)
+        self.assertTrue(any(h.get("sub") == "within" for h in hits))
 
 
 class TestCorpusHandling(unittest.TestCase):

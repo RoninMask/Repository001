@@ -129,7 +129,8 @@
       "id": "V3-S2-01",
       "check": "A6",
       "scope": {
-        "occurrence": "winner"
+        "occurrence": "winner",
+        "window_s": 5
       },
       "v2": "observe",
       "v3": "pass",
