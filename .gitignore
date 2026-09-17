@@ -4,4 +4,5 @@ analysis_out/
 corpus/
 tests/reports/
 tests/fixture_corpus/
+tests/fixture_v3_out/
 tests/pass0_reports_*.zip

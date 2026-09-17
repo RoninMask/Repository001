@@ -178,6 +178,29 @@ def make_final_classification(order, num_laps=5, statuses=None):
     return bytes(buf)
 
 
+CARTEL_LEN = 1352       # Car Telemetry (ID 6); m_speed is the first per-car u16
+CARTEL_STRIDE = 60
+PID_CARTELEMETRY = 6
+
+
+def make_cartelemetry(speeds):
+    """Car Telemetry packet (ID 6) carrying only m_speed per car (km/h).  V3's
+    fallback anchor reads this; the harness truth model ignores it."""
+    buf = bytearray(CARTEL_LEN)
+    buf[0:29] = pack_header(PID_CARTELEMETRY)
+    for idx in range(MAX_CARS):
+        off = 29 + idx * CARTEL_STRIDE
+        struct.pack_into("<H", buf, off, int(speeds.get(idx, 0)) & 0xFFFF)
+    return bytes(buf)
+
+
+def speed_stream(cap, t_from, t_to, speed_fn, step=0.5):
+    t = t_from
+    while t < t_to:
+        cap.add(t, make_cartelemetry(speed_fn(t)))
+        t = round(t + step, 3)
+
+
 # =============================================================================
 # Capture + artefact writers
 # =============================================================================
@@ -425,8 +448,13 @@ def build_fx_baku(root):
     def status_fn(t):
         return 2 if 1789507531.9 <= t < 1789507533.3 else 0
 
+    def speed_fn(t):
+        base = 0 if t < LGOT else 200
+        return {i: base for i in range(20)}
+
     session_stream(cap, T0, END, status_fn, track_id=20)
     lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    speed_stream(cap, T0, END, speed_fn)
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))
 
@@ -463,9 +491,8 @@ def build_fx_baku(root):
     for t, code, det in events:
         cap.add(t, make_event(code, **det))
         aw.event(t, code, det)
-    cap.add(1789507839.5, make_final_classification(
-        order_c, statuses={i: (7 if i in (17, 18, 19) else 6)
-                           for i in range(20)}))
+    # Baku ends WITHOUT a finish: no Final Classification; the final SEND at
+    # 839.635 is terminal (no later SSTA).  (Brief section 8.2.)
     for i in range(3):
         cap.marker(T0 + 100.0 + i)
 
@@ -558,6 +585,8 @@ def build_fx_silverstone(root):
 
     session_stream(cap, T0, END, lambda t: 0, track_id=7)
     lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    speed_stream(cap, T0, END, lambda t: {i: (0 if t < LGOT else 200)
+                                          for i in range(20)})
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))
 
@@ -680,22 +709,41 @@ def build_fx_austria(root):
     END = T0 + 330.0
 
     order = [15] + [i for i in range(20) if i != 15]
+    RETIRE19 = T0 + 250.0
+
+    def order_fn(t):
+        return [i for i in order if not (i == 19 and t >= RETIRE19)]
 
     def statuses_fn(t):
         st = {}
+        if t >= RETIRE19:
+            st[19] = 7          # Player (car 19) retires before the finish
         for j, idx in enumerate(order):
+            if idx == 19:
+                continue
             if t >= FIN + j:
                 st[idx] = 3
         return st
 
+    # no STLG/LGOT: V3 anchors via the fallback condition at race start
+    def speed_fn(t):
+        base = 0 if t < T0 + 2.0 else 200
+        return {i: base for i in range(20)}
+
     session_stream(cap, T0, END, lambda t: 0, track_id=17)
-    lapdata_stream(cap, T0 + 0.25, END, lambda t: order, statuses_fn)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    speed_stream(cap, T0, END, speed_fn)
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))
     events = [
         (T0 + 0.05, "SSTA", {}),
+        (T0 + 1.9, "SCAR", {"safety_car_type": 0, "event_type": 3}),
+        (RETIRE19, "PENA", {"penalty_type": 16, "infringement_type": 1,
+                            "vehicle_idx": 19}),
+        (RETIRE19 + 0.03, "RTMT", {"vehicle_idx": 19, "reason": 1}),
         (FIN + 0.1, "RCWN", {"vehicle_idx": 15}),
         (FIN + 0.2, "CHQF", {}),
+        (END - 0.6, "SCAR", {"safety_car_type": 0, "event_type": 3}),
         (END - 0.5, "SEND", {}),
     ]
     for t, code, det in events:
@@ -822,6 +870,121 @@ def build_fx_clean(root):
 
 
 # =============================================================================
+# fx_s04 -- formation, start, full safety car, SEND/SSTA restart WITHOUT a red
+# flag, a pit burst, a mid-race retirement (brief section 8.2).
+# =============================================================================
+
+def build_fx_s04(root):
+    folder = os.path.join(root, "fx_wx_1", "04_Silverstone_Race")
+    stem = "FIXTURE_S04_s01"
+    cap = FixtureCapture()
+    aw = ArtefactWriter(folder, stem)
+
+    humans = {18: ("Bearman88", "Bearman", 38, 1, 1),
+              15: ("VaLoR-99", "Valor", 76, 2, 0)}
+    cars = grid20(humans)
+    spoken = spoken_map(cars, {18: "Bearman", 15: "Valor"})
+
+    T0 = 1789558355.0
+    LGOT = 1789558368.460
+    SC = 1789558461.148
+    SEND1 = 1789558466.274
+    SSTA = 1789558466.960
+    LGOT2 = 1789558472.507
+    RETIRE18 = 1789558600.0
+    FIN = 1789558700.0
+    END = 1789558720.0
+
+    order = list(range(20))
+    order_after = [i for i in order if i != 15]      # VaLoR retires lap 1
+    order_final = [i for i in order_after if i != 18]  # Bearman retires mid
+
+    def order_fn(t):
+        if t < 1789558456.0:
+            return order
+        if t < RETIRE18:
+            return order_after
+        return order_final
+
+    def statuses_fn(t):
+        st = {}
+        if t >= 1789558456.164:
+            st[15] = 7
+        if t >= RETIRE18:
+            st[18] = 7
+        for j, idx in enumerate(order_final):
+            if t >= FIN + j:
+                st[idx] = 3
+        return st
+
+    def status_fn(t):
+        if t < LGOT:
+            return 3            # formation lap before the start
+        if SC <= t < SSTA:
+            return 1            # full safety car
+        return 0
+
+    def speed_fn(t):
+        base = 0 if t < LGOT else 200
+        if SC <= t < LGOT2:
+            base = 60
+        return {i: base for i in range(20)}
+
+    session_stream(cap, T0, END, status_fn, track_id=7)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    speed_stream(cap, T0, END, speed_fn)
+    for i in range(0, 40, 10):
+        cap.add(T0 + 0.1 + i, make_participants(cars))
+
+    events = [
+        (T0 + 0.05, "SSTA", {}),
+        (1789558360.820, "SCAR", {"safety_car_type": 3, "event_type": 3}),
+        (1789558361.7, "STLG", {"num_lights": 1}),
+        (1789558363.0, "STLG", {"num_lights": 3}),
+        (LGOT, "LGOT", {}),
+        (1789558456.164, "PENA", {"penalty_type": 16, "infringement_type": 1,
+                                  "vehicle_idx": 15}),
+        (1789558456.2, "RTMT", {"vehicle_idx": 15, "reason": 1}),
+        (SC, "SCAR", {"safety_car_type": 1, "event_type": 0}),
+        (SEND1, "SEND", {}),
+        (SSTA, "SSTA", {}),
+        (1789558468.0, "STLG", {"num_lights": 1}),
+        (LGOT2, "LGOT", {}),
+        (RETIRE18, "PENA", {"penalty_type": 16, "infringement_type": 1,
+                            "vehicle_idx": 18}),
+        (RETIRE18 + 0.03, "RTMT", {"vehicle_idx": 18, "reason": 8}),
+        (FIN + 0.1, "RCWN", {"vehicle_idx": 0}),
+        (FIN + 0.2, "CHQF", {}),
+        (END - 0.5, "SEND", {}),
+    ]
+    # pit burst: five cars enter the pits within ~10 s (via lap-data pit
+    # status pulses) -- represented as pit-in events for the V2 artefacts and
+    # as pit_status in a short window for V3
+    for t, code, det in events:
+        cap.add(t, make_event(code, **det))
+        aw.event(t, code, det)
+    # a burst of pit entries: lap-data with pit_status for a window
+    for k, idx in enumerate([2, 3, 4, 5, 6]):
+        pt = 1789558520.0 + k * 1.5
+        cap.add(pt, make_lapdata(order_after, pits={idx: 1}))
+        cap.add(pt + 0.5, make_lapdata(order_after, pits={idx: 2}))
+        cap.add(pt + 1.0, make_lapdata(order_after))
+    cap.add(FIN + 5.0, make_final_classification(order_final))
+    for i in range(3):
+        cap.marker(T0 + 40.0 + i)
+
+    packets, markers, counts = cap.write(os.path.join(folder, stem + ".bin"))
+
+    aw.beat(T0 + 1, "SESSION_START",
+            [(i, did(i), spoken[i], cars[i]["ai"] == 0) for i in range(20)])
+    aw.line(LGOT + 0.5, "LIGHTS_OUT", "LEAD", "Lights out at Silverstone.",
+            did(0), spoken[0])
+    aw.line(FIN + 0.5, "RACE_WINNER", "LEAD", "Verstappen takes the win.",
+            did(0), spoken[0])
+    aw.cut(LGOT + 1.0, 0, spoken[0])
+    aw.write(packets, markers, counts)
+    return {"race": "fx_s04", "packets": packets, "markers": markers}
+
 
 FIXTURE_CORPUS = {
     "fx_baku": {"subfolder": "fx2_baku_live", "stem": None,
@@ -832,8 +995,17 @@ FIXTURE_CORPUS = {
                                        "stem": None, "source": "fast"}},
     "fx_austria": {"subfolder": "fx_8_sep_race_austria/01_Austria_Race",
                    "stem": "FIXTURE_AUT_s01", "source": "replay"},
+    "fx_s04": {"subfolder": "fx_wx_1/04_Silverstone_Race",
+               "stem": "FIXTURE_S04_s01", "source": "replay"},
     "fx_clean": {"subfolder": "fx_clean/01_Clean_Race",
                  "stem": "FIXTURE_CLEAN_s01", "source": "replay"},
+    "fx_baku_fallback": {"subfolder": "fx2_baku_live", "stem": None,
+                         "source": "replay", "v3_suffix": "_fallback",
+                         "ignore_events": "LGOT,STLG"},
+    "fx_silverstone_fallback": {"subfolder": "fx1_live_sim",
+                                "stem": "FIXTURE_SILV_s01", "source": "replay",
+                                "v3_suffix": "_fallback",
+                                "ignore_events": "LGOT,STLG"},
 }
 
 
@@ -846,6 +1018,7 @@ def main():
         build_fx_baku(root),
         build_fx_silverstone(root),
         build_fx_austria(root),
+        build_fx_s04(root),
         build_fx_clean(root),
     ]
     with open(os.path.join(root, "corpus_fixture.json"), "w",

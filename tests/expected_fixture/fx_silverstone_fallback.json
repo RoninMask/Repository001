@@ -1,0 +1,37 @@
+{
+  "race_id": "fx_silverstone_fallback",
+  "evidence_doc": "fallback anchor test (--ignore-events LGOT,STLG)",
+  "anchors": [],
+  "assertions": [
+    {
+      "id": "V3-FX_SILVERSTONE_FALLBACK-A34",
+      "check": "A34",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Fallback anchor within 1.5 s of the real LGOT 1789506448.594; 'under way'"
+    },
+    {
+      "id": "V3-FX_SILVERSTONE_FALLBACK-A15",
+      "check": "A15",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Fallback start call says 'under way', never 'lights out'"
+    },
+    {
+      "id": "V3-FX_SILVERSTONE_FALLBACK-A32",
+      "check": "A32",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "State before speech: zero hits"
+    }
+  ]
+}

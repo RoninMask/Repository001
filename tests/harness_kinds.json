@@ -1,13 +1,15 @@
 {
-  "start_call": ["LIGHTS_OUT", "SESSION_START"],
+  "start_call": ["LIGHTS_OUT", "SESSION_START", "START", "RESTART"],
   "track_action": ["OVERTAKE", "BATTLE", "LEADER_CHANGE", "COLLAPSE",
-                   "COLLISION", "FASTEST_LAP", "SPEED_TRAP"],
+                   "COLLISION", "FASTEST_LAP", "SPEED_TRAP",
+                   "PASS", "LEAD_CHANGE", "CONTESTED"],
   "filler": ["NS_SETUP", "NS_PRE_TENSION", "NS_COOLDOWN", "NS_STRATEGIC",
              "NS_LULL", "NS_STAT", "NS_SCENIC"],
-  "penalty": ["PENALTY"],
+  "penalty": ["PENALTY", "WARNING"],
   "retirement": ["RETIREMENT"],
-  "pit": ["PIT_IN", "PIT_OUT"],
-  "safety_car": ["SAFETY_CAR", "SAFETY_CAR_END"],
-  "finish": ["CHEQUERED", "RACE_WINNER"],
+  "pit": ["PIT_IN", "PIT_OUT", "PIT"],
+  "safety_car": ["SAFETY_CAR", "SAFETY_CAR_END", "VSC"],
+  "state": ["RED_FLAG"],
+  "finish": ["CHEQUERED", "RACE_WINNER", "WINNER", "RESULT", "RACE_END"],
   "session": ["SESSION_END"]
 }

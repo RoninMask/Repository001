@@ -47,6 +47,7 @@ import bisect
 import csv
 import io
 import json
+import glob
 import os
 import platform
 import re
@@ -101,6 +102,9 @@ PARAMS = {
     "A30_window_s": 10.0,
     "A31_max": 4,
     "A31_window_s": 60.0,
+    "A33_window_s": 10.0,
+    "A33_phrase": "ended",
+    "A34_tol_s": 1.5,
 }
 
 # Penalty type appendix.  The appendix is not in the spec text file, so it is
@@ -945,6 +949,8 @@ class Run:
         self.unknown_kinds = set()
         self.unresolved_second_car = []         # line ids (known limit)
         self.cuts_spoken = []                   # (t, spoken) for A27
+        self.v3_manifest = None                 # V3 manifest, for A34
+        self.v3_file_path = None                # V3 tool file, for A32
 
 
 def load_kinds_map(path=KINDS_JSON):
@@ -1081,15 +1087,90 @@ class V2Adapter:
 
 
 class V3Adapter:
-    """Pass 1 will implement this.  Interface stub only (brief section 11)."""
+    """Reads a V3 output folder (schema v3) into the common model.  No text
+    parsing is needed for car identity: subjects carry car indices."""
 
     def __init__(self, kinds_map):
-        raise NotImplementedError(
-            "V3Adapter is a Pass 1 deliverable; Pass 0 ships the interface "
-            "stub only.")
+        self.kinds = kinds_map
 
     def load(self, folder, stem, source, race_id, tool="v3"):
-        raise NotImplementedError
+        run = Run()
+        run.race_id = race_id
+        run.source = source
+        run.tool = tool
+
+        man_path = os.path.join(folder, stem + "_manifest.json")
+        with open(man_path, encoding="utf-8") as f:
+            run.manifest = json.load(f)
+        run.v3_manifest = run.manifest
+
+        lines_path = os.path.join(folder, stem + "_lines.jsonl")
+        with open(lines_path, encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except ValueError:
+                    continue
+                kind = rec.get("kind")
+                cat = self.kinds.get(kind)
+                if cat is None:
+                    cat = "other"
+                    run.unknown_kinds.add(kind)
+                subs = rec.get("subjects") or []
+                subject_idx = subs[0] if len(subs) >= 1 else None
+                other_idx = subs[1] if len(subs) >= 2 else None
+                spoken = rec.get("subjects_spoken") or []
+                for i, idx in enumerate(subs):
+                    # a V3 line carries the spoken name it used per subject, so
+                    # A7 knows a broadcast name is not a raw gamertag leak
+                    if i < len(spoken) and spoken[i]:
+                        run.spoken_by_idx[idx].add(spoken[i])
+                line = Line(
+                    id=rec.get("line_id"),
+                    air_t=rec.get("t_unix"),
+                    dur_s=rec.get("est_duration_s") or 0.0,
+                    kind=kind, category=cat,
+                    speaker=rec.get("speaker"),
+                    text=rec.get("text") or "",
+                    subject_idx=subject_idx, other_idx=other_idx,
+                    cause=(rec.get("cause") or {}).get("text")
+                    if rec.get("cause") else None,
+                    truncation_point=None,
+                    subject_spoken=None,
+                    word_count=len((rec.get("text") or "").split()),
+                )
+                run.lines.append(line)
+        run.lines.sort(key=lambda l: (l.air_t if l.air_t is not None else 0.0,
+                                      l.id or ""))
+
+        cuts_path = os.path.join(folder, stem + "_cuts.csv")
+        rows = []
+        if os.path.isfile(cuts_path):
+            with open(cuts_path, encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    try:
+                        t = float(row["t_unix"])
+                        car = int(row["car_idx"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    method = (row.get("method") or "").strip()
+                    rows.append((t, car, row.get("spoken") or "", method))
+        rows.sort(key=lambda r: r[0])
+        shots_raw = [r for r in rows if r[3] != "failed"]
+        for i, (t, car, spoken, method) in enumerate(shots_raw):
+            t_end = shots_raw[i + 1][0] if i + 1 < len(shots_raw) else None
+            run.shots.append(Shot(t, t_end, car, method))
+        for t, car, spoken, method in rows:
+            run.cuts_spoken.append((t, spoken))
+            if spoken:
+                run.spoken_by_idx[car].add(spoken)
+            if method in ("failed", "direct"):
+                run.actuation_attempts.append(
+                    Attempt(t, car, method != "failed", method))
+        return run
 
 
 # =============================================================================
@@ -1151,8 +1232,9 @@ def detect_A6(truth, run, p):
     for (t, old, new) in truth.lead_changes_in_green():
         found = [l for l in _lines_between(run.lines, t, t + w)
                  if l.category == "track_action"
-                 and l.kind in ("LEADER_CHANGE", "OVERTAKE")
-                 and l.subject_idx == new]
+                 and l.kind in ("LEADER_CHANGE", "OVERTAKE",
+                                "LEAD_CHANGE", "PASS", "CONTESTED")
+                 and (l.subject_idx == new or l.other_idx == new)]
         if not found:
             hits.append(_hit(
                 t=t, occurrence="lead_change", cars=[new],
@@ -1379,13 +1461,13 @@ def detect_A18(truth, run, p):
     hits = []
     lb = p["A18_sptp_lookback_s"]
     for l in run.lines:
-        if l.kind == "OVERTAKE":
+        if l.kind in ("OVERTAKE", "PASS"):
             if l.subject_idx is None or l.other_idx is None:
                 continue
             ahead = truth.ahead(l.subject_idx, l.other_idx, l.air_t)
             if ahead is False:
                 hits.append(_hit(
-                    line_id=l.id, t=l.air_t, kind="OVERTAKE",
+                    line_id=l.id, t=l.air_t, kind=l.kind,
                     cars=[l.subject_idx, l.other_idx],
                     reason="subject not ahead of the other car at air time",
                     evidence="positions at %.3f: car %s P%s, car %s P%s"
@@ -1393,7 +1475,7 @@ def detect_A18(truth, run, p):
                        truth.pos[l.subject_idx].at(l.air_t),
                        l.other_idx, truth.pos[l.other_idx].at(l.air_t)),
                     text=l.text))
-        elif l.kind == "LEADER_CHANGE":
+        elif l.kind in ("LEADER_CHANGE", "LEAD_CHANGE"):
             if l.subject_idx is None:
                 continue
             leader = truth.leader_at(l.air_t)
@@ -1405,9 +1487,9 @@ def detect_A18(truth, run, p):
                     evidence="wire leader at %.3f is car %s"
                     % (l.air_t, leader),
                     text=l.text))
-        elif (l.kind == "SPEED_TRAP"
-              and "quickest" in (l.text or "").lower()
-              and l.subject_idx is not None):
+        if (l.kind == "SPEED_TRAP"
+                and "quickest" in (l.text or "").lower()
+                and l.subject_idx is not None):
             subj_speed = None
             for e in truth.events_by_code.get("SPTP", []):
                 if (e.get("vehicle_idx") == l.subject_idx
@@ -1930,7 +2012,8 @@ def detect_A29(truth, run, p):
                 continue
             # order changed in the final window; find last line naming both
             named = [l for l in run.lines
-                     if l.kind in ("OVERTAKE", "LEADER_CHANGE")
+                     if l.kind in ("OVERTAKE", "LEADER_CHANGE",
+                                   "PASS", "LEAD_CHANGE", "CONTESTED")
                      and {l.subject_idx, l.other_idx} == {a, b}]
             if not named:
                 continue
@@ -2070,6 +2153,118 @@ def detect_H3(truth, run, p):
     return [], None
 
 
+_A32_CODES = ("OVTK", "RDFL", "SCAR", "LGOT", "STLG", "SEND", "SSTA", "RTMT",
+              "PENA", "COLL", "SPTP", "RCWN", "CHQF", "FTLP", "DTSV", "SGSV",
+              "FINALCLASS")
+_A32_MARKERS = [("# === BOOTH BEGIN ===", "# === BOOTH END ==="),
+                ("# === GALLERY BEGIN ===", "# === GALLERY END ===")]
+
+
+def scan_state_before_speech(v3_file_path):
+    """A32 static scan: returns (hits, na).  Fails if any line inside the
+    Booth or Gallery marked sections references packet decoding."""
+    if not v3_file_path or not os.path.isfile(v3_file_path):
+        return [], "no V3 tool file provided to A32"
+    with open(v3_file_path, encoding="utf-8") as f:
+        src = f.readlines()
+    hits = []
+    for begin, end in _A32_MARKERS:
+        inside = False
+        for i, line in enumerate(src, 1):
+            if begin in line:
+                inside = True
+                continue
+            if end in line:
+                inside = False
+                continue
+            if not inside:
+                continue
+            if "struct.unpack" in line or re.search(r"\bdecode_", line) \
+                    or re.search(r"\bPID_[A-Z]+", line):
+                hits.append(_hit(t=None, line=i,
+                                 reason="packet decoding inside %s section"
+                                 % begin.strip("# ="),
+                                 evidence="line %d: %s" % (i, line.strip())))
+            for code in _A32_CODES:
+                if re.search(r"[\"']%s[\"']" % code, line):
+                    hits.append(_hit(t=None, line=i,
+                                     reason="event code %r inside %s section"
+                                     % (code, begin.strip("# =")),
+                                     evidence="line %d: %s" % (i, line.strip())))
+    return hits, None
+
+
+def detect_A32(truth, run, p):
+    """State before speech (source check): the V3 Booth/Gallery must not decode
+    packets."""
+    if run.tool != "v3":
+        return [], "A32 applies to the V3 tool only"
+    return scan_state_before_speech(run.v3_file_path)
+
+
+def detect_A33(truth, run, p):
+    """Race end call: when the truth model ended without a finish, exactly one
+    'ended' finish-line airs within 10 s of that SEND and no winner line airs."""
+    if truth.race_ended_without_finish is None:
+        return [], "no race_ended_without_finish in this capture"
+    w = p.get("A33_window_s", 10.0)
+    t = truth.race_ended_without_finish
+    phrase = p.get("A33_phrase", "ended")
+    end_lines = [l for l in run.lines
+                 if l.category == "finish"
+                 and phrase in (l.text or "").lower()
+                 and abs(l.air_t - t) <= w]
+    winners = [l for l in run.lines
+               if l.category == "finish"
+               and ("win" in (l.text or "").lower()
+                    or "chequered" in (l.text or "").lower())]
+    hits = []
+    if len(end_lines) != 1:
+        hits.append(_hit(t=t, reason="%d race-end lines within %.0fs of SEND "
+                         "(want exactly 1)" % (len(end_lines), w),
+                         evidence="terminal SEND at %.3f" % t))
+    if winners:
+        hits.append(_hit(t=t, reason="a winner line aired for a race that "
+                         "ended without a finish",
+                         evidence="winner-ish lines: %s"
+                         % [l.id for l in winners], text=winners[0].text))
+    return hits, None
+
+
+def detect_A34(truth, run, p):
+    """Fallback anchor: the V3 manifest anchor must be a fallback within 1.5 s
+    of the truth model's first LGOT, and no start call says 'lights out'."""
+    man = run.v3_manifest or run.manifest or {}
+    anchor = man.get("anchor")
+    tol = p.get("A34_tol_s", 1.5)
+    lgots = [e["t"] for e in truth.events_by_code.get("LGOT", [])]
+    hits = []
+    if not anchor:
+        return [_hit(reason="V3 manifest has no anchor",
+                     evidence="expected a fallback anchor")], None
+    if anchor.get("source") != "fallback":
+        hits.append(_hit(reason="anchor.source is %r, not 'fallback'"
+                         % anchor.get("source"),
+                         evidence="manifest anchor %s" % anchor))
+    if not lgots:
+        hits.append(_hit(reason="truth model has no LGOT to compare against",
+                         evidence="cannot measure the fallback offset"))
+    else:
+        off = anchor.get("t_unix", 0.0) - lgots[0]
+        if abs(off) > tol:
+            hits.append(_hit(reason="fallback anchor %.3fs from the real LGOT "
+                             "(tol %.1fs)" % (off, tol),
+                             evidence="anchor %.3f vs LGOT %.3f"
+                             % (anchor.get("t_unix", 0.0), lgots[0])))
+    for l in run.lines:
+        if l.category == "start_call" and "lights out" in (l.text or "").lower():
+            hits.append(_hit(line_id=l.id, t=l.air_t,
+                             reason="start call says 'lights out' on a "
+                             "fallback start", text=l.text,
+                             evidence="fallback anchors never voice lights out"))
+    return hits, None
+
+
 DETECTORS = {
     "A1": ("Overlap", detect_A1),
     "A6": ("Coverage floor", detect_A6),
@@ -2093,6 +2288,9 @@ DETECTORS = {
     "A29": ("Stale last word", detect_A29),
     "A30": ("Safety car wording", detect_A30),
     "A31": ("Pit burst", detect_A31),
+    "A32": ("State before speech", detect_A32),
+    "A33": ("Race end call", detect_A33),
+    "A34": ("Fallback anchor", detect_A34),
     "H1": ("Byte accounting", detect_H1),
     "H2": ("Marker records", detect_H2),
     "H3": ("Manifest histogram", detect_H3),
@@ -2136,12 +2334,24 @@ def scope_filter(hits, scope, truth):
     return out
 
 
-def evaluate_assertion(assertion, detector_results, truth, tool):
+def evaluate_assertion(assertion, detector_results, truth, tool,
+                       pass_scope=None):
     check = assertion.get("check")
     expected = assertion.get(tool, "observe")
     gated = bool(assertion.get("gated", expected != "observe"))
     if expected == "observe":
         gated = False
+    # Pass scoping (section 7.2): a gated V3 assertion whose `pass` exceeds the
+    # requested --pass N is reported as OBSERVED and does not gate.
+    if pass_scope is not None and gated:
+        a_pass = assertion.get("pass", 1)
+        if a_pass > pass_scope:
+            hits, na = (detector_results.get(check, ([], None))
+                        if check in DETECTORS else ([], "report-only"))
+            filtered = scope_filter(hits, assertion.get("scope"), truth)
+            actual = "n/a" if na is not None else ("fail" if filtered else "pass")
+            return {"verdict": "OBSERVED", "actual": actual,
+                    "hits": len(filtered), "gated": False, "na": na}
     if not check or check not in DETECTORS:
         # report-only assertion (e.g. truth-report observations)
         metric = (assertion.get("scope") or {}).get("metric")
@@ -2212,6 +2422,23 @@ def discover_stem(folder):
                       "(manifests found: %s)" % (folder, manifests or "none"))
     return None, ("several RACE manifests in %s: %s -- set 'stem' in "
                   "corpus.json" % (folder, race))
+
+
+V3_REQUIRED_SUFFIXES = ["_manifest.json", "_lines.jsonl", "_claims.jsonl",
+                        "_state.jsonl", "_cuts.csv"]
+
+
+def check_v3_files(folder, stem):
+    """Missing required V3 output files for one race."""
+    missing = []
+    if not os.path.isdir(folder):
+        return ["%s  (V3 output folder missing -- run run_v3_corpus.py)"
+                % (folder + os.sep)]
+    for suf in V3_REQUIRED_SUFFIXES:
+        p = os.path.join(folder, stem + suf)
+        if not os.path.isfile(p):
+            missing.append(p)
+    return missing
 
 
 def check_race_files(folder, stem, need_bin=True):
@@ -2582,7 +2809,8 @@ def load_expected(expected_dir, race_id):
 
 
 def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
-             truth_only, log, summary):
+             truth_only, log, summary, v3_root=None, v3_file=None,
+             pass_scope=None):
     started = time.time()
     log.log("=== %s: starting ===" % race_id)
     twin_cfg = entry.get("parity_twin")
@@ -2677,20 +2905,35 @@ def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
                 "elapsed_s": time.time() - started}
 
     # Adapter.
+    twin_run = None
     if tool == "v2":
         adapter = V2Adapter(kinds_map)
+        run = adapter.load(folder, stem, entry.get("source", "replay"),
+                           race_id, tool=tool)
+        if twin_cfg and twin_stem:
+            twin_run = adapter.load(twin_folder, twin_stem,
+                                    twin_cfg.get("source", "fast"), race_id,
+                                    tool=tool)
     else:
-        raise StopRun(4, "STOPPED: ERROR — V3Adapter is a Pass 1 stub")
-    run = adapter.load(folder, stem, entry.get("source", "replay"), race_id,
-                       tool=tool)
+        adapter = V3Adapter(kinds_map)
+        suffix = entry.get("v3_suffix", "")
+        v3_folder = os.path.join(v3_root, stem + suffix)
+        v3_missing = check_v3_files(v3_folder, stem)
+        if v3_missing:
+            return {"race": race_id, "missing": v3_missing,
+                    "elapsed_s": time.time() - started}
+        log.log("  V3 output folder: %s" % v3_folder)
+        run = adapter.load(v3_folder, stem, entry.get("source", "replay"),
+                           race_id, tool=tool)
+        run.v3_file_path = v3_file
+        # A24 twin: the V3 paced run of the same capture
+        paced_folder = os.path.join(v3_root, "_paced", stem)
+        if os.path.isfile(os.path.join(paced_folder, stem + "_manifest.json")):
+            twin_run = adapter.load(paced_folder, stem,
+                                    entry.get("source", "replay"), race_id,
+                                    tool=tool)
     finalize_shots(run, truth)
     summary["unknown_kinds"] |= run.unknown_kinds
-
-    twin_run = None
-    if twin_cfg and twin_stem:
-        twin_run = adapter.load(twin_folder, twin_stem,
-                                twin_cfg.get("source", "fast"), race_id,
-                                tool=tool)
 
     # Detectors.
     results = {}
@@ -2705,7 +2948,7 @@ def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
     # Assertions.
     rows = []
     for a in expected.get("assertions", []):
-        ev = evaluate_assertion(a, results, truth, tool)
+        ev = evaluate_assertion(a, results, truth, tool, pass_scope=pass_scope)
         rows.append({
             "id": a["id"], "check": a.get("check") or "-",
             "expected": a.get(tool, "observe"),
@@ -2811,6 +3054,15 @@ def main(argv=None):
     ap.add_argument("--corpus-root",
                     help="folder containing the race folders (required "
                          "unless --fixtures)")
+    ap.add_argument("--v3-root",
+                    help="V3 output root (for --tool v3): "
+                         "<v3-root>/<source_stem>/")
+    ap.add_argument("--v3-file", default=None,
+                    help="path to the V3 tool file (for A32); default finds "
+                         "T11_F125_Baby_Hoover_V3_*.py at the repo root")
+    ap.add_argument("--pass", dest="pass_scope", type=int, default=None,
+                    help="pass scope N (for --tool v3): gated assertions with "
+                         "pass > N are OBSERVED and do not gate")
     ap.add_argument("--run-label", default="run1",
                     help="names the reports zip (default run1)")
     ap.add_argument("--fixtures", action="store_true",
@@ -2874,6 +3126,10 @@ def main(argv=None):
             race_ids = [args.race]
         else:
             race_ids = list(corpus.keys())
+        # V3-only entries (fallback runs) are skipped under --tool v2.
+        if args.tool != "v3":
+            race_ids = [r for r in race_ids
+                        if not corpus[r].get("v3_suffix")]
 
         # Missing-files pre-check across every race first, so Mike can fix
         # them all in one go.
@@ -2911,12 +3167,29 @@ def main(argv=None):
             return finish(2, "STOPPED: MISSING FILES — %d paths listed above"
                           % len(all_missing), t_start, race_times)
 
+        v3_root = args.v3_root
+        v3_file = args.v3_file
+        if args.tool == "v3":
+            if not v3_root:
+                if args.fixtures:
+                    v3_root = os.path.join(HERE, "fixture_v3_out")
+                else:
+                    ap.error("--v3-root is required for --tool v3")
+            if not v3_file:
+                cands = sorted(glob.glob(os.path.join(
+                    os.path.dirname(HERE), "T11_F125_Baby_Hoover_V3_*.py")))
+                v3_file = cands[-1] if cands else None
+            log.log("V3 root: %s" % v3_root)
+            log.log("V3 tool file (A32): %s" % v3_file)
+
         summary = {"anchors": [], "event_count_diffs": {},
                    "unknown_kinds": set()}
         results = []
         for rid in race_ids:
             res = run_race(rid, corpus[rid], root, expected_dir, args.tool,
-                           kinds_map, args.truth_only, log, summary)
+                           kinds_map, args.truth_only, log, summary,
+                           v3_root=v3_root, v3_file=v3_file,
+                           pass_scope=args.pass_scope)
             race_times.append((rid, res.get("elapsed_s", 0.0)))
             results.append(res)
 

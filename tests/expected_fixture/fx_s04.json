@@ -1,0 +1,159 @@
+{
+  "race_id": "fx_s04",
+  "evidence_doc": "synthetic fixture: formation, full SC, restart without red flag, pit burst (brief 8.2)",
+  "anchors": [
+    {
+      "id": "AN-S04-counts",
+      "kind": "record_counts",
+      "packets": 1680,
+      "markers": 3
+    },
+    {
+      "id": "AN-S04-lgot",
+      "kind": "event_near",
+      "code": "LGOT",
+      "t": 1789558368.46
+    },
+    {
+      "id": "AN-S04-restart",
+      "kind": "event_near",
+      "code": "LGOT",
+      "t": 1789558472.507
+    },
+    {
+      "id": "AN-S04-sc",
+      "kind": "event_near",
+      "code": "SCAR",
+      "t": 1789558461.148,
+      "match": {
+        "safety_car_type": 1,
+        "event_type": 0
+      }
+    },
+    {
+      "id": "AN-S04-form",
+      "kind": "event_near",
+      "code": "SCAR",
+      "t": 1789558360.82,
+      "match": {
+        "safety_car_type": 3
+      }
+    },
+    {
+      "id": "AN-S04-winner",
+      "kind": "classified_winner",
+      "car": 0,
+      "name_contains": "Verstappen"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "E-S04-A1",
+      "check": "A1",
+      "scope": {},
+      "v2": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Serial scheduler."
+    },
+    {
+      "id": "E-S04-H1",
+      "check": "H1",
+      "scope": {},
+      "v2": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Balanced."
+    },
+    {
+      "id": "V3-S4-01",
+      "check": "A15",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "One start at LGOT 368.460; one restart at 472.507; no call during formation 360.820"
+    },
+    {
+      "id": "V3-S4-02",
+      "check": "A6",
+      "scope": {
+        "occurrence": "safety_car"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Full safety car at 461.148 has a safety car line within 10 s"
+    },
+    {
+      "id": "V3-S4-03",
+      "check": "A16",
+      "scope": {
+        "sub": "stopped"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "No pass/battle/filler between SEND 466.274 and restart LGOT 472.507"
+    },
+    {
+      "id": "V3-S4-04",
+      "check": "A17",
+      "scope": {
+        "cars": [
+          18
+        ]
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "No lines naming Bearman (car 18) after its retirement except that line"
+    },
+    {
+      "id": "V3-S4-05",
+      "check": "A31",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "No more than 4 pit lines in any 60 s (pit burst fused)"
+    },
+    {
+      "id": "V3-S4-06",
+      "check": "A6",
+      "scope": {
+        "occurrence": "winner"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Winner car 0 named within 5 s of leader finish 700.25"
+    },
+    {
+      "id": "V3-S4-07",
+      "check": "A20",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Zero actuation attempts (replay)"
+    },
+    {
+      "id": "V3-S4-32",
+      "check": "A32",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "State before speech: zero hits"
+    }
+  ]
+}

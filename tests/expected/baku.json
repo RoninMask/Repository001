@@ -2,70 +2,447 @@
   "race_id": "baku",
   "evidence_doc": "Hoover_T11_V2_Consolidated_Analysis_V1_16SEP26",
   "anchors": [
-    {"id": "AN-BK-counts", "kind": "record_counts", "packets": 50902, "markers": 3},
-    {"id": "AN-BK-stlg1", "kind": "event_near", "code": "STLG", "t": 1789507515.167,
-     "match": {"num_lights": 1}},
-    {"id": "AN-BK-lgot-start", "kind": "event_near", "code": "LGOT", "t": 1789507520.601},
-    {"id": "AN-BK-vsc", "kind": "event_near", "code": "SCAR", "t": 1789507531.857,
-     "match": {"safety_car_type": 2, "event_type": 0}},
-    {"id": "AN-BK-rdfl", "kind": "event_near", "code": "RDFL", "t": 1789507533.402},
-    {"id": "AN-BK-send-susp", "kind": "event_near", "code": "SEND", "t": 1789507543.503},
-    {"id": "AN-BK-ssta", "kind": "event_near", "code": "SSTA", "t": 1789507616.701},
-    {"id": "AN-BK-lgot-restart", "kind": "event_near", "code": "LGOT", "t": 1789507624.300},
-    {"id": "AN-BK-pena16-17", "kind": "event_near", "code": "PENA", "t": 1789507531.291,
-     "match": {"penalty_type": 16, "vehicle_idx": 17}},
-    {"id": "AN-BK-rtmt-17", "kind": "event_near", "code": "RTMT", "t": 1789507531.326,
-     "match": {"vehicle_idx": 17}},
-    {"id": "AN-BK-pena16-19", "kind": "event_near", "code": "PENA", "t": 1789507531.357,
-     "match": {"penalty_type": 16, "vehicle_idx": 19}},
-    {"id": "AN-BK-rtmt-19", "kind": "event_near", "code": "RTMT", "t": 1789507531.425,
-     "match": {"vehicle_idx": 19}},
-    {"id": "AN-BK-pena16-18", "kind": "event_near", "code": "PENA", "t": 1789507838.966,
-     "match": {"penalty_type": 16, "vehicle_idx": 18}},
-    {"id": "AN-BK-rtmt-18", "kind": "event_near", "code": "RTMT", "t": 1789507839.001,
-     "match": {"vehicle_idx": 18}},
-    {"id": "AN-BK-send-final", "kind": "event_near", "code": "SEND", "t": 1789507839.635},
-    {"id": "AN-BK-stopgo-3", "kind": "event_near", "code": "PENA", "t": 1789507532.179,
-     "match": {"penalty_type": 1, "infringement_type": 3, "vehicle_idx": 3}},
-    {"id": "AN-BK-stopgo-1", "kind": "event_near", "code": "PENA", "t": 1789507532.646,
-     "match": {"penalty_type": 1, "infringement_type": 3, "vehicle_idx": 1}},
-    {"id": "AN-BK-stopgo-2", "kind": "event_near", "code": "PENA", "t": 1789507532.746,
-     "match": {"penalty_type": 1, "infringement_type": 3, "vehicle_idx": 2}}
+    {
+      "id": "AN-BK-counts",
+      "kind": "record_counts",
+      "packets": 50902,
+      "markers": 3
+    },
+    {
+      "id": "AN-BK-stlg1",
+      "kind": "event_near",
+      "code": "STLG",
+      "t": 1789507515.167,
+      "match": {
+        "num_lights": 1
+      }
+    },
+    {
+      "id": "AN-BK-lgot-start",
+      "kind": "event_near",
+      "code": "LGOT",
+      "t": 1789507520.601
+    },
+    {
+      "id": "AN-BK-vsc",
+      "kind": "event_near",
+      "code": "SCAR",
+      "t": 1789507531.857,
+      "match": {
+        "safety_car_type": 2,
+        "event_type": 0
+      }
+    },
+    {
+      "id": "AN-BK-rdfl",
+      "kind": "event_near",
+      "code": "RDFL",
+      "t": 1789507533.402
+    },
+    {
+      "id": "AN-BK-send-susp",
+      "kind": "event_near",
+      "code": "SEND",
+      "t": 1789507543.503
+    },
+    {
+      "id": "AN-BK-ssta",
+      "kind": "event_near",
+      "code": "SSTA",
+      "t": 1789507616.701
+    },
+    {
+      "id": "AN-BK-lgot-restart",
+      "kind": "event_near",
+      "code": "LGOT",
+      "t": 1789507624.3
+    },
+    {
+      "id": "AN-BK-pena16-17",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507531.291,
+      "match": {
+        "penalty_type": 16,
+        "vehicle_idx": 17
+      }
+    },
+    {
+      "id": "AN-BK-rtmt-17",
+      "kind": "event_near",
+      "code": "RTMT",
+      "t": 1789507531.326,
+      "match": {
+        "vehicle_idx": 17
+      }
+    },
+    {
+      "id": "AN-BK-pena16-19",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507531.357,
+      "match": {
+        "penalty_type": 16,
+        "vehicle_idx": 19
+      }
+    },
+    {
+      "id": "AN-BK-rtmt-19",
+      "kind": "event_near",
+      "code": "RTMT",
+      "t": 1789507531.425,
+      "match": {
+        "vehicle_idx": 19
+      }
+    },
+    {
+      "id": "AN-BK-pena16-18",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507838.966,
+      "match": {
+        "penalty_type": 16,
+        "vehicle_idx": 18
+      }
+    },
+    {
+      "id": "AN-BK-rtmt-18",
+      "kind": "event_near",
+      "code": "RTMT",
+      "t": 1789507839.001,
+      "match": {
+        "vehicle_idx": 18
+      }
+    },
+    {
+      "id": "AN-BK-send-final",
+      "kind": "event_near",
+      "code": "SEND",
+      "t": 1789507839.635
+    },
+    {
+      "id": "AN-BK-stopgo-3",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507532.179,
+      "match": {
+        "penalty_type": 1,
+        "infringement_type": 3,
+        "vehicle_idx": 3
+      }
+    },
+    {
+      "id": "AN-BK-stopgo-1",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507532.646,
+      "match": {
+        "penalty_type": 1,
+        "infringement_type": 3,
+        "vehicle_idx": 1
+      }
+    },
+    {
+      "id": "AN-BK-stopgo-2",
+      "kind": "event_near",
+      "code": "PENA",
+      "t": 1789507532.746,
+      "match": {
+        "penalty_type": 1,
+        "infringement_type": 3,
+        "vehicle_idx": 2
+      }
+    }
   ],
   "assertions": [
-    {"id": "E-BK-01", "check": "A6", "scope": {"occurrence": "red_flag"}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "Section 5: RDFL at 1789507533.402; no red flag line (D-56)."},
-    {"id": "E-BK-02", "check": "A16", "scope": {"sub": "stopped"}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "11 lines while stopped in the red flag / suspended window (D-46)."},
-    {"id": "E-BK-03", "check": "A22", "scope": {"penalty_type": 16, "cars": [17, 18, 19]}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "Retirements (PENA type 16) aired as penalties (D-43, D-44)."},
-    {"id": "E-BK-04", "check": "A25", "scope": {"cars": [19]}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "Penalty line plus pit-lane line for VaLoR (car 19) (D-44)."},
-    {"id": "E-BK-05", "check": "A15", "scope": {"sub": "b"}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "'Under way' plus two 'lights out' (D-39)."},
-    {"id": "E-BK-06", "check": "A19", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "'closing the door.' x4 (D-60)."},
-    {"id": "E-BK-07", "check": "A30", "scope": {"occurrence": "vsc"}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "VSC at 1789507531.857 voiced 'Safety car -- the field is neutralised' (D-68)."},
-    {"id": "E-BK-08", "check": "A30", "scope": {"occurrence": "restart"}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "SCAR type 0 event 3 at 1789507544.103: 'Safety car in, get ready for the restart' during suspension (D-68)."},
-    {"id": "E-BK-09", "check": "A6", "scope": {"occurrence": "winner"}, "v2": "observe", "v3": "pass", "gated": false,
-     "evidence": "Capture has no Final Classification; race ended at SEND 1789507839.635 under the virtual safety car; no finish to name (Pass 0 run 1)."},
-    {"id": "E-BK-10a", "check": "A1", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
-     "evidence": "Single-channel scheduler; no overlaps."},
-    {"id": "E-BK-10b", "check": "A7", "scope": {}, "v2": "pass", "v3": "pass", "gated": true,
-     "evidence": "No raw gamertags in this race."},
-    {"id": "E-BK-11a", "check": "H2", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "3 marker records (D-22)."},
-    {"id": "E-BK-11b", "check": "H3", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "Manifest histogram over by 125 (D-20)."},
-    {"id": "E-BK-12", "check": "A18", "scope": {"text_contains": "Lawson"}, "v2": "observe",
-     "evidence": "Fused COLLAPSE line named Lawson while Ronin lost four places (D-49)."},
-    {"id": "E-BK-13a", "check": "A21", "scope": {}, "v2": "observe",
-     "evidence": "T-10: check the reported 72 s hold on a parked car."},
-    {"id": "E-BK-13b", "check": "A26", "scope": {}, "v2": "observe",
-     "evidence": "T-10: check the reported 72 s hold on a parked car."},
-    {"id": "E-BK-13c", "check": "A28", "scope": {}, "v2": "observe",
-     "evidence": "T-10: check the reported 72 s hold on a parked car."}
+    {
+      "id": "E-BK-01",
+      "check": "A6",
+      "scope": {
+        "occurrence": "red_flag"
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "Section 5: RDFL at 1789507533.402; no red flag line (D-56).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-02",
+      "check": "A16",
+      "scope": {
+        "sub": "stopped"
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "11 lines while stopped in the red flag / suspended window (D-46).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-03",
+      "check": "A22",
+      "scope": {
+        "penalty_type": 16,
+        "cars": [
+          17,
+          18,
+          19
+        ]
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "Retirements (PENA type 16) aired as penalties (D-43, D-44).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-04",
+      "check": "A25",
+      "scope": {
+        "cars": [
+          19
+        ]
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "Penalty line plus pit-lane line for VaLoR (car 19) (D-44).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-05",
+      "check": "A15",
+      "scope": {
+        "sub": "b"
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "'Under way' plus two 'lights out' (D-39).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-06",
+      "check": "A19",
+      "scope": {},
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "'closing the door.' x4 (D-60).",
+      "pass": 2
+    },
+    {
+      "id": "E-BK-07",
+      "check": "A30",
+      "scope": {
+        "occurrence": "vsc"
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "VSC at 1789507531.857 voiced 'Safety car -- the field is neutralised' (D-68).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-08",
+      "check": "A30",
+      "scope": {
+        "occurrence": "restart"
+      },
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "SCAR type 0 event 3 at 1789507544.103: 'Safety car in, get ready for the restart' during suspension (D-68).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-09",
+      "check": "A6",
+      "scope": {
+        "occurrence": "winner"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": false,
+      "evidence": "Capture has no Final Classification; race ended at SEND 1789507839.635 under the virtual safety car; no finish to name (Pass 0 run 1).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-10a",
+      "check": "A1",
+      "scope": {},
+      "v2": "pass",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "Single-channel scheduler; no overlaps.",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-10b",
+      "check": "A7",
+      "scope": {},
+      "v2": "pass",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "No raw gamertags in this race.",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-11a",
+      "check": "H2",
+      "scope": {},
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "3 marker records (D-22).",
+      "pass": 2
+    },
+    {
+      "id": "E-BK-11b",
+      "check": "H3",
+      "scope": {},
+      "v2": "fail",
+      "v3": "pass",
+      "gated": true,
+      "evidence": "Manifest histogram over by 125 (D-20).",
+      "pass": 2
+    },
+    {
+      "id": "E-BK-12",
+      "check": "A18",
+      "scope": {
+        "text_contains": "Lawson"
+      },
+      "v2": "observe",
+      "evidence": "Fused COLLAPSE line named Lawson while Ronin lost four places (D-49).",
+      "pass": 1
+    },
+    {
+      "id": "E-BK-13a",
+      "check": "A21",
+      "scope": {},
+      "v2": "observe",
+      "evidence": "T-10: check the reported 72 s hold on a parked car.",
+      "pass": 2
+    },
+    {
+      "id": "E-BK-13b",
+      "check": "A26",
+      "scope": {},
+      "v2": "observe",
+      "evidence": "T-10: check the reported 72 s hold on a parked car.",
+      "pass": 2
+    },
+    {
+      "id": "E-BK-13c",
+      "check": "A28",
+      "scope": {},
+      "v2": "observe",
+      "evidence": "T-10: check the reported 72 s hold on a parked car.",
+      "pass": 2
+    },
+    {
+      "id": "V3-BK-01",
+      "check": "A6",
+      "scope": {
+        "occurrence": "red_flag"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Red flag line within 10 s of RDFL 1789507533.402"
+    },
+    {
+      "id": "V3-BK-02",
+      "check": "A30",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "VSC at 531.857 voiced with 'virtual'; no restart wording for SCAR type 0 event 3 at 544.103"
+    },
+    {
+      "id": "V3-BK-03",
+      "check": "A16",
+      "scope": {
+        "sub": "stopped"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "No pass/battle/chase/filler between RDFL 533.402 and restart LGOT 624.300"
+    },
+    {
+      "id": "V3-BK-04",
+      "check": "A15",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "One start call at LGOT 520.601; one restart call at 624.300; nothing else"
+    },
+    {
+      "id": "V3-BK-05a",
+      "check": "A22",
+      "scope": {
+        "penalty_type": 16
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Cars 17,18,19: zero penalty lines for PENA 16"
+    },
+    {
+      "id": "V3-BK-05b",
+      "check": "A25",
+      "scope": {
+        "cars": [
+          17
+        ]
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Car 17: one retirement line"
+    },
+    {
+      "id": "V3-BK-06",
+      "check": "A6",
+      "scope": {
+        "occurrence": "lead_change"
+      },
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "Lead change 2->0 at 767.602 has a line within 10 s"
+    },
+    {
+      "id": "V3-BK-07",
+      "check": "A33",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "One 'session ended' line within 10 s of SEND 839.635; no winner line"
+    },
+    {
+      "id": "V3-BK-32",
+      "check": "A32",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 1,
+      "evidence": "State before speech: zero hits"
+    }
   ]
 }

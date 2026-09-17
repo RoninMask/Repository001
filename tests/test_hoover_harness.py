@@ -10,6 +10,7 @@ through synthetic record streams encoded with tests/make_fixture_corpus.py.
 Run:  python -m unittest tests/test_hoover_harness.py
 """
 
+import csv
 import json
 import os
 import struct
@@ -927,9 +928,128 @@ class TestV2Adapter(unittest.TestCase):
             self.assertEqual(run.lines[0].category, "other")
             self.assertEqual(run.unknown_kinds, {"BRAND_NEW_KIND"})
 
-    def test_v3_adapter_is_a_stub(self):
-        with self.assertRaises(NotImplementedError):
-            hh.V3Adapter(KINDS)
+    def test_v3_adapter_reads_v3_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            stem = "cap01"
+            p = os.path.join(d, stem)
+            with open(p + "_manifest.json", "w") as f:
+                json.dump({"anchor": {"t_unix": 100.0, "source": "event"},
+                           "source": "fast"}, f)
+            with open(p + "_lines.jsonl", "w") as f:
+                f.write(json.dumps({"line_id": "L0001", "t_unix": 101.0,
+                                    "est_duration_s": 2.0, "kind": "PASS",
+                                    "speaker": "LEAD",
+                                    "text": "Norris goes through on Leclerc.",
+                                    "subjects": [1, 2]}) + "\n")
+                f.write(json.dumps({"line_id": "L0002", "t_unix": 130.0,
+                                    "est_duration_s": 2.0, "kind": "WINNER",
+                                    "speaker": "LEAD",
+                                    "text": "Chequered flag, and Norris takes "
+                                            "the win!", "subjects": [1]}) + "\n")
+            with open(p + "_cuts.csv", "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["t_unix", "t_rec", "t_race", "car_idx", "spoken",
+                            "position", "method", "held_s", "race_state",
+                            "source", "actuation_state", "reason", "score"])
+                w.writerow([101.0, 1.0, 1.0, 1, "Norris", 1, "advisory", 5.0,
+                            "green", "fast", "advisory_replay", "leader", ""])
+            run = hh.V3Adapter(KINDS).load(d, stem, "fast", "unit")
+            self.assertEqual(len(run.lines), 2)
+            self.assertEqual(run.lines[0].subject_idx, 1)
+            self.assertEqual(run.lines[0].other_idx, 2)
+            self.assertEqual(run.lines[0].category, "track_action")
+            self.assertEqual(run.lines[1].category, "finish")
+            self.assertEqual(len(run.shots), 1)
+            self.assertEqual(run.actuation_attempts, [])   # advisory only
+
+
+class TestV3Detectors(unittest.TestCase):
+    def _v3_run(self, lines, manifest=None):
+        run = hh.Run()
+        run.tool = "v3"
+        run.source = "fast"
+        run.manifest = manifest or {}
+        run.v3_manifest = run.manifest
+        for i, (air_t, kind, text, subs) in enumerate(lines, 1):
+            cat = KINDS.get(kind, "other")
+            run.lines.append(hh.Line(
+                id="L%04d" % i, air_t=air_t, dur_s=2.0, kind=kind,
+                category=cat, speaker="LEAD", text=text,
+                subject_idx=subs[0] if subs else None,
+                other_idx=subs[1] if len(subs) > 1 else None,
+                cause=None, truncation_point=None, subject_spoken=None,
+                word_count=len(text.split())))
+        return run
+
+    def test_A32_source_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            clean = os.path.join(d, "clean.py")
+            with open(clean, "w") as f:
+                f.write("# === BOOTH BEGIN ===\n"
+                        "def air(self):\n    return self.model.state\n"
+                        "# === BOOTH END ===\n")
+            hits, na = hh.scan_state_before_speech(clean)
+            self.assertIsNone(na)
+            self.assertEqual(hits, [])
+            dirty = os.path.join(d, "dirty.py")
+            with open(dirty, "w") as f:
+                f.write("# === BOOTH BEGIN ===\n"
+                        "def air(self, d):\n"
+                        "    code = d[29:33]\n"
+                        "    if code == \"OVTK\":\n        pass\n"
+                        "    x = struct.unpack('<H', d, 0)\n"
+                        "# === BOOTH END ===\n")
+            hits, _ = hh.scan_state_before_speech(dirty)
+            self.assertTrue(len(hits) >= 2)
+
+    def test_A33_race_end(self):
+        tr = base_truth(finish=False, classification=False)
+        add_ev(tr, B + 40, "SEND")
+        tr = derived(tr)
+        self.assertIsNotNone(tr.race_ended_without_finish)
+        run = self._v3_run([(B + 41, "RACE_END",
+                             "The session has ended with Norris in front.",
+                             [0])])
+        self.assertEqual(hh.detect_A33(tr, run, P)[0], [])
+        # a winner line for a no-finish race fails
+        run = self._v3_run([(B + 41, "RACE_END", "The session has ended.", []),
+                            (B + 41, "WINNER", "Norris takes the win!", [0])])
+        self.assertTrue(hh.detect_A33(tr, run, P)[0])
+        # no end line at all fails
+        run = self._v3_run([(B + 200, "RESULT", "Norris finishes second.", [0])])
+        self.assertTrue(hh.detect_A33(tr, run, P)[0])
+
+    def test_A33_na_without_ended(self):
+        tr = derived(base_truth())
+        hits, na = hh.detect_A33(tr, self._v3_run([]), P)
+        self.assertIsNotNone(na)
+
+    def test_A34_fallback_anchor(self):
+        tr = derived(base_truth())   # LGOT at B
+        man = {"anchor": {"t_unix": B + 0.5, "source": "fallback"}}
+        run = self._v3_run([(B + 1, "START", "And we're under way.", [])],
+                           manifest=man)
+        self.assertEqual(hh.detect_A34(tr, run, P)[0], [])
+        # event anchor fails A34
+        man = {"anchor": {"t_unix": B, "source": "event"}}
+        run = self._v3_run([(B + 1, "START", "And we're under way.", [])],
+                           manifest=man)
+        self.assertTrue(hh.detect_A34(tr, run, P)[0])
+        # 'lights out' wording on a fallback fails
+        man = {"anchor": {"t_unix": B + 0.5, "source": "fallback"}}
+        run = self._v3_run([(B + 1, "START", "Lights out and away we go.", [])],
+                           manifest=man)
+        self.assertTrue(hh.detect_A34(tr, run, P)[0])
+
+    def test_pass_scoping(self):
+        tr = derived(base_truth())
+        results = {"A1": ([{"t": B}], None)}
+        a = {"id": "x", "check": "A1", "v3": "pass", "gated": True, "pass": 2}
+        ev = hh.evaluate_assertion(a, results, tr, "v3", pass_scope=1)
+        self.assertEqual(ev["verdict"], "OBSERVED")
+        self.assertFalse(ev["gated"])
+        ev = hh.evaluate_assertion(a, results, tr, "v3", pass_scope=2)
+        self.assertIn(ev["verdict"], ("UNEXPECTED FAIL", "MATCH"))
 
 
 class TestCorpusHandling(unittest.TestCase):

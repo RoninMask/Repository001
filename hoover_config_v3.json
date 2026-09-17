@@ -1,0 +1,380 @@
+{
+  "config_version": "3.1.0",
+  "notes": "Every tunable for T11 Baby Hoover V2. No scoring number, threshold, budget or window may be a literal in the code. Values marked by the papers as REC are provisional; the direction is the finding, the magnitudes are not. Sources: Baby Hoover V2 Offline Decision Layer V1.1, Drama Rev 2 (M-14, value windows, taxonomy), Broadcaster Quality V2, Commentary Channel V1, Driver Naming and Identity V1, Monza reference broadcast analysis.",
+  "pit_wall": {
+    "w_leader": 25.0,
+    "w_podium": 10.0,
+    "w_sticky": 18.0,
+    "w_lonely": -20.0,
+    "w_closing": 15.0,
+    "w_flying_lap": 45.0,
+    "w_improving": 15.0,
+    "w_pit_lane": 25.0,
+    "w_out_in_lap": -15.0,
+    "gap_bands": [
+      [
+        0.5,
+        45.0
+      ],
+      [
+        1.0,
+        35.0
+      ],
+      [
+        2.0,
+        20.0
+      ],
+      [
+        3.0,
+        8.0
+      ]
+    ],
+    "gap_band_max_s": 900.0,
+    "human_battle_gap_max_s": 3.0,
+    "closing_trend_threshold": -0.08,
+    "closing_gap_max_s": 4.0,
+    "lonely_gap_s": 5.0,
+    "battle_gap_max_s": 1.2,
+    "battle_trend_threshold": -0.05,
+    "battle_cooldown_s": 45.0,
+    "hard_interrupt_age_s": 3.0,
+    "event_weights": {
+      "COLLISION": {
+        "base": 70.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "RETIREMENT": {
+        "base": 60.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "OVERTAKE": {
+        "base": 60.0,
+        "decay_s": 8.0,
+        "hard": false,
+        "window": "short"
+      },
+      "FASTEST_LAP": {
+        "base": 55.0,
+        "decay_s": 8.0,
+        "hard": false,
+        "window": "short"
+      },
+      "PENALTY": {
+        "base": 50.0,
+        "decay_s": 8.0,
+        "hard": false,
+        "window": "short"
+      },
+      "PIT_IN": {
+        "base": 45.0,
+        "decay_s": 12.0,
+        "hard": false,
+        "window": "short"
+      },
+      "PIT_OUT": {
+        "base": 40.0,
+        "decay_s": 10.0,
+        "hard": false,
+        "window": "short"
+      },
+      "SPEED_TRAP": {
+        "base": 20.0,
+        "decay_s": 5.0,
+        "hard": false,
+        "window": "short"
+      },
+      "OVTK_HINT": {
+        "base": 12.0,
+        "decay_s": 5.0,
+        "hard": false,
+        "window": "short"
+      },
+      "LEADER_CHANGE": {
+        "base": 65.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "OFF_TRACK": {
+        "base": 55.0,
+        "decay_s": 2.0,
+        "hard": false,
+        "window": "interrupt"
+      },
+      "SAFETY_CAR": {
+        "base": 88.0,
+        "decay_s": 15.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "SAFETY_CAR_END": {
+        "base": 80.0,
+        "decay_s": 10.0,
+        "hard": false,
+        "window": "short"
+      },
+      "LIGHTS_OUT": {
+        "base": 100.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "CHEQUERED": {
+        "base": 95.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "RACE_WINNER": {
+        "base": 95.0,
+        "decay_s": 10.0,
+        "hard": true,
+        "window": "interrupt"
+      },
+      "BATTLE": {
+        "base": 55.0,
+        "decay_s": 20.0,
+        "hard": false,
+        "window": "medium"
+      },
+      "COLLAPSE": {
+        "base": 70.0,
+        "decay_s": 20.0,
+        "hard": false,
+        "window": "medium"
+      },
+      "SESSION_START": {
+        "base": 40.0,
+        "decay_s": 10.0,
+        "hard": false,
+        "window": "short"
+      },
+      "SESSION_END": {
+        "base": 40.0,
+        "decay_s": 10.0,
+        "hard": false,
+        "window": "short"
+      }
+    },
+    "participation": {
+      "human_vs_human": 2.2,
+      "human_vs_ai": 2.2,
+      "human_alone": 1.4,
+      "ai_vs_ai": 0.5
+    },
+    "value_windows_s": {
+      "interrupt": 5.0,
+      "short": 30.0,
+      "medium": 180.0,
+      "long": 999999.0
+    }
+  },
+  "gallery": {
+    "hold_floor_incident_s": 2.5,
+    "hold_floor_normal_s": 4.0,
+    "hold_floor_lull_s": 7.0,
+    "interrupt_min_hold_s": 2.0,
+    "cut_margin": 25.0,
+    "cut_margin_stale": 10.0,
+    "stale_hold_s": 40.0,
+    "verify_timeout_s": 1.6,
+    "walk_max_presses": 8,
+    "operator_yield_s": 20.0,
+    "miss_cooldown_s": 20.0,
+    "incident_recent_s": 8.0,
+    "lull_top_score_threshold": 45.0,
+    "subject_lost_grace_s": 2.0,
+    "defer_cut_for_airing_line": true
+  },
+  "booth": {
+    "speech_rate_wps": 2.92,
+    "budgets": {
+      "stinger": [
+        1,
+        4
+      ],
+      "call": [
+        3,
+        9
+      ],
+      "beat": [
+        8,
+        16
+      ],
+      "analysis": [
+        14,
+        33
+      ]
+    },
+    "hard_ceiling_words": 33,
+    "median_target_words": 8,
+    "short_tail_share": 0.31,
+    "short_tail_max_words": 5,
+    "min_air_score": 8.0,
+    "tense_demote_age_s": 8.0,
+    "queue_max_age_factor": 1.0,
+    "burn_window_s": 600.0,
+    "suppression": {
+      "inverse_pair_window_s": 8.0
+    },
+    "fusion": {
+      "symptom_window_s": 40.0,
+      "min_symptom_beats": 3,
+      "cause_lookback_s": 30.0
+    },
+    "floor_governor": {
+      "floor_wpm": 150.0,
+      "window_s": 60.0,
+      "min_session_age_s": 20.0,
+      "silence_gap_threshold_s": 10.0,
+      "negative_space_min_gap_s": 6.0
+    },
+    "connective_max_age_s": 300.0,
+    "naming": {
+      "names_per_min_target": 6.5,
+      "reanchor_max_utterances": 2
+    }
+  },
+  "phases": {
+    "boundaries_lap_fraction": [
+      0.15,
+      0.35,
+      0.85
+    ],
+    "open": {
+      "wpm": 180.0,
+      "utterance_target_w": 7.0,
+      "budget_scale": 1.0,
+      "names_per_min": 6.0,
+      "mechanism_per_min": 0.2,
+      "commitment_per_min": 1.6
+    },
+    "early": {
+      "wpm": 180.0,
+      "utterance_target_w": 7.8,
+      "budget_scale": 1.0,
+      "names_per_min": 11.6,
+      "mechanism_per_min": 0.9,
+      "commitment_per_min": 1.2
+    },
+    "mid": {
+      "wpm": 179.0,
+      "utterance_target_w": 9.0,
+      "budget_scale": 1.0,
+      "names_per_min": 7.5,
+      "mechanism_per_min": 0.85,
+      "commitment_per_min": 0.9
+    },
+    "close": {
+      "wpm": 146.0,
+      "utterance_target_w": 6.5,
+      "budget_scale": 0.8,
+      "names_per_min": 4.8,
+      "mechanism_per_min": 0.2,
+      "commitment_per_min": 0.5
+    }
+  },
+  "coverage_floor": [
+    "LIGHTS_OUT",
+    "LEADER_CHANGE",
+    "RACE_WINNER",
+    "CHEQUERED",
+    "SAFETY_CAR",
+    "RED_FLAG"
+  ],
+  "negative_space": {
+    "stack": [
+      {
+        "kind": "NS_SETUP",
+        "base": 35.0,
+        "window": "medium"
+      },
+      {
+        "kind": "NS_PRE_TENSION",
+        "base": 25.0,
+        "window": "medium"
+      },
+      {
+        "kind": "NS_COOLDOWN",
+        "base": 15.0,
+        "window": "short"
+      },
+      {
+        "kind": "NS_STRATEGIC",
+        "base": 10.0,
+        "window": "long"
+      },
+      {
+        "kind": "NS_LULL",
+        "base": 5.0,
+        "window": "long"
+      },
+      {
+        "kind": "NS_STAT",
+        "base": 5.0,
+        "window": "long"
+      },
+      {
+        "kind": "NS_SCENIC",
+        "base": 2.0,
+        "window": "long"
+      }
+    ]
+  },
+  "session": {
+    "derive_interval_s": 0.5,
+    "decide_interval_s": 0.5,
+    "idle_close_s": 90.0,
+    "status_every_s": 10.0,
+    "dormant_lapdata_age_s": 15.0
+  },
+  "v3": {
+    "fallback_anchor": {
+      "speed_kph": 30,
+      "min_fraction_cars": 0.5,
+      "sustain_s": 2.0
+    },
+    "idle_watchdog_s": {
+      "default": 90,
+      "stopped": 600
+    },
+    "lifecycle": {
+      "merge_window_s": 5.0,
+      "cause_lookback_s": 30.0
+    },
+    "pit": {
+      "fusion_window_s": 30.0,
+      "max_named": 3
+    },
+    "session_guard": {
+      "min_cars": 10,
+      "sustain_s": 5.0
+    },
+    "passes": {
+      "pass_hold_s": 2.0,
+      "ovtk_match_s": 2.0,
+      "contest_window_s": 20.0,
+      "contest_settle_s": 6.0,
+      "collapse_places": 3,
+      "collapse_window_s": 20.0
+    },
+    "finish": {
+      "winner_call_max_delay_s": 5.0
+    },
+    "claims": {
+      "max_age_s": {
+        "default": 12.0,
+        "pass": 8.0,
+        "lead_change": 6.0,
+        "state": 20.0,
+        "retirement": 30.0,
+        "penalty": 30.0,
+        "result": 60.0
+      }
+    }
+  }
+}

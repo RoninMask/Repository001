@@ -4,5 +4,7 @@
   "baku":             {"subfolder": "bin2_baku_live", "stem": "bin2_baku_live_s01", "source": "replay"},
   "austria":          {"subfolder": "HOOVER_20260916_101841", "stem": "HOOVER_20260916_101841_s01", "source": "replay"},
   "silverstone_s04":  {"subfolder": "HOOVER_20260916_061742", "stem": "HOOVER_20260916_061742_s04", "source": "replay"},
-  "silverstone_s02":  {"subfolder": "HOOVER_20260916_071539", "stem": "HOOVER_20260916_071539_s02", "source": "replay"}
+  "silverstone_s02":  {"subfolder": "HOOVER_20260916_071539", "stem": "HOOVER_20260916_071539_s02", "source": "replay"},
+  "silverstone_bin1_fallback": {"subfolder": "bin1_live_sim", "stem": "bin1_live_sim_s01", "source": "replay", "v3_suffix": "_fallback", "ignore_events": "LGOT,STLG"},
+  "baku_fallback":             {"subfolder": "bin2_baku_live", "stem": "bin2_baku_live_s01", "source": "replay", "v3_suffix": "_fallback", "ignore_events": "LGOT,STLG"}
 }
