@@ -892,6 +892,91 @@ class TestCorpusHandling(unittest.TestCase):
             missing = hh.check_race_files(d, "X_s01")
             self.assertEqual(len(missing), 5)   # .bin + 4 artefacts
 
+    @staticmethod
+    def _touch_manifest(folder, name):
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, name + "_manifest.json"), "w") as f:
+            json.dump({"session_kind": "RACE"}, f)
+
+    def test_resolve_direct_hit(self):
+        with tempfile.TemporaryDirectory() as root:
+            sub = os.path.join(root, "HOOVER_A")
+            self._touch_manifest(sub, "HOOVER_A_s01")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "HOOVER_A", "HOOVER_A_s01")
+            self.assertIsNone(err)
+            self.assertEqual(os.path.abspath(folder), os.path.abspath(sub))
+            self.assertEqual(stem, "HOOVER_A_s01")
+
+    def test_resolve_direct_hit_null_stem(self):
+        with tempfile.TemporaryDirectory() as root:
+            sub = os.path.join(root, "bin1_live_sim")
+            self._touch_manifest(sub, "HOOVER_20260916_x_s01")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "bin1_live_sim", None)
+            self.assertIsNone(err)
+            self.assertEqual(os.path.abspath(folder), os.path.abspath(sub))
+            self.assertEqual(stem, "HOOVER_20260916_x_s01")
+
+    def test_resolve_nested_hit(self):
+        with tempfile.TemporaryDirectory() as root:
+            sub = os.path.join(root, "HOOVER_A")
+            os.makedirs(sub)
+            child = os.path.join(sub, "01_Austria_Race")
+            self._touch_manifest(child, "HOOVER_A_s01")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "HOOVER_A", "HOOVER_A_s01")
+            self.assertIsNone(err)
+            self.assertEqual(os.path.abspath(folder), os.path.abspath(child))
+            self.assertEqual(stem, "HOOVER_A_s01")
+
+    def test_resolve_nested_hit_null_stem_uses_folder_name(self):
+        with tempfile.TemporaryDirectory() as root:
+            sub = os.path.join(root, "bin1_live_sim")
+            os.makedirs(sub)
+            child = os.path.join(sub, "inner")
+            # <folder name>_manifest.json is the search target for a null stem
+            self._touch_manifest(child, "bin1_live_sim")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "bin1_live_sim", None)
+            self.assertIsNone(err)
+            self.assertEqual(os.path.abspath(folder), os.path.abspath(child))
+            self.assertEqual(stem, "bin1_live_sim")
+
+    def test_resolve_root_hit_when_subfolder_renamed(self):
+        with tempfile.TemporaryDirectory() as root:
+            # The subfolder named in corpus.json does not exist; the manifest
+            # lives elsewhere under the corpus root.
+            elsewhere = os.path.join(root, "actual_pc_folder")
+            self._touch_manifest(elsewhere, "HOOVER_A_s01")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "HOOVER_A", "HOOVER_A_s01")
+            self.assertIsNone(err)
+            self.assertEqual(os.path.abspath(folder),
+                             os.path.abspath(elsewhere))
+            self.assertEqual(stem, "HOOVER_A_s01")
+
+    def test_resolve_not_found(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "HOOVER_A"))
+            folder, stem, err = hh.resolve_race_folder(
+                root, "HOOVER_A", "HOOVER_A_s01")
+            self.assertIsNone(folder)
+            self.assertIsNone(stem)
+            self.assertIn("not found", err)
+            self.assertIn("HOOVER_A_s01_manifest.json", err)
+
+    def test_resolve_ambiguous_is_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            sub = os.path.join(root, "HOOVER_A")
+            os.makedirs(sub)
+            self._touch_manifest(os.path.join(sub, "one"), "HOOVER_A_s01")
+            self._touch_manifest(os.path.join(sub, "two"), "HOOVER_A_s01")
+            folder, stem, err = hh.resolve_race_folder(
+                root, "HOOVER_A", "HOOVER_A_s01")
+            self.assertIsNone(folder)
+            self.assertIn("more than one", err)
+
 
 if __name__ == "__main__":
     unittest.main()

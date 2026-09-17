@@ -2162,6 +2162,72 @@ def check_race_files(folder, stem, need_bin=True):
     return missing
 
 
+def _manifest_filename(subfolder, stem):
+    """The manifest a race's files are found by: <stem>_manifest.json, or
+    <folder name>_manifest.json when the stem is null."""
+    if stem:
+        return stem + "_manifest.json"
+    base = re.split(r"[/\\]+", subfolder.strip("/\\"))[-1]
+    return base + "_manifest.json"
+
+
+def resolve_race_folder(corpus_root, subfolder, stem):
+    """Locate the folder that holds a race's files.
+
+    Returns (folder, stem, error).  The subfolder is tried directly first;
+    when the race's manifest is not there, its children are searched, then
+    the whole corpus root, for <stem>_manifest.json (or
+    <folder name>_manifest.json when the stem is null).  A single match wins
+    and, for a null stem, fixes the stem from that manifest's name.  No match
+    or more than one is an error naming what was found, so it lands under
+    MISSING.
+    """
+    direct = norm_join(corpus_root, subfolder)
+
+    # Direct hit: the manifest sits in the subfolder itself.
+    if stem:
+        if os.path.isfile(os.path.join(direct, stem + "_manifest.json")):
+            return direct, stem, None
+    else:
+        s, _err = discover_stem(direct)
+        if s:
+            return direct, s, None
+
+    # Fallback: search by the manifest's filename, the subfolder's whole
+    # subtree first, then the rest of the corpus root.
+    target = _manifest_filename(subfolder, stem)
+
+    def _walk_for(base, skip=None):
+        out = []
+        if not os.path.isdir(base):
+            return out
+        skip = os.path.abspath(skip) if skip else None
+        for dirpath, _dirs, files in os.walk(base):
+            ap = os.path.abspath(dirpath)
+            if skip and (ap == skip or ap.startswith(skip + os.sep)):
+                continue
+            if target in files:
+                out.append(dirpath)
+        return out
+
+    found = sorted(set(_walk_for(direct)))
+    where = "its children"
+    if not found:
+        found = sorted(set(_walk_for(corpus_root, skip=direct)))
+        where = "the corpus root %s" % corpus_root
+
+    if len(found) == 1:
+        resolved_stem = stem or target[:-len("_manifest.json")]
+        return found[0], resolved_stem, None
+    if not found:
+        return None, None, (
+            "%s not found in %s, its children, or the corpus root %s"
+            % (target, direct, corpus_root))
+    return None, None, (
+        "%s found in more than one folder under %s: %s"
+        % (target, where, found))
+
+
 def load_corpus(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -2441,26 +2507,27 @@ def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
              truth_only, log, summary):
     started = time.time()
     log.log("=== %s: starting ===" % race_id)
-    folder = norm_join(corpus_root, entry["subfolder"])
-    stem = entry.get("stem")
-    stem_err = None
-    if not stem:
-        stem, stem_err = discover_stem(folder)
     twin_cfg = entry.get("parity_twin")
     twin_folder = twin_stem = None
     missing = []
-    if stem_err:
-        raise StopRun(2, "STOPPED: ERROR — %s" % stem_err)
+    folder, stem, err = resolve_race_folder(
+        corpus_root, entry["subfolder"], entry.get("stem"))
+    if err:
+        return {"race": race_id, "missing": ["%s  (%s)" % (
+            norm_join(corpus_root, entry["subfolder"]), err)],
+            "elapsed_s": time.time() - started}
+    log.log("  resolved folder: %s (stem %s)" % (folder, stem))
     missing += check_race_files(folder, stem, need_bin=True)
     if twin_cfg:
-        twin_folder = norm_join(corpus_root, twin_cfg["subfolder"])
-        twin_stem = twin_cfg.get("stem")
-        if not twin_stem:
-            twin_stem, terr = discover_stem(twin_folder)
-            if terr:
-                missing.append("%s (parity twin stem: %s)"
-                               % (twin_folder, terr))
-        if twin_stem:
+        twin_folder, twin_stem, terr = resolve_race_folder(
+            corpus_root, twin_cfg["subfolder"], twin_cfg.get("stem"))
+        if terr:
+            missing.append("%s  (parity twin: %s)"
+                           % (norm_join(corpus_root, twin_cfg["subfolder"]),
+                              terr))
+        else:
+            log.log("  resolved parity twin folder: %s (stem %s)"
+                    % (twin_folder, twin_stem))
             # twin's .bin is header-only and unused; artefacts only
             missing += check_race_files(twin_folder, twin_stem,
                                         need_bin=False)
@@ -2735,25 +2802,26 @@ def main(argv=None):
         all_missing = []
         for rid in race_ids:
             entry = corpus[rid]
-            folder = norm_join(root, entry["subfolder"])
-            stem = entry.get("stem")
-            if not stem:
-                stem, err = discover_stem(folder)
-                if err:
-                    all_missing.append("%s  (%s)" % (folder, err))
-                    continue
-            all_missing += check_race_files(folder, stem, need_bin=True)
+            folder, stem, err = resolve_race_folder(
+                root, entry["subfolder"], entry.get("stem"))
+            if err:
+                all_missing.append("%s  (%s)" % (
+                    norm_join(root, entry["subfolder"]), err))
+            else:
+                log.log("%s resolved to folder: %s (stem %s)"
+                        % (rid, folder, stem))
+                all_missing += check_race_files(folder, stem, need_bin=True)
             twin = entry.get("parity_twin")
             if twin:
-                tf = norm_join(root, twin["subfolder"])
-                ts = twin.get("stem")
-                if not ts:
-                    ts, terr = discover_stem(tf)
-                    if terr:
-                        all_missing.append("%s  (parity twin: %s)"
-                                           % (tf, terr))
-                        continue
-                all_missing += check_race_files(tf, ts, need_bin=False)
+                tf, ts, terr = resolve_race_folder(
+                    root, twin["subfolder"], twin.get("stem"))
+                if terr:
+                    all_missing.append("%s  (parity twin: %s)" % (
+                        norm_join(root, twin["subfolder"]), terr))
+                else:
+                    log.log("%s parity twin resolved to folder: %s "
+                            "(stem %s)" % (rid, tf, ts))
+                    all_missing += check_race_files(tf, ts, need_bin=False)
             ex = os.path.join(expected_dir, rid + ".json")
             if not os.path.isfile(ex):
                 all_missing.append(ex)
