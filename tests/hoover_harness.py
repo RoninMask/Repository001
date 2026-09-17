@@ -84,6 +84,7 @@ PARAMS = {
     "A18_sptp_lookback_s": 30.0,
     "A19_dangling": ["from", "on", "to", "the", "and", "of", "by", "for",
                      "in", "at", "with"],
+    "A21_hold_s": 5.0,           # winner must hold screen this long from finish
     "A22_lookback_s": 30.0,
     "A23_window_s": 60.0,
     "A23_load": 0.75,
@@ -524,8 +525,10 @@ class Truth:
 
         self.retirements = {}           # idx -> {"t": t, "signals": [...]}
         self.finish_t = {}              # idx -> first resultStatus==3 time
+        self.finish_pos = {}            # idx -> m_carPosition at that finish
         self.leader_finish_t = None
         self.road_winner = None
+        self.race_ended_without_finish = None   # SEND time when no finish/FC
 
         self.classification = None      # last FC packet
         self.first_fc_t = None
@@ -604,7 +607,11 @@ class Truth:
                                              RESULT_STATUS_NAMES.get(rs, rs))
                     if rs == RESULT_FINISHED and idx not in truth.finish_t:
                         truth.finish_t[idx] = t
-                        if truth.leader_finish_t is None:
+                        truth.finish_pos[idx] = car["position"]
+                        # Leader finish: the first car to reach resultStatus 3
+                        # while it holds P1 in the latest lap data.
+                        if (truth.leader_finish_t is None
+                                and car["position"] == 1):
                             truth.leader_finish_t = t
                             truth.road_winner = idx
                 if leader_idx is not None:
@@ -725,7 +732,32 @@ class Truth:
                         self.classified_winner = idx
                         break
 
+        # Race ended without a finish: a SEND arrived with no leader finish
+        # and no Final Classification, and no restart (SSTA) followed it.  Use
+        # the last such terminal SEND; there is no winner on the road.
+        if self.leader_finish_t is None and self.classification is None:
+            terminal = [t for (t, _u) in self.sends
+                        if not any(s > t for s in sstas)]
+            if terminal:
+                self.race_ended_without_finish = terminal[-1]
+
     # ---- queries ------------------------------------------------------------
+
+    def position_at(self, idx, t):
+        """Last known position of car idx at or before t.  A car that has
+        finished keeps its finishing position, so it never reads as None once
+        it has been seen (used by A29's window scan)."""
+        if idx in self.finish_t and t >= self.finish_t[idx]:
+            fp = self.finish_pos.get(idx)
+            if fp:
+                return fp
+        v = self.pos[idx].at(t)
+        if v is not None:
+            return v
+        first = self.pos[idx].first()
+        if first is not None:
+            return first[1]
+        return self.finish_pos.get(idx)
 
     def ahead(self, a, b, t):
         """True if car a is ahead of car b at time t (wire positions)."""
@@ -1466,25 +1498,46 @@ def _shot_at(shots, t):
 
 
 def detect_A21(truth, run, p):
-    """Leader at finish: at leader finish, the shot on screen is not the
-    winner's car.  N/A without shots or without a leader finish."""
+    """Leader at finish: fail unless the winner is on screen continuously for
+    A21_hold_s from leader finish.  N/A without shots or without a leader
+    finish."""
     if not run.shots:
         return [], "no shots in this run"
     if truth.leader_finish_t is None:
         return [], "no leader finish on the road in this capture"
     t = truth.leader_finish_t
-    s = _shot_at(run.shots, t)
+    hold = p["A21_hold_s"]
     winner = truth.road_winner
+    shots = sorted(run.shots, key=lambda x: x.t_start)
+    cross = _shot_at(shots, t)          # the shot on screen at the crossing
     hits = []
-    if s is None or s.car_idx != winner:
+
+    if cross is None or cross.car_idx != winner:
+        cut_away = t                    # not on the winner even at the crossing
+    else:
+        # Extend coverage through consecutive winner shots; the first gap or
+        # non-winner shot is when it cut away.
+        cover_end = t
+        for s in shots:
+            if s.t_end is None:
+                continue
+            if (s.car_idx == winner and s.t_start <= cover_end
+                    and s.t_end > cover_end):
+                cover_end = s.t_end
+        cut_away = None if cover_end >= t + hold else cover_end
+
+    if cut_away is not None:
+        held = max(0.0, cut_away - t)
+        cross_desc = ("car %s" % cross.car_idx) if cross else "nothing"
         hits.append(_hit(
-            t=t, cars=[winner] + ([s.car_idx] if s else []),
-            reason="shot on screen at leader finish is %s, not the winner "
-                   "car %s"
-            % ("car %s" % s.car_idx if s else "nothing", winner),
-            evidence="leader finish (resultStatus 3) at %.3f; winner on "
-                     "the road car %s (%s)"
-            % (t, winner, truth.car_name(winner))))
+            t=t, cars=[winner] + ([cross.car_idx] if cross else []),
+            reason="winner car %s not held on screen for %.0fs from leader "
+                   "finish (held %.2fs)" % (winner, hold, held),
+            evidence="leader finish (resultStatus 3) at %.3f; winner car %s "
+                     "(%s); shot at the crossing: %s; cut away at %.3f "
+                     "(%.2fs after finish)"
+            % (t, winner, truth.car_name(winner), cross_desc, cut_away,
+               cut_away - t)))
     return hits, None
 
 
@@ -1855,9 +1908,25 @@ def detect_A29(truth, run, p):
             if t_ref is None:
                 continue
             lo = t_ref - w
-            before = truth.ahead(a, b, lo)
-            after = truth.ahead(a, b, t_ref)
-            if before is None or after is None or before == after:
+            # Order changed if a leads at some sample and b leads at another,
+            # anywhere inside the window -- not just at the two ends.  Sample
+            # at the window bounds and at every position change point of
+            # either car within it, using last-known positions.
+            samples = {lo, t_ref}
+            for tt in truth.pos[a].times + truth.pos[b].times:
+                if lo <= tt <= t_ref:
+                    samples.add(tt)
+            a_ahead = b_ahead = False
+            for tt in sorted(samples):
+                pa = truth.position_at(a, tt)
+                pb = truth.position_at(b, tt)
+                if pa is None or pb is None or pa == pb:
+                    continue
+                if pa < pb:
+                    a_ahead = True
+                else:
+                    b_ahead = True
+            if not (a_ahead and b_ahead):
                 continue
             # order changed in the final window; find last line naming both
             named = [l for l in run.lines
@@ -2289,6 +2358,10 @@ def write_truth_report(truth, path):
         tl.append((truth.leader_finish_t,
                    "Leader finish: car %s (%s) resultStatus=3"
                    % (truth.road_winner, truth.car_name(truth.road_winner))))
+    if truth.race_ended_without_finish is not None:
+        tl.append((truth.race_ended_without_finish,
+                   "race_ended_without_finish (SEND, no finish, no Final "
+                   "Classification)"))
     tl.sort(key=lambda x: x[0])
     for t, desc in tl:
         off = "%.1f" % (t - t0) if t0 is not None else "-"
@@ -2327,12 +2400,17 @@ def write_truth_report(truth, path):
     lines.append("")
     lines.append("## Result")
     lines.append("")
-    lines.append("- Winner on the road: %s"
-                 % ("car %s (%s) at %.3f"
-                    % (truth.road_winner, truth.car_name(truth.road_winner),
-                       truth.leader_finish_t)
-                    if truth.road_winner is not None
-                    else "none (no car finished on the road)"))
+    if truth.road_winner is not None:
+        road = "car %s (%s) at %.3f" % (
+            truth.road_winner, truth.car_name(truth.road_winner),
+            truth.leader_finish_t)
+    elif truth.race_ended_without_finish is not None:
+        road = ("none -- race_ended_without_finish at SEND %.3f (no car "
+                "finished in P1, no Final Classification)"
+                % truth.race_ended_without_finish)
+    else:
+        road = "none (no car finished on the road)"
+    lines.append("- Winner on the road: %s" % road)
     lines.append("- Classified winner: %s"
                  % ("car %s (%s)" % (truth.classified_winner,
                                      truth.car_name(truth.classified_winner))

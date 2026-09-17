@@ -18,7 +18,7 @@
     {"id": "E-AT-03", "check": "A6", "scope": {"occurrence": "winner"}, "v2": "fail", "v3": "pass", "gated": true,
      "evidence": "Winner car 15 never named (D-58)."},
     {"id": "E-AT-04", "check": "A21", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,
-     "evidence": "Gasly (car 4) on screen through the flag (D-63)."},
+     "evidence": "VaLoR on screen at the crossing (1789572300.611) but cut away 0.4 s later; finish hold 5 s (R-26). Earlier evidence used classification time (Pass 0 run 1)."},
     {"id": "E-AT-05", "check": "A16", "scope": {"sub": "after_finish"}, "v2": "fail", "v3": "pass", "gated": true,
      "evidence": "Filler after the flag (D-46)."},
     {"id": "E-AT-06", "check": "A27", "scope": {}, "v2": "fail", "v3": "pass", "gated": true,

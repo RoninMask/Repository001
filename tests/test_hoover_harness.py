@@ -284,6 +284,39 @@ class TestReaderAndTruth(unittest.TestCase):
             self.assertEqual(tr.human_cars(), [1])
             self.assertEqual(tr.participants[1]["name"], "Ronin0700")
 
+    def test_leader_finish_requires_p1(self):
+        # Cars flip to status 3 in non-P1 order (P3 then P2) while the P1 car
+        # never finishes; the race ends at a SEND with no Final
+        # Classification.  There is no leader finish and no winner on the road.
+        with tempfile.TemporaryDirectory() as d:
+            cap = fx.FixtureCapture()
+            cap.add(B - 2, fx.make_participants(
+                {0: {"ai": 1, "team": 0, "race_number": 1,
+                     "name": "Verstappen", "your_telemetry": 1,
+                     "driver_id_num": 1},
+                 1: {"ai": 1, "team": 1, "race_number": 4, "name": "Norris",
+                     "your_telemetry": 1, "driver_id_num": 2},
+                 2: {"ai": 1, "team": 2, "race_number": 16, "name": "Leclerc",
+                     "your_telemetry": 1, "driver_id_num": 3}}))
+            cap.add(B, fx.make_event("LGOT"))
+            cap.add(B + 1, fx.make_lapdata([0, 1, 2]))
+            # car 2 (P3) reaches status 3 first, then car 1 (P2); the leader
+            # car 0 (P1) stays active throughout.
+            cap.add(B + 2, fx.make_lapdata([0, 1, 2], statuses={2: 3}))
+            cap.add(B + 3, fx.make_lapdata([0, 1, 2], statuses={2: 3, 1: 3}))
+            cap.add(B + 4, fx.make_event("SEND"))
+            # no Final Classification packet
+            path = os.path.join(d, "t.bin")
+            cap.write(path)
+            tr = hh.Truth.build("unit", path)
+            self.assertIsNone(tr.leader_finish_t)
+            self.assertIsNone(tr.road_winner)
+            self.assertIsNone(tr.classification)
+            self.assertAlmostEqual(tr.race_ended_without_finish, B + 4)
+            # both non-P1 cars are still recorded as finished on the wire
+            self.assertIn(1, tr.finish_t)
+            self.assertIn(2, tr.finish_t)
+
     def test_truncated_record_is_malformed_not_crash(self):
         with tempfile.TemporaryDirectory() as d:
             path, _p, _m = self._tiny_capture(d)
@@ -531,6 +564,20 @@ class TestDetectors(unittest.TestCase):
         hits, na = hh.detect_A21(tr, make_run(), P)
         self.assertIsNotNone(na)
 
+    def test_A21_hold(self):
+        # leader finish at B+100, winner is car 0, hold is 5 s.
+        tr = derived(base_truth())
+        # Pass: winner on screen continuously through the 5 s hold.
+        run = make_run(shots=[(B + 95, B + 110, 0, "advisory"),
+                              (B + 110, B + 200, 1, "advisory")])
+        self.assertEqual(hh.detect_A21(tr, run, P)[0], [])
+        # Fail: winner on screen at the crossing but cut away 0.4 s later.
+        run = make_run(shots=[(B + 90, B + 100.4, 0, "advisory"),
+                              (B + 100.4, B + 200, 1, "advisory")])
+        hits, _ = hh.detect_A21(tr, run, P)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("cut away at %.3f" % (B + 100.4), hits[0]["evidence"])
+
     def test_A22(self):
         tr = base_truth()
         add_ev(tr, B + 30, "PENA", penalty_type=16, vehicle_idx=1)
@@ -686,6 +733,31 @@ class TestDetectors(unittest.TestCase):
         run = make_run([L("L1", B + 72, "OVERTAKE",
                           "Verstappen takes Ronin back.", 0, 1)])
         self.assertEqual(hh.detect_A29(tr, run, P)[0], [])
+
+    def test_A29_mid_window_flip(self):
+        # A (car 0) ahead, then B (car 1) briefly ahead, then A ahead again at
+        # the end.  The endpoints both read A-ahead, so only a scan across the
+        # window catches the flip.  Last line says B passed A -> must hit.
+        tr = base_truth()
+        tr.pos[0] = hh.StepSeries()
+        tr.pos[1] = hh.StepSeries()
+        tr.pos[0].add(B, 1)          # A ahead
+        tr.pos[1].add(B, 2)
+        tr.pos[0].add(B + 60, 2)     # B briefly ahead
+        tr.pos[1].add(B + 60, 1)
+        tr.pos[0].add(B + 80, 1)     # A ahead again at the end
+        tr.pos[1].add(B + 80, 2)
+        tr.finish_t[0] = B + 100.0
+        tr.finish_pos[0] = 1
+        tr.finish_t[1] = B + 101.0
+        tr.finish_pos[1] = 2
+        tr = derived(tr)
+        # sanity: both ends of the window read A ahead
+        self.assertTrue(tr.ahead(0, 1, B + 41))
+        self.assertTrue(tr.ahead(0, 1, B + 101))
+        run = make_run([L("L1", B + 62, "OVERTAKE",
+                          "Ronin goes through on Verstappen.", 1, 0)])
+        self.assertEqual(len(hh.detect_A29(tr, run, P)[0]), 1)
 
     def test_A30_vsc(self):
         tr = base_truth()
