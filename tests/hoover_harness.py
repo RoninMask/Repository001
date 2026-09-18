@@ -534,10 +534,12 @@ class Truth:
         self.retirements = {}           # idx -> {"t": t, "signals": [...]}
         self.finish_t = {}              # idx -> first resultStatus==3 time
         self.finish_pos = {}            # idx -> m_carPosition at that finish
+        self.finish_lap = {}            # idx -> currentLapNum at that finish
         self.leader_finish_t = None
         self.road_winner = None
         self.race_ended_without_finish = None   # SEND time when no finish/FC
         self.chqf_seen = False
+        self.chqf_t = None              # time of the first CHQF event
 
         self.classification = None      # last FC packet
         self.first_fc_t = None
@@ -585,7 +587,14 @@ class Truth:
                 if truth.session_type is None:
                     truth.session_type = s["session_type"]
                     truth.track_id = s["track_id"]
-                    truth.total_laps = s["total_laps"]
+                # Track the race distance as the maximum lap count seen above
+                # zero across session packets.  Baku's first packet is a
+                # pre-race reading of 0; the true total (e.g. 13) arrives on a
+                # later packet.  Latching the first value would leave total
+                # unknown and fall through to the CHQF fallback.
+                tl = s["total_laps"]
+                if tl and tl > (truth.total_laps or 0):
+                    truth.total_laps = tl
                 w = (s["weather"], s["track_temperature"], s["air_temperature"])
                 if (not truth.weather_series
                         or truth.weather_series[-1][1:] != w):
@@ -617,15 +626,21 @@ class Truth:
                     if rs == RESULT_FINISHED and idx not in truth.finish_t:
                         truth.finish_t[idx] = t
                         truth.finish_pos[idx] = car["position"]
+                        truth.finish_lap[idx] = car["lap"]
                         # Leader finish (B2, mirrors the tool's A2): result
                         # status 3, P1 in the latest lap data, AND the race
-                        # distance actually done (completed laps >= total laps
-                        # when known, else a CHQF event).  A mass status flip
-                        # at a stoppage (Baku) is short of distance, so it is
-                        # not a finish.
+                        # distance actually done.  When the total lap count is
+                        # known we can decide inline (completed laps >= total);
+                        # a mass status flip at a stoppage (Baku) is short of
+                        # distance, so it is not a finish.  When the total is
+                        # unknown the decision depends on whether a restart
+                        # (SSTA) follows the chequered flag, which is only
+                        # known once the whole capture is read, so it is
+                        # resolved in _derive().
+                        total = truth.total_laps or 0
                         if (truth.leader_finish_t is None
                                 and car["position"] == 1
-                                and truth._distance_done(car)):
+                                and total > 0 and car["lap"] >= total):
                             truth.leader_finish_t = t
                             truth.road_winner = idx
                 if leader_idx is not None:
@@ -650,6 +665,8 @@ class Truth:
                         truth.sptp_best.add(t, sp)
                 elif code == "CHQF":
                     truth.chqf_seen = True
+                    if truth.chqf_t is None:
+                        truth.chqf_t = t
                 elif code == "SEND":
                     unclassified = (truth.classification is None
                                     and truth.leader_finish_t is None)
@@ -715,6 +732,20 @@ class Truth:
 
         # Red flag windows: RDFL to the next SSTA.
         sstas = [e["t"] for e in self.events_by_code.get("SSTA", [])]
+
+        # Fallback leader finish when the total lap count was never known.
+        # A chequered flag alone is player-relative and not enough: require a
+        # CHQF with no SSTA after it (a restart would mean the race did not
+        # end there).  Otherwise the distance is not done and there is no road
+        # finish.  Known-total finishes are decided inline during the read.
+        if (self.leader_finish_t is None and (self.total_laps or 0) == 0
+                and self.chqf_seen and self.chqf_t is not None
+                and not any(s > self.chqf_t for s in sstas)):
+            cand = sorted((ft, idx) for idx, ft in self.finish_t.items()
+                          if self.finish_pos.get(idx) == 1)
+            if cand:
+                self.leader_finish_t, self.road_winner = cand[0]
+
         red = []
         for e in self.events_by_code.get("RDFL", []):
             nxt = [s for s in sstas if s > e["t"]]
@@ -758,14 +789,6 @@ class Truth:
                 self.race_ended_without_finish = terminal[-1]
 
     # ---- queries ------------------------------------------------------------
-
-    def _distance_done(self, car):
-        """B2: the race distance is complete for this car (completed laps >=
-        total laps when known, else a CHQF event has been seen)."""
-        total = self.total_laps or 0
-        if total > 0:
-            return car["lap"] >= total
-        return self.chqf_seen
 
     def position_at(self, idx, t):
         """Last known position of car idx at or before t.  A car that has
@@ -2664,6 +2687,11 @@ def write_truth_report(truth, path):
                  % ("the start lights-out"
                     if truth.start_lgot_t is not None
                     else "the first lap-data packet (no lights-out event)"))
+    lines.append("")
+    lines.append("Race distance: %s (max total laps seen above zero across "
+                 "session packets; the CHQF fallback applies only when this "
+                 "is unknown)."
+                 % (truth.total_laps if truth.total_laps else "unknown"))
     lines.append("")
     lines.append("## Timeline")
     lines.append("")

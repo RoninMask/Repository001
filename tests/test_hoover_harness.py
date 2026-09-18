@@ -319,6 +319,36 @@ class TestReaderAndTruth(unittest.TestCase):
             self.assertIn(1, tr.finish_t)
             self.assertIn(2, tr.finish_t)
 
+    def test_total_laps_max_defeats_chqf_flip(self):
+        # Session packets read total 0 (pre-race) then 13.  The P1 car flips
+        # to finished on lap 4 with a CHQF present.  The distance is NOT done
+        # (4 < 13), so the flip is not a leader finish and there is no road
+        # winner; the terminal SEND leaves race_ended_without_finish.
+        with tempfile.TemporaryDirectory() as d:
+            cap = fx.FixtureCapture()
+            cap.add(B - 3, fx.make_participants(
+                {0: {"ai": 1, "team": 0, "race_number": 1,
+                     "name": "Verstappen", "your_telemetry": 1,
+                     "driver_id_num": 1},
+                 1: {"ai": 1, "team": 1, "race_number": 4, "name": "Norris",
+                     "your_telemetry": 1, "driver_id_num": 2}}))
+            cap.add(B - 2, fx.make_session(total_laps=0))     # pre-race
+            cap.add(B, fx.make_event("LGOT"))
+            cap.add(B + 1, fx.make_session(total_laps=13))    # true distance
+            cap.add(B + 2, fx.make_lapdata([0, 1], lap=4))
+            cap.add(B + 3, fx.make_event("CHQF"))
+            cap.add(B + 4, fx.make_lapdata([0, 1], statuses={0: 3}, lap=4))
+            cap.add(B + 5, fx.make_event("SEND"))
+            path = os.path.join(d, "t.bin")
+            cap.write(path)
+            tr = hh.Truth.build("unit", path)
+            self.assertEqual(tr.total_laps, 13)
+            self.assertTrue(tr.chqf_seen)
+            self.assertIsNone(tr.leader_finish_t)
+            self.assertIsNone(tr.road_winner)
+            self.assertIn(0, tr.finish_t)         # still recorded on the wire
+            self.assertAlmostEqual(tr.race_ended_without_finish, B + 5)
+
     def test_truncated_record_is_malformed_not_crash(self):
         with tempfile.TemporaryDirectory() as d:
             path, _p, _m = self._tiny_capture(d)
