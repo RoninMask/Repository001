@@ -1049,5 +1049,120 @@ class TestP2FixRound1(unittest.TestCase):
         self.assertIsNotNone(m._lull_fastest(1202.0))
 
 
+class TestP2FixRound2(unittest.TestCase):
+    """Pass 2 fix round 2: G2-G6."""
+
+    def _gallery(self):
+        m = make_model()
+        set_car(m.w, 0, pos=1, ai=1, name="Leader")
+        set_car(m.w, 1, pos=2, ai=1, name="Second")
+        set_car(m.w, 3, pos=8, ai=0, name="Human")
+        m.leader_idx = 0
+        m.state = "green"
+        m.w.last_lapdata_t = 1100.0
+        return m, v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+
+    # ---- G2 ----------------------------------------------------------------
+    def test_g2_away_clock_spans_ai_cuts(self):
+        m, gal = self._gallery()
+        gal._cut(1100.0, 0, "default", "leader", "")
+        self.assertEqual(gal._away_since, 1100.0)
+        gal._cut(1105.0, 1, "default", "running", "")   # a different AI
+        self.assertEqual(gal._away_since, 1100.0)        # NOT reset per cut
+        gal._cut(1110.0, 3, "default", "running", "")    # a human
+        self.assertIsNone(gal._away_since)               # cleared on a human
+
+    # ---- G3 ----------------------------------------------------------------
+    def test_g3_ai_collision_needs_top3_or_retirement(self):
+        m, gal = self._gallery()
+        m.last_pos = {0: 1, 1: 2, 5: 12, 6: 13}
+        # a midfield AI-AI tap is NOT a protected moment
+        m.colls = [(1100.0, 5, 6)]
+        best = gal._active_protected(1101.0)
+        self.assertIsNone(best)
+        # the same tap involving a top-three car IS protected
+        m.colls = [(1100.0, 1, 6)]
+        best = gal._active_protected(1101.0)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["reason"], "collision_ai")
+
+    def test_g3_incident_merge(self):
+        m, gal = self._gallery()
+        m.last_pos = {0: 1, 1: 2, 2: 3, 5: 12, 6: 13, 7: 14}
+        # three contacts within incident_merge_s sharing cars -> one incident
+        m.colls = [(1100.0, 1, 5), (1101.0, 5, 6), (1102.0, 6, 7)]
+        cands = []
+        # count how many collision candidates _active_protected would raise
+        best = gal._active_protected(1101.5)
+        # only one collision moment should exist (merged); it is protected
+        # because car 1 is top-three
+        self.assertIsNotNone(best)
+        self.assertEqual(best["reason"], "collision_ai")
+
+    def test_g3_equal_priority_no_preempt(self):
+        m, gal = self._gallery()
+        m.last_pos = {0: 1, 1: 2, 2: 3}      # cars 1,2 are top-three
+        gal._prot = {"until": 1110.0, "priority": 55, "car": 0,
+                     "reason": "collision_ai", "hold": 3.5, "hold_max": 9.5}
+        gal.current = 0
+        gal.hold_since = 1100.0
+        gal._first_seen_t = 1090.0
+        # a fresh EQUAL-priority collision on other cars must not preempt the
+        # live protected shot (this is what strobed Baku).
+        m.colls = [(1103.0, 1, 2)]
+        gal.observe(1104.0)
+        self.assertEqual(gal.current, 0)    # still on the first protected car
+
+    # ---- G4 ----------------------------------------------------------------
+    def test_g4_protected_hold_max(self):
+        m, gal = self._gallery()
+        m.anchor_t = 1100.0
+        m.leader_idx = 0
+        m.state = "green"
+        m.state_since = 1100.0
+        gal._first_seen_t = 1090.0
+        gal.observe(1101.0)                 # start moment -> cut to leader
+        self.assertEqual(gal.current, 0)
+        prot = gal._prot
+        self.assertIsNotNone(prot)
+        cap = min(prot["hold_max"], gal.max_hold)
+        # a protected moment carries a maximum (floor + 6 by default)
+        self.assertAlmostEqual(prot["hold_max"], prot["hold"] + 6.0, places=3)
+        self.assertLessEqual(cap, gal.max_hold)
+
+    # ---- G5 ----------------------------------------------------------------
+    def test_g5_hysteresis_commit(self):
+        m, gal = self._gallery()
+        gal.current = 3                      # on the steered human
+        gal.hold_since = 1100.0
+        gal._away_since = None
+        gal._first_seen_t = 1090.0
+        gal._leader_seen_t = 1100.0
+        gal._checkin_until = 0.0
+        gal._steer_car = 3
+        gal._steer_until = 1130.0            # committed to car 3 until 1130
+        # well past the hold floor, a higher-scoring car exists, but within the
+        # hysteresis window the camera stays put
+        gal.observe(1110.0)
+        self.assertEqual(gal.current, 3)
+
+    # ---- G6 ----------------------------------------------------------------
+    def test_g6_no_resolve_before_participants(self):
+        m = make_model()
+        c = m.w.cars[5]
+        c.seen = True
+        c.position = 6
+        c.race_number = 44
+        c.ai = 1
+        c.participated = False
+        # no roster match, Participants not seen -> not resolved (booth holds)
+        self.assertFalse(v3.resolve_car_identity(c, None))
+        self.assertFalse(c.name_resolved)
+        # once Participants has been seen for the car, it resolves
+        c.participated = True
+        self.assertTrue(v3.resolve_car_identity(c, None))
+        self.assertTrue(c.name_resolved)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1467,5 +1467,79 @@ class TestCorpusHandling(unittest.TestCase):
             self.assertIn("more than one", err)
 
 
+class TestFixRound2Harness(unittest.TestCase):
+    """Fix round 2: A44 (G5), A26 min-sample (G7), the threshold-pair rule (G1)."""
+
+    def _run_cuts(self, cut_rows):
+        run = hh.Run()
+        run.tool = "v3"
+        run.source = "fast"
+        run.manifest = run.v3_manifest = {}
+        run.cut_rows = cut_rows
+        return run
+
+    def _row(self, t, car, layer="default"):
+        return {"t_unix": t, "car_idx": car, "layer": layer,
+                "reason": "score", "held_s": ""}
+
+    # ---- A44 ping-pong (G5) ------------------------------------------------
+    def test_A44_pingpong(self):
+        # 1<->2 alternating at 4 s (like bin1's final lap) -> fires
+        cars = [1, 2, 1, 2, 1, 2, 1, 2]
+        run = self._run_cuts([self._row(B + 4 * i, c) for i, c in enumerate(cars)])
+        self.assertTrue(hh.detect_A44(None, run, P)[0])
+        # three distinct cars, no back-and-forth -> passes
+        cars = [1, 2, 3, 1, 2, 3]
+        run = self._run_cuts([self._row(B + 4 * i, c) for i, c in enumerate(cars)])
+        self.assertEqual(hh.detect_A44(None, run, P)[0], [])
+        # alternating but spread beyond the window -> passes
+        run = self._run_cuts([self._row(B + 20 * i, c)
+                              for i, c in enumerate([1, 2, 1, 2, 1, 2])])
+        self.assertEqual(hh.detect_A44(None, run, P)[0], [])
+
+    def test_A44_ignores_protected(self):
+        # a protected incident flurry is layer 1, not ping-pong
+        run = self._run_cuts([self._row(B + i, c, layer="protected")
+                              for i, c in enumerate([1, 2, 1, 2, 1, 2])])
+        self.assertEqual(hh.detect_A44(None, run, P)[0], [])
+
+    # ---- A26 minimum sample (G7) -------------------------------------------
+    def test_A26_min_share_sample(self):
+        tr = derived(base_truth())
+        # a short human window (<300 s) with an out-of-band share: not judged
+        run = make_run(shots=[(B, B + 40, 1, "advisory")],
+                       manifest={"humans": 1})
+        run.tool = "v3"
+        hits, na = hh.detect_A26(tr, run, P)
+        self.assertFalse(any(h.get("sub") == "b" for h in hits))
+        self.assertIsNotNone(na)
+        self.assertIn("sample", na)
+
+    # ---- G1 threshold-pair rule --------------------------------------------
+    def test_g1_thresholds_inside_detector_limits(self):
+        import json as _json
+        with open(os.path.join(HERE, "..", "hoover_config_v3.json"),
+                  encoding="utf-8") as _cf:
+            cfg = _json.load(_cf)["v3"]
+        cam = cfg["camera"]
+        lull = cfg["lull"]
+        pacing = cfg["pacing"]
+        pairs = [
+            ("away_max_s", cam["away_max_s"], "A26_away_s", P["A26_away_s"]),
+            ("lull.max_silence_s", lull["max_silence_s"],
+             "A40_max_silence_s", P["A40_max_silence_s"]),
+            ("max_hold_s", cam["max_hold_s"], "A39_max_hold_s",
+             P["A39_max_hold_s"]),
+            ("leader_checkin_s", cam["leader_checkin_s"], "A28_unseen_s",
+             P["A28_unseen_s"]),
+            ("window_max_share", pacing["window_max_share"], "A23_load",
+             P["A23_load"]),
+        ]
+        for tk, tv, dk, dv in pairs:
+            self.assertLess(tv, dv,
+                            "%s (%s) must sit strictly inside %s (%s)"
+                            % (tk, tv, dk, dv))
+
+
 if __name__ == "__main__":
     unittest.main()
