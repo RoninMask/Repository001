@@ -404,7 +404,7 @@
     },
     "camera": {
       "roster_wait_max_s": 10.0,
-      "leader_checkin_s": 180.0,
+      "leader_checkin_s": 150.0,
       "leader_checkin_hold_s": 8.0,
       "away_max_s": 20.0,
       "away_margin": 15.0,

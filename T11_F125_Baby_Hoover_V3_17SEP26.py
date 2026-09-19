@@ -4763,6 +4763,11 @@ KIND_PLACEHOLDERS = {
     "LULL_PROGRESS": {"a", "places"},
 }
 
+# F2: kinds allowed to consist only of fallback (subject-less) variants. A
+# race can end with no leader ever established, so RACE_END may fall back to a
+# subject-less line as its only satisfiable form.
+SUBJECT_OPTIONAL_KINDS = {"RACE_END"}
+
 # Minimum variant floors (B-3). Below the floor is a load-time error.
 MIN_VARIANTS = {
     "PASS": 8, "COLLAPSE": 6, "CONTESTED": 6, "SPEED_TRAP": 5, "WARNING": 4,
@@ -4805,6 +4810,13 @@ class WordsFile:
                 raise WordsFileError(
                     "kind %r has %d variants; floor is %d"
                     % (kind, len(variants), floor))
+            # F2: a kind must carry at least one non-fallback variant, unless
+            # it is subject-optional; otherwise the only thing it can ever say
+            # is its last-resort line.
+            if (kind not in SUBJECT_OPTIONAL_KINDS
+                    and all(v.get("fallback") for v in variants)):
+                raise WordsFileError(
+                    "kind %r has only fallback variants" % kind)
             for v in variants:
                 if not v.get("speaker"):
                     raise WordsFileError("a variant in %r has no speaker" % kind)
@@ -4843,7 +4855,7 @@ class WordsFile:
         if not entry:
             return None
         avoid = avoid_templates or set()
-        sat = []
+        sat, sat_fb = [], []
         for v in entry["variants"]:
             when = v.get("when")
             if when and any(facts_view.get(k) != val for k, val in when.items()):
@@ -4851,7 +4863,11 @@ class WordsFile:
             if any(ctx.get(ph) is None
                    for ph in _PLACEHOLDER_RE.findall(v["present"])):
                 continue
-            sat.append(v)
+            (sat_fb if v.get("fallback") else sat).append(v)
+        # F2: a fallback variant is a last resort. Use it only when no
+        # non-fallback variant is satisfiable in this context.
+        if not sat:
+            sat = sat_fb
         if not sat:
             return None
         n = len(sat)
@@ -4920,6 +4936,11 @@ class V3Booth:
         self.rp_tmpl_window = rp.get("template_window_s", 30.0)
         self.rp_subj_max = rp.get("subject_share_max", 0.25)
         self.rp_subj_window = rp.get("subject_share_window_s", 180.0)
+        # F1: result-defining and hard-interrupt kinds are never suppressed by
+        # the repetition guard. A saturated subject must still get its winner,
+        # result, correction and race-end lines; the race outcome is not chatter.
+        self.rp_immune = ({"WINNER", "RESULT", "RACE_END", "CORRECTION"}
+                          | self.pc_hard)
         self._recent_texts = []       # (air_end_t, text)
         self._recent_ks = []          # (t, kind, subjkey, material)
         self._recent_templates = []   # (t, template_key)
@@ -4984,6 +5005,13 @@ class V3Booth:
         # age
         if (t - claim.t_create) > self._max_age_for(claim):
             return "drop:expired"
+        # F9 / A2-3: never speak a "Car <n>" placeholder. Hold a claim whose
+        # subject name has not resolved yet (Austria starts mid-session with no
+        # lights-out, so the first claims can precede the Participants packet).
+        # It airs once the roster resolves, or ages out via the expiry above.
+        for idx in claim.subjects:
+            if idx is not None and not m.w.cars[idx].name_resolved:
+                return "rewrite:hold_unnamed"
         return "ok"
 
     # ---- wording (selection only; every phrasing lives in the words file) ---
@@ -5074,6 +5102,8 @@ class V3Booth:
         """A2-2: drop a claim that repeats a recent kind+subject (facts
         unchanged), or that would over-saturate one subject. Template repeats
         are handled at render by choosing a different variant, not dropped."""
+        if claim.kind in self.rp_immune:      # F1: never suppress these
+            return None
         subjkey = tuple(sorted(claim.subjects))
         mat = self._material(claim)
         for (rt, k, sk, m) in self._recent_ks:
@@ -5134,6 +5164,15 @@ class V3Booth:
                     if self._maybe_lull(t):
                         continue     # a lull was enqueued; loop to air it
                     return
+                # F3: the pacing governor delays a line by a gap. Do not commit
+                # it now for a future slot -- wait until the wire clock reaches
+                # that slot, so _validate runs again at the real air time and a
+                # claim gone stale in the gap (a pass since reversed) is caught.
+                gap = self._pacing_gap(best)
+                earliest = (self._last_air_end + gap
+                            if self._last_air_end is not None else t)
+                if t + 1e-9 < earliest:
+                    return
                 self._air(best, t)
                 continue
             continue
@@ -5188,10 +5227,12 @@ class V3Booth:
             raise WordsFileError("line for %s starts lower-case: %r"
                                  % (claim.kind, text))
         # A2-2 exact-repeat backstop: identical rendered text recently aired.
-        for (et, txt) in self._recent_texts:
-            if (t - et) <= self.rp_exact_window and txt == text:
-                self._drop(claim, "repeat:exact", t)
-                return
+        # F1: result-defining / hard-interrupt kinds are exempt here too.
+        if claim.kind not in self.rp_immune:
+            for (et, txt) in self._recent_texts:
+                if (t - et) <= self.rp_exact_window and txt == text:
+                    self._drop(claim, "repeat:exact", t)
+                    return
         speech_text = speech_normalise(text, self._abbrevs)
         wc = max(1, len(text.split()))
         duration = wc / self.rate
@@ -5244,10 +5285,14 @@ class V3Booth:
         self.queue.remove(claim)
 
     def finalize(self, t):
-        # drain remaining valid claims (results/end) at session close
+        # drain remaining valid claims (results/end) at session close. The F3
+        # defer holds a line until the wire clock passes its pacing gap, so at
+        # close we must advance past the largest possible gap or nothing airs;
+        # each aired line still keeps its min-gap spacing via channel_busy_until.
+        step = max(self.pc_min_gap, self.pc_breath, self.pc_breath_run) + 0.001
         for _ in range(200):
             before = len(self.emitted)
-            self.tick(self.channel_busy_until + 0.001)
+            self.tick(self.channel_busy_until + step)
             if len(self.emitted) == before:
                 break
         for c in self.queue:
@@ -5407,7 +5452,12 @@ class V3Gallery:
         for c in self.model.w.cars:
             if not c.seen or c.position <= 0:
                 continue
-            if self.model.is_retired(c.idx) or not self.model.running(c.idx):
+            if self.model.is_retired(c.idx):
+                continue
+            # F8: a car that has finished (status 3) is not "running" but is
+            # exactly what the camera should cover while the race is finishing;
+            # keep it scorable, exclude only genuinely-gone (retired) cars.
+            if not self.model.running(c.idx) and c.result_status != 3:
                 continue
             if c.result_status not in (0, 2, 3):
                 continue
@@ -5469,7 +5519,7 @@ class V3Gallery:
                 return
             if start <= t < start + hold:
                 cands.append({"until": start + hold, "priority": prio,
-                              "car": car, "reason": key})
+                              "car": car, "reason": key, "hold": hold})
 
         if m.anchor_t is not None and not m.restarts:
             add("start", m.anchor_t, m.leader_idx, 95, 8.0)
@@ -5522,17 +5572,40 @@ class V3Gallery:
         # layer 1: protected moments
         best = self._active_protected(t)
         if best is not None:
-            if (self._prot is None or best["priority"] >= self._prot["priority"]
-                    or t >= self._prot["until"]):
+            # F4: don't overwrite the live moment with a freshly-computed copy
+            # of itself -- that would discard the on-screen hold reset below and
+            # clip the shot to (event + floor) instead of (cut + floor). Replace
+            # only for a genuinely different moment (or a higher-priority one).
+            same = (self._prot is not None
+                    and best["reason"] == self._prot["reason"]
+                    and best["car"] == self._prot["car"]
+                    and t < self._prot["until"])
+            if not same and (self._prot is None
+                             or best["priority"] >= self._prot["priority"]
+                             or t >= self._prot["until"]):
                 self._prot = best
         if self._prot is not None:
             if t < self._prot["until"]:
+                # F4: the hold floor is a minimum time ON SCREEN, not from the
+                # event. When the shot actually goes up (the cut fires), reset
+                # the clock so the moment owns the camera for its full floor
+                # from that point, not from the event a beat or two earlier.
+                if self._prot["car"] != self.current:
+                    self._prot["until"] = t + self._prot.get("hold", 0.0)
                 self._cut_if_new(t, self._prot["car"], "protected",
                                  self._prot["reason"])
                 return
             self._prot = None
 
         if m.leader_idx is None:
+            # F8: after the leader crosses the line, leader_idx can go None while
+            # the race is still `finishing` (winner gone from the running order,
+            # Final Classification not yet in). The ceiling must still hold: keep
+            # cycling through the finishers rather than freezing on one shot.
+            if (m.state == "finishing" and self.current is not None
+                    and self.hold_since is not None
+                    and (t - self.hold_since) >= self.max_hold):
+                self._layer3(t)
             return
         if self._leader_seen_t is None:
             self._leader_seen_t = t
@@ -5563,44 +5636,49 @@ class V3Gallery:
         band = self._band()
         humans = [r for r in ranked if r["human"]]
         best_h = humans[0] if humans else None
+        best_ai = next((r for r in ranked if not r["human"]), None)
 
-        target = ranked[0]
-        if band is not None:
-            share = self._share(t)
-            if best_h is not None and share is not None and share < band[0]:
-                target = best_h                      # below floor: prefer humans
-            elif share is not None and share > band[1]:
-                if ranked[0]["human"]:
-                    target = ranked[0]
-                elif best_h is not None and (ranked[0]["score"]
-                                             <= best_h["score"] + self.away_margin):
-                    target = best_h                  # above ceiling: stay human
-            # inside the band: normal top
-
-        # away_max: if we have lingered on a non-human, return to a human
-        if (self.current is not None and not self._is_human(self.current)
-                and best_h is not None and self.hold_since is not None
-                and (t - self.hold_since) >= self.away_max):
-            target = best_h
-
-        # hold floor / ceiling
         held = (t - self.hold_since) if self.hold_since is not None else 1e9
         floor = self.floor_lull if top_score < self.lull_thresh else self.floor_normal
+
         if self.current is None:
-            self._cut(t, target["idx"], "default", target["reason"],
-                      target["score"])
+            self._cut(t, ranked[0]["idx"], "default", ranked[0]["reason"],
+                      ranked[0]["score"])
             return
-        # ceiling: no shot runs past max_hold. Cut to the best available
-        # candidate, forcing movement off the current car even if it is top
-        # scored (D-4).
+
+        # ceiling first: no shot runs past max_hold. Force movement off the
+        # current car even if it is top scored (D-4).
         if held >= self.max_hold:
-            forced = target
-            if target["idx"] == self.current:
-                forced = next((r for r in ranked if r["idx"] != self.current),
-                              target)
+            forced = next((r for r in ranked if r["idx"] != self.current),
+                          ranked[0])
             self._cut(t, forced["idx"], "default", forced["reason"],
                       forced["score"])
             return
+
+        # F6: the DEC-8 share band is an active controller, not a preference.
+        # Below the floor -> steer to a human; above the ceiling -> steer AWAY
+        # to a non-human to bring the human share down. F5: an away shot past
+        # away_max returns to a human. Any of these overrides the score once the
+        # hold floor has passed, so the correction actually happens.
+        correct = None
+        if band is not None:
+            share = self._share(t)
+            if share is not None and share < band[0] and best_h is not None:
+                correct = best_h                     # too little human
+            elif share is not None and share > band[1] and best_ai is not None:
+                correct = best_ai                    # too much human: go away
+        if (correct is None and not self._is_human(self.current)
+                and best_h is not None and held >= self.away_max):
+            correct = best_h                         # away_max return
+        if correct is not None and correct["idx"] != self.current \
+                and held >= floor:
+            self._cut(t, correct["idx"], "default", correct["reason"],
+                      correct["score"])
+            return
+
+        # normal: cut to the top candidate when it beats the current shot and
+        # the hold floor has passed.
+        target = ranked[0]
         if target["idx"] == self.current:
             return
         cur_score = next((r["score"] for r in ranked

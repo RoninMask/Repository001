@@ -10,212 +10,578 @@
   "kinds": {
     "START": {
       "variants": [
-        {"speaker": "LEAD", "when": {"kind": "lights_out"}, "present": "Lights out and away we go."},
-        {"speaker": "LEAD", "when": {"kind": "lights_out"}, "present": "Lights go out, and the race is on."},
-        {"speaker": "LEAD", "when": {"kind": "under_way"}, "present": "And we're under way."},
-        {"speaker": "LEAD", "when": {"kind": "under_way"}, "present": "They are racing."}
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "lights_out"
+          },
+          "present": "Lights out and away we go."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "lights_out"
+          },
+          "present": "Lights go out, and the race is on."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "under_way"
+          },
+          "present": "And we're under way."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "under_way"
+          },
+          "present": "They are racing."
+        }
       ]
     },
     "RESTART": {
       "variants": [
-        {"speaker": "LEAD", "present": "Racing resumes."},
-        {"speaker": "LEAD", "present": "Green flag, and we go again."}
+        {
+          "speaker": "LEAD",
+          "present": "Racing resumes."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Green flag, and we go again."
+        }
       ]
     },
     "SAFETY_CAR": {
       "variants": [
-        {"speaker": "LEAD", "present": "The safety car is deployed."},
-        {"speaker": "LEAD", "present": "Safety car, and the field bunches up."}
+        {
+          "speaker": "LEAD",
+          "present": "The safety car is deployed."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Safety car, and the field bunches up."
+        }
       ]
     },
     "VSC": {
       "variants": [
-        {"speaker": "LEAD", "present": "Virtual safety car, the field is neutralised."},
-        {"speaker": "LEAD", "present": "It's a virtual safety car."}
+        {
+          "speaker": "LEAD",
+          "present": "Virtual safety car, the field is neutralised."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "It's a virtual safety car."
+        }
       ]
     },
     "RED_FLAG": {
       "variants": [
-        {"speaker": "LEAD", "present": "Red flag, the session is stopped."},
-        {"speaker": "LEAD", "present": "The red flag is out, and this race is halted."}
+        {
+          "speaker": "LEAD",
+          "present": "Red flag, the session is stopped."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The red flag is out, and this race is halted."
+        }
       ]
     },
     "PASS": {
       "variants": [
-        {"speaker": "LEAD", "present": "{a} goes through on {b}.", "past": "{a} went through on {b}."},
-        {"speaker": "LEAD", "present": "{a} takes {b}.", "past": "{a} took {b}."},
-        {"speaker": "LEAD", "present": "{a} finds a way past {b}.", "past": "{a} found a way past {b}."},
-        {"speaker": "LEAD", "present": "{a} makes the move on {b}.", "past": "{a} made the move on {b}."},
-        {"speaker": "ANALYST", "present": "{a} is past {b}.", "past": "{a} got past {b}."},
-        {"speaker": "ANALYST", "present": "{a} muscles by {b}.", "past": "{a} muscled by {b}."},
-        {"speaker": "LEAD", "present": "{a} slots ahead of {b}.", "past": "{a} slotted ahead of {b}."},
-        {"speaker": "ANALYST", "present": "That's {a} through on {b}."}
+        {
+          "speaker": "LEAD",
+          "present": "{a} goes through on {b}.",
+          "past": "{a} went through on {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} takes {b}.",
+          "past": "{a} took {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} finds a way past {b}.",
+          "past": "{a} found a way past {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} makes the move on {b}.",
+          "past": "{a} made the move on {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is past {b}.",
+          "past": "{a} got past {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} muscles by {b}.",
+          "past": "{a} muscled by {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} slots ahead of {b}.",
+          "past": "{a} slotted ahead of {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "That's {a} through on {b}."
+        }
       ]
     },
     "LEAD_CHANGE": {
       "variants": [
-        {"speaker": "LEAD", "present": "{a} takes the lead from {b}.", "past": "{a} took the lead from {b}."},
-        {"speaker": "LEAD", "present": "{a} is the new leader.", "past": "{a} became the new leader."},
-        {"speaker": "LEAD", "present": "We have a new leader: {a}.", "past": "A new leader: {a}."},
-        {"speaker": "ANALYST", "present": "{a} hits the front, ahead of {b}."}
+        {
+          "speaker": "LEAD",
+          "present": "{a} takes the lead from {b}.",
+          "past": "{a} took the lead from {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} is the new leader.",
+          "past": "{a} became the new leader."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "We have a new leader: {a}.",
+          "past": "A new leader: {a}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} hits the front, ahead of {b}."
+        }
       ]
     },
     "LEAD_CONTEST": {
       "variants": [
-        {"speaker": "LEAD", "present": "The lead is changing hands, {a} ahead for now."},
-        {"speaker": "LEAD", "present": "A fight at the front, {a} in front for the moment."},
-        {"speaker": "ANALYST", "present": "The lead won't settle, {a} holds it for now."}
+        {
+          "speaker": "LEAD",
+          "present": "The lead is changing hands, {a} ahead for now."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "A fight at the front, {a} in front for the moment."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The lead won't settle, {a} holds it for now."
+        }
       ]
     },
     "LEAD_SETTLED": {
       "variants": [
-        {"speaker": "ANALYST", "present": "After {swaps} swaps, {a} keeps the lead."},
-        {"speaker": "ANALYST", "present": "The order at the front settles with {a} in command."},
-        {"speaker": "LEAD", "present": "{a} comes out of that fight still leading."}
+        {
+          "speaker": "ANALYST",
+          "present": "After {swaps} swaps, {a} keeps the lead."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The order at the front settles with {a} in command."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} comes out of that fight still leading."
+        }
       ]
     },
     "CONTESTED": {
       "variants": [
-        {"speaker": "ANALYST", "present": "After {swaps} swaps, {a} is ahead of {b}."},
-        {"speaker": "ANALYST", "present": "They have traded places {swaps} times, and {a} holds it over {b}."},
-        {"speaker": "LEAD", "present": "{a} settles it ahead of {b} after a real scrap."},
-        {"speaker": "ANALYST", "present": "That battle goes the way of {a}, ahead of {b}."},
-        {"speaker": "LEAD", "present": "{a} comes out in front of {b}."},
-        {"speaker": "ANALYST", "present": "{swaps} changes later, {a} leads {b}."}
+        {
+          "speaker": "ANALYST",
+          "present": "After {swaps} swaps, {a} is ahead of {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "They have traded places {swaps} times, and {a} holds it over {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} settles it ahead of {b} after a real scrap."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "That battle goes the way of {a}, ahead of {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} comes out in front of {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{swaps} changes later, {a} leads {b}."
+        }
       ]
     },
     "COLLAPSE": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} has dropped {places} places after {cause}."},
-        {"speaker": "ANALYST", "present": "{a} has dropped {places} places."},
-        {"speaker": "ANALYST", "present": "{a} is tumbling down the order, {places} places lost after {cause}."},
-        {"speaker": "ANALYST", "present": "{a} is going backwards, {places} places gone."},
-        {"speaker": "LEAD", "present": "{a} has slipped {places} places after {cause}."},
-        {"speaker": "LEAD", "present": "A bad run for {a}, down {places} places."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} has dropped {places} places after {cause}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} has dropped {places} places."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is tumbling down the order, {places} places lost after {cause}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is going backwards, {places} places gone."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} has slipped {places} places after {cause}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "A bad run for {a}, down {places} places."
+        }
       ]
     },
     "BATTLE": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} is closing on {b}."},
-        {"speaker": "ANALYST", "present": "{a} is right with {b} now."},
-        {"speaker": "LEAD", "present": "{a} is reeling in {b}."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is closing on {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is right with {b} now."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} is reeling in {b}."
+        }
       ]
     },
     "SPEED_TRAP": {
       "variants": [
-        {"speaker": "ANALYST", "when": {"quickest": true}, "present": "{a} is quickest through the speed trap at {speed}."},
-        {"speaker": "ANALYST", "when": {"quickest": true}, "present": "Top speed of the day for {a}: {speed}."},
-        {"speaker": "LEAD", "when": {"quickest": true}, "present": "{a} tops the speed trap at {speed}."},
-        {"speaker": "ANALYST", "when": {"quickest": false}, "present": "{a} clocks {speed} through the speed trap."},
-        {"speaker": "ANALYST", "when": {"quickest": false}, "present": "{speed} for {a} at the trap."}
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "quickest": true
+          },
+          "present": "{a} is quickest through the speed trap at {speed}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "quickest": true
+          },
+          "present": "Top speed of the day for {a}: {speed}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "quickest": true
+          },
+          "present": "{a} tops the speed trap at {speed}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "quickest": false
+          },
+          "present": "{a} clocks {speed} through the speed trap."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "quickest": false
+          },
+          "present": "{speed} for {a} at the trap."
+        }
       ]
     },
     "WARNING": {
       "variants": [
-        {"speaker": "ANALYST", "present": "Contact between {a} and {b}, both warned."},
-        {"speaker": "ANALYST", "present": "{a} and {b} come together, and both pick up a warning."},
-        {"speaker": "ANALYST", "present": "A warning for {a}."},
-        {"speaker": "LEAD", "present": "The stewards note that one, {a} warned."}
+        {
+          "speaker": "ANALYST",
+          "present": "Contact between {a} and {b}, both warned."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} and {b} come together, and both pick up a warning."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "A warning for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The stewards note that one, {a} warned."
+        }
       ]
     },
     "PENALTY": {
       "variants": [
-        {"speaker": "ANALYST", "present": "A {penalty} for {a} after {cause}."},
-        {"speaker": "ANALYST", "present": "A {penalty} for {a}."},
-        {"speaker": "LEAD", "present": "The stewards hand {a} a {penalty}."},
-        {"speaker": "ANALYST", "present": "{a} is handed a {penalty} after {cause}."},
-        {"speaker": "ANALYST", "when": {"pena_type": 6}, "present": "{a} is disqualified."},
-        {"speaker": "LEAD", "when": {"pena_type": 6}, "present": "Disqualification for {a}."}
+        {
+          "speaker": "ANALYST",
+          "present": "A {penalty} for {a} after {cause}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "A {penalty} for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The stewards hand {a} a {penalty}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is handed a {penalty} after {cause}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "pena_type": 6
+          },
+          "present": "{a} is disqualified."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "pena_type": 6
+          },
+          "present": "Disqualification for {a}."
+        }
       ]
     },
     "RETIREMENT": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} is out of the race after {cause}.", "past": "{a} retired after {cause}."},
-        {"speaker": "ANALYST", "present": "{a} is out of the race.", "past": "{a} retired."},
-        {"speaker": "LEAD", "present": "That's the end of the race for {a} after {cause}."},
-        {"speaker": "LEAD", "present": "Retirement for {a}."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is out of the race after {cause}.",
+          "past": "{a} retired after {cause}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is out of the race.",
+          "past": "{a} retired."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "That's the end of the race for {a} after {cause}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Retirement for {a}."
+        }
       ]
     },
     "PIT": {
       "variants": [
-        {"speaker": "ANALYST", "when": {"multi": true}, "present": "{count} cars pit, {a} among them."},
-        {"speaker": "ANALYST", "when": {"multi": true}, "present": "A wave of stops, {count} cars in, {a} one of them."},
-        {"speaker": "ANALYST", "when": {"multi": false}, "present": "{a} pits."},
-        {"speaker": "LEAD", "when": {"multi": false}, "present": "{a} peels into the pit lane."}
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "multi": true
+          },
+          "present": "{count} cars pit, {a} among them."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "multi": true
+          },
+          "present": "A wave of stops, {count} cars in, {a} one of them."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "multi": false
+          },
+          "present": "{a} pits."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "multi": false
+          },
+          "present": "{a} peels into the pit lane."
+        }
       ]
     },
     "WINNER": {
       "variants": [
-        {"speaker": "LEAD", "present": "Chequered flag, and {a} takes the win!"},
-        {"speaker": "LEAD", "present": "{a} wins it!"},
-        {"speaker": "LEAD", "present": "Chequered flag!"}
+        {
+          "speaker": "LEAD",
+          "present": "Chequered flag, and {a} takes the win!"
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} wins it!"
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Chequered flag!",
+          "fallback": true
+        }
       ]
     },
     "RESULT": {
       "variants": [
-        {"speaker": "LEAD", "present": "{a} finishes {pos}."},
-        {"speaker": "LEAD", "present": "{pos} for {a}."},
-        {"speaker": "LEAD", "present": "A result is confirmed."}
+        {
+          "speaker": "LEAD",
+          "present": "{a} finishes {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{pos} for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "A result is confirmed.",
+          "fallback": true
+        }
       ]
     },
     "CORRECTION": {
       "variants": [
-        {"speaker": "LEAD", "present": "Correction: {a} is classified {pos}."},
-        {"speaker": "LEAD", "present": "The revised classification puts {a} {pos}."}
+        {
+          "speaker": "LEAD",
+          "present": "Correction: {a} is classified {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The revised classification puts {a} {pos}."
+        }
       ]
     },
     "RACE_END": {
       "variants": [
-        {"speaker": "LEAD", "present": "The session has ended with {a} in front."},
-        {"speaker": "LEAD", "present": "The session has ended."}
+        {
+          "speaker": "LEAD",
+          "present": "The session has ended with {a} in front."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The session has ended.",
+          "fallback": true
+        }
       ]
     },
     "LULL_GAP": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} leads by {gap}."},
-        {"speaker": "ANALYST", "present": "{gap} covers {a} and {b}."},
-        {"speaker": "LEAD", "present": "The gap at the front is {gap}."},
-        {"speaker": "ANALYST", "present": "{b} sits {gap} behind {a}."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} leads by {gap}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{gap} covers {a} and {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The gap at the front is {gap}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{b} sits {gap} behind {a}."
+        }
       ]
     },
     "LULL_HUMAN": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} runs {pos}."},
-        {"speaker": "LEAD", "present": "Our highest-placed runner is {a}, in {pos}."},
-        {"speaker": "ANALYST", "present": "{a} holds {pos} for now."},
-        {"speaker": "ANALYST", "present": "Up to {pos} for {a}."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} runs {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Our highest-placed runner is {a}, in {pos}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} holds {pos} for now."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Up to {pos} for {a}."
+        }
       ]
     },
     "LULL_WEATHER": {
       "variants": [
-        {"speaker": "ANALYST", "present": "Track temperature {temp_track}, air {temp_air}."},
-        {"speaker": "ANALYST", "present": "It's {temp_track} on the track, {temp_air} in the air."},
-        {"speaker": "LEAD", "present": "Conditions steady, track at {temp_track}."},
-        {"speaker": "ANALYST", "present": "The track is reading {temp_track}."}
+        {
+          "speaker": "ANALYST",
+          "present": "Track temperature {temp_track}, air {temp_air}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "It's {temp_track} on the track, {temp_air} in the air."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Conditions steady, track at {temp_track}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The track is reading {temp_track}."
+        }
       ]
     },
     "LULL_DISTANCE": {
       "variants": [
-        {"speaker": "LEAD", "present": "{laps} laps done, {remaining} to go."},
-        {"speaker": "ANALYST", "present": "We're {laps} laps in, {remaining} remaining."},
-        {"speaker": "LEAD", "present": "{remaining} laps left to run."},
-        {"speaker": "ANALYST", "present": "Past {laps} laps now."}
+        {
+          "speaker": "LEAD",
+          "present": "{laps} laps done, {remaining} to go."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "We're {laps} laps in, {remaining} remaining."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{remaining} laps left to run."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Past {laps} laps now."
+        }
       ]
     },
     "LULL_FASTEST": {
       "variants": [
-        {"speaker": "ANALYST", "present": "Fastest lap so far belongs to {a}, a {time}."},
-        {"speaker": "ANALYST", "present": "{a} holds the fastest lap, {time}."},
-        {"speaker": "LEAD", "present": "The lap to beat is {a}'s {time}."},
-        {"speaker": "ANALYST", "present": "Quickest lap of the race, {a}, {time}."}
+        {
+          "speaker": "ANALYST",
+          "present": "Fastest lap so far belongs to {a}, a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} holds the fastest lap, {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The lap to beat is {a}'s {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Quickest lap of the race, {a}, {time}."
+        }
       ]
     },
     "LULL_PROGRESS": {
       "variants": [
-        {"speaker": "ANALYST", "present": "{a} has made up {places} places."},
-        {"speaker": "ANALYST", "present": "{places} places gained for {a}."},
-        {"speaker": "LEAD", "present": "A good run from {a}, up {places}."},
-        {"speaker": "ANALYST", "present": "{a} is on the move, {places} places to the good."}
+        {
+          "speaker": "ANALYST",
+          "present": "{a} has made up {places} places."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{places} places gained for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "A good run from {a}, up {places}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} is on the move, {places} places to the good."
+        }
       ]
     }
   }

@@ -377,6 +377,8 @@ class TestPasses(unittest.TestCase):
         m = make_model()
         booth = v3.V3Booth(m, m.cfg)
         m.on_event(1010.6, {"code": "LGOT"})
+        set_car(m.w, 1, pos=2, name="A")   # F9: subjects must be name-resolved
+        set_car(m.w, 2, pos=3, name="B")
         m.leader_finish_t = 1200.0
         m.state = "finishing"
         m.last_pos = {1: 2, 2: 3}          # car 1 ahead of car 2 (order valid)
@@ -664,6 +666,7 @@ class TestFixRound1(unittest.TestCase):
     def test_penalty_blocked_after_finish(self):
         m = make_model()
         m.on_event(1010.6, {"code": "LGOT"})
+        set_car(m.w, 1, pos=2, name="X")   # F9: subject must be name-resolved
         m.state = "finishing"
         booth = v3.V3Booth(m, m.cfg)
         pen = v3.Claim("PENALTY", v3.CLASS_LIFECYCLE, [1], ["X"], 1200.0,
