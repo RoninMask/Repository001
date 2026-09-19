@@ -3889,7 +3889,9 @@ class RaceModel:
             return content_class in (CLASS_ACTION, CLASS_FILLER,
                                      CLASS_LIFECYCLE, CLASS_STATE)
         if s in ("safety_car", "vsc"):
-            return content_class in (CLASS_LIFECYCLE, CLASS_STATE)
+            # context (filler) is legitimate under neutralisation; racing
+            # action is not (Part E lull runs in green/safety_car/vsc).
+            return content_class in (CLASS_LIFECYCLE, CLASS_STATE, CLASS_FILLER)
         if s in ("red_flag", "suspended", "restart_grid"):
             if content_class == CLASS_STATE:
                 return True
@@ -4516,6 +4518,87 @@ class RaceModel:
     def on_speeds(self, t, speeds):
         self.speeds = speeds
 
+    # ---- Part E: lull content, all derived from the wire (A14 stays green) --
+    _lull_rot = 0
+
+    @staticmethod
+    def _fmt_laptime(ms):
+        s = ms / 1000.0
+        m = int(s // 60)
+        return "%d:%06.3f" % (m, s - m * 60)
+
+    def _highest_human(self):
+        best = None
+        for c in self.w.cars:
+            if (c.seen and c.is_human and c.position > 0
+                    and self.running(c.idx) and not self.is_retired(c.idx)):
+                if best is None or c.position < best.position:
+                    best = c
+        return best
+
+    def _lull_gap(self, t):
+        lead = self.w.car_at_position(1)
+        second = self.w.car_at_position(2)
+        if lead is None or second is None or not (0.0 < second.delta_front < 900.0):
+            return None
+        return Claim("LULL_GAP", CLASS_FILLER, [lead.idx, second.idx],
+                     [self._name(lead.idx), self._name(second.idx)], t,
+                     facts={"gap": "%.1f seconds" % second.delta_front},
+                     priority=10.0, demotable=True)
+
+    def _lull_human(self, t):
+        c = self._highest_human()
+        if c is None:
+            return None
+        return Claim("LULL_HUMAN", CLASS_FILLER, [c.idx], [self._name(c.idx)],
+                     t, facts={"pos": c.position}, priority=10.0, demotable=True)
+
+    def _lull_distance(self, t):
+        total = self.w.total_laps or 0
+        lead = self.w.car_at_position(1)
+        if total <= 0 or lead is None or lead.lap <= 0:
+            return None
+        done = max(0, min(total, lead.lap))
+        return Claim("LULL_DISTANCE", CLASS_FILLER, [], [], t,
+                     facts={"laps": _num_word(done),
+                            "remaining": _num_word(max(0, total - done))},
+                     priority=10.0, demotable=True)
+
+    def _lull_fastest(self, t):
+        best = None
+        for c in self.w.cars:
+            if c.seen and c.last_lap_ms and c.last_lap_ms > 0:
+                if best is None or c.last_lap_ms < best.last_lap_ms:
+                    best = c
+        if best is None:
+            return None
+        return Claim("LULL_FASTEST", CLASS_FILLER, [best.idx],
+                     [self._name(best.idx)], t,
+                     facts={"time": self._fmt_laptime(best.last_lap_ms)},
+                     priority=10.0, demotable=True)
+
+    def _lull_progress(self, t):
+        c = self._highest_human()
+        if c is None or not c.grid or c.grid <= c.position:
+            return None
+        return Claim("LULL_PROGRESS", CLASS_FILLER, [c.idx], [self._name(c.idx)],
+                     t, facts={"places": c.grid - c.position}, priority=10.0,
+                     demotable=True)
+
+    def build_lull(self, t):
+        """Rotate through the derivable lull kinds; return the first that has
+        wire data, else None. LULL_WEATHER is not built -- the parser does not
+        store track/air temperature (noted for the hand-back)."""
+        builders = [self._lull_gap, self._lull_human, self._lull_distance,
+                    self._lull_fastest, self._lull_progress]
+        n = len(builders)
+        for step in range(n):
+            claim = builders[(self._lull_rot + step) % n](t)
+            if claim is not None:
+                self._lull_rot = (self._lull_rot + step + 1) % n
+                return claim
+        return None
+
     def idle_watchdog_s(self, state=None):
         """A9: the idle watchdog from config -- 600 s in the stopped states,
         90 s elsewhere."""
@@ -4838,6 +4921,11 @@ class V3Booth:
         self._recent_ks = []          # (t, kind, subjkey, material)
         self._recent_templates = []   # (t, template_key)
         self._recent_subjects = []    # (t, lead_subject)
+        # Part E: the lull engine.
+        ll = config.get("v3", "lull", default={}) or {}
+        self.lull_after = ll.get("after_s", 20.0)
+        self.lull_max_per_min = ll.get("max_per_minute", 1)
+        self._lull_times = []
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
@@ -5040,10 +5128,34 @@ class V3Booth:
                     best = c
             else:
                 if best is None:
+                    if self._maybe_lull(t):
+                        continue     # a lull was enqueued; loop to air it
                     return
                 self._air(best, t)
                 continue
             continue
+
+    def _maybe_lull(self, t):
+        """Part E: fill a green/neutralised silence longer than after_s with one
+        wire-derived line, capped per minute. Never during the stopped states."""
+        if self._last_air_end is None or self.channel_busy_until > t + 1e-9:
+            return False
+        if (t - self._last_air_end) < self.lull_after:
+            return False
+        if self.model.state not in ("green", "safety_car", "vsc"):
+            return False
+        recent = [x for x in self._lull_times if (t - x) < 60.0]
+        if len(recent) >= self.lull_max_per_min:
+            return False
+        claim = self.model.build_lull(t)
+        if claim is None:
+            return False
+        # repetition guard applies to lull lines like any other
+        if self._repetition_reason(claim, t) is not None:
+            return False
+        self._lull_times.append(t)
+        self.take(claim)
+        return True
 
     def _pacing_gap(self, claim):
         """The silence to insert before this line, per the governor."""
