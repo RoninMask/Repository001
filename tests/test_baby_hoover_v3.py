@@ -911,5 +911,142 @@ def fx_header(pid):
                        12345678901234567, 0.0, 0, 0, 0, 255)
 
 
+class TestP2FixRound1(unittest.TestCase):
+    """Pass 2 fix round 1: F1-F5, F10."""
+
+    def _booth(self):
+        m = make_model()
+        m.on_event(1010.6, {"code": "LGOT"})
+        grid(m.w, 4)
+        m.w.last_lapdata_t = 1100.0
+        lap(m.w, [0, 1, 2, 3])
+        m.observe(1100.0)
+        return m, v3.V3Booth(m, m.cfg)
+
+    # ---- F1 ----------------------------------------------------------------
+    def test_f1_winner_survives_subject_saturation(self):
+        m, booth = self._booth()
+        for tt in range(1100, 1180, 5):        # saturate subject 0
+            booth._recent_subjects.append((float(tt), 0))
+        # a normal action line for the saturated subject is dropped
+        pass_c = v3.Claim("PASS", v3.CLASS_ACTION, [0, 1], ["C0", "C1"], 1180.0)
+        self.assertEqual(booth._repetition_reason(pass_c, 1180.0),
+                         "repeat:subject_saturated")
+        # but the result-defining kinds are immune (F1)
+        for k in ("WINNER", "RESULT", "RACE_END", "CORRECTION"):
+            c = v3.Claim(k, v3.CLASS_RESULT, [0], ["C0"], 1180.0)
+            self.assertIsNone(booth._repetition_reason(c, 1180.0),
+                              "%s must not be suppressed" % k)
+
+    # ---- F2 ----------------------------------------------------------------
+    def test_f2_fallback_only_when_no_subject(self):
+        w = v3.WordsFile(v3._find_words_file(None))
+        # a subject is available -> a real (non-fallback) variant
+        _, txt, _ = w.select("RESULT", {"a": "Norris", "pos": "second"},
+                             {}, False)
+        self.assertNotEqual(txt, "A result is confirmed.")
+        # no subject -> the fallback line
+        _, txt2, _ = w.select("RESULT", {}, {}, False)
+        self.assertEqual(txt2, "A result is confirmed.")
+
+    def test_f2_loader_rejects_all_fallback(self):
+        import json
+        import tempfile
+        with open(v3._find_words_file(None), encoding="utf-8") as f:
+            doc = json.load(f)
+        for v in doc["kinds"]["PASS"]["variants"]:
+            v["fallback"] = True               # make a non-optional kind all-fallback
+        p = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                        encoding="utf-8")
+        json.dump(doc, p)
+        p.close()
+        with self.assertRaises(v3.WordsFileError):
+            v3.WordsFile(p.name)
+        os.unlink(p.name)
+
+    # ---- F3 ----------------------------------------------------------------
+    def test_f3_stale_in_pacing_gap_not_aired(self):
+        m, booth = self._booth()
+        # a first line airs, establishing the channel and the pacing gap
+        booth.take(v3.Claim("SPEED_TRAP", v3.CLASS_ACTION, [0], ["C0"], 1100.0,
+                            facts={"speed": 300.0}))
+        booth.tick(1100.0)
+        self.assertTrue(booth.emitted)
+        # car 1 passes car 0: valid right now
+        lap(m.w, [1, 0, 2, 3])
+        m.w.last_lapdata_t = 1100.5
+        m.observe(1100.5)
+        booth.take(v3.Claim("PASS", v3.CLASS_ACTION, [1, 0], ["C1", "C0"],
+                            1100.5))
+        booth.tick(1100.5)                      # deferred by the pacing gap
+        # the pass is reversed before its air slot
+        lap(m.w, [0, 1, 2, 3])
+        m.w.last_lapdata_t = 1102.0
+        m.observe(1102.0)
+        booth.tick(1102.6)                      # channel free; re-validate at air
+        self.assertEqual([l for l in booth.emitted if l["kind"] == "PASS"], [])
+        drops = [r for r in booth.claim_records
+                 if r["kind"] == "PASS" and r["outcome"] == "dropped"]
+        self.assertTrue(drops)
+        self.assertEqual(drops[0]["outcome_reason"], "stale_order")
+
+    # ---- F4 ----------------------------------------------------------------
+    def test_f4_protected_hold_from_screen(self):
+        m, _ = self._booth()
+        m.anchor_t = 1100.0
+        m.leader_idx = 0
+        m.state = "green"
+        m.state_since = 1100.0
+        gal = v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+        gal.current = 1                        # leader not yet on screen
+        gal.hold_since = 1099.0
+        gal._first_seen_t = 1090.0
+        # the start moment fired at the anchor (1100) but the cut happens later
+        gal.observe(1102.0)
+        self.assertEqual(gal.current, 0)       # cut to the leader
+        self.assertIsNotNone(gal._prot)
+        # the hold floor runs from the cut (1102), not the event (1100)
+        self.assertAlmostEqual(gal._prot["until"], 1102.0 + gal._prot["hold"],
+                               places=3)
+
+    # ---- F5 ----------------------------------------------------------------
+    def test_f5_away_max_returns_to_human(self):
+        m = make_model()
+        m.on_event(1010.6, {"code": "LGOT"})
+        # car 0 AI leader (high score), car 3 human further back (lower score)
+        set_car(m.w, 0, pos=1, ai=1, name="Leader")
+        set_car(m.w, 3, pos=8, ai=0, name="Human")
+        m.w.last_lapdata_t = 1100.0
+        m.leader_idx = 0
+        m.state = "green"
+        gal = v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+        gal.current = 0                        # on the AI leader
+        gal.hold_since = 1100.0
+        gal._first_seen_t = 1090.0
+        gal._leader_seen_t = 1100.0
+        gal._checkin_until = 0.0
+        # past away_max on a non-human -> must return to the human
+        gal.observe(1100.0 + gal.away_max + 1.0)
+        self.assertEqual(gal.current, 3)
+
+    # ---- F10 ---------------------------------------------------------------
+    def test_f10_lull_kind_cooldown(self):
+        m, _ = self._booth()
+        # build_lull skips a kind named in avoid, rotating to another
+        c = m.build_lull(1200.0, avoid={"LULL_GAP", "LULL_HUMAN",
+                                        "LULL_DISTANCE"})
+        if c is not None:
+            self.assertNotIn(c.kind, {"LULL_GAP", "LULL_HUMAN", "LULL_DISTANCE"})
+
+    def test_f10_fastest_only_on_change(self):
+        m, _ = self._booth()
+        m.w.cars[1].last_lap_ms = 90000
+        first = m._lull_fastest(1200.0)
+        self.assertIsNotNone(first)
+        self.assertIsNone(m._lull_fastest(1201.0))   # unchanged -> no line
+        m.w.cars[2].last_lap_ms = 89000              # a new fastest
+        self.assertIsNotNone(m._lull_fastest(1202.0))
+
+
 if __name__ == "__main__":
     unittest.main()
