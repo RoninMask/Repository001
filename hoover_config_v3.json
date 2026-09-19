@@ -400,7 +400,7 @@
     },
     "lull": {
       "after_s": 20.0,
-      "max_per_minute": 1
+      "max_per_minute": 3
     },
     "camera": {
       "roster_wait_max_s": 10.0,

@@ -1293,11 +1293,20 @@ class TestV3Detectors(unittest.TestCase):
             {"t_unix": B, "held_s": "3.0", "race_state": "green",
              "car_idx": "0", "layer": "", "reason": "score"}])
         self.assertTrue(hh.detect_A43(None, run, P)[0])
-        # a protected row below its floor -> fail
+        # a protected row below its floor, then dropped to non-protected -> fail
         run = self._run_lines([], manifest=man, cut_rows=[
             {"t_unix": B, "held_s": "2.0", "race_state": "green",
-             "car_idx": "0", "layer": "protected", "reason": "winner"}])
+             "car_idx": "0", "layer": "protected", "reason": "winner"},
+            {"t_unix": B + 2, "held_s": "40.0", "race_state": "green",
+             "car_idx": "1", "layer": "default", "reason": "score"}])
         self.assertTrue(hh.detect_A43(None, run, P)[0])
+        # short protected shot superseded by another protected shot -> pass
+        run = self._run_lines([], manifest=man, cut_rows=[
+            {"t_unix": B, "held_s": "0.5", "race_state": "green",
+             "car_idx": "0", "layer": "protected", "reason": "winner"},
+            {"t_unix": B + 0.5, "held_s": "8.0", "race_state": "green",
+             "car_idx": "1", "layer": "protected", "reason": "start"}])
+        self.assertEqual(hh.detect_A43(None, run, P)[0], [])
         # every row has a layer, protected meets floor -> pass
         run = self._run_lines([], manifest=man, cut_rows=[
             {"t_unix": B, "held_s": "6.0", "race_state": "green",

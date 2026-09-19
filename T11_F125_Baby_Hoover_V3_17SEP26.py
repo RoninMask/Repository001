@@ -5505,11 +5505,14 @@ class V3Gallery:
         if self.current is not None and self.current == m.leader_idx:
             self._leader_seen_t = t
 
-        # stopped states: hold the leader, no cycling (kept from Pass 1)
+        # stopped states: hold the leader, no cycling (kept from Pass 1). Cut a
+        # fresh row when the reason changes (e.g. vsc -> red_flag while holding
+        # the same car) so the row's race_state names where the hold happened
+        # and the hold time is attributed to the right state (A39).
         if m.state in ("red_flag", "suspended", "restart_grid"):
             if m.leader_idx is not None:
                 reason = "red_flag" if m.state == "red_flag" else m.state
-                self._cut_if_new(t, m.leader_idx, "protected", reason)
+                self._cut_if_new_reason(t, m.leader_idx, "protected", reason)
             return
 
         # A2-3: no cut before the roster resolves (or the wait elapses)
@@ -5609,6 +5612,14 @@ class V3Gallery:
     # ---- cut mechanics -----------------------------------------------------
     def _cut_if_new(self, t, idx, layer, reason):
         if idx != self.current:
+            self._cut(t, idx, layer, reason, "")
+
+    def _cut_if_new_reason(self, t, idx, layer, reason):
+        """Cut when the car changes OR the reason changes on the same car, so a
+        held shot that crosses a state boundary is recorded as a fresh row with
+        the new state (A39 attributes the hold correctly)."""
+        cur_reason = self.cuts[-1]["reason"] if self.cuts else None
+        if idx != self.current or cur_reason != reason:
             self._cut(t, idx, layer, reason, "")
 
     def _cut(self, t, idx, layer, reason, score):

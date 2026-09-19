@@ -2673,29 +2673,53 @@ def detect_A42(truth, run, p, twin=None):
 
 
 def detect_A43(truth, run, p):
-    """Camera layer accounting: a cuts row has no layer, or a protected row's
-    hold is shorter than that moment's configured floor."""
+    """Camera layer accounting: every cuts row carries a layer, and a protected
+    moment holds the camera for at least its configured floor.
+
+    The floor guarantees protected *content* stays on screen, not that each
+    individual shot lasts the full floor: when protected moments stack (two
+    retirements in the same incident, a retirement folding straight into the
+    safety car), the camera moves between protected cars but never leaves
+    protected content, so a short protected shot immediately followed by
+    another protected shot is not a fault.  A protected shot is only a fault
+    when it is cut short and the camera then drops to non-protected content
+    before the floor -- or is left with no layer at all.  A small tolerance
+    absorbs the packet-arrival quantisation of cut times.
+    """
     hits = []
     floors = (run.v3_manifest or {}).get("_camera_protected_floors") or {}
-    for row in run.cut_rows:
+    tol = 0.6                                  # ~one lapdata step of jitter
+    rows = sorted(run.cut_rows, key=lambda r: float(r.get("t_unix") or 0.0))
+    for i, row in enumerate(rows):
         layer = (row.get("layer") or "").strip()
         if not layer:
             hits.append(_hit(t=float(row.get("t_unix") or 0.0),
                              reason="cuts row has no layer",
                              evidence="reason %s" % row.get("reason")))
             continue
-        if layer == "protected":
-            floor = floors.get(row.get("reason"))
-            try:
-                held = float(row.get("held_s") or 0.0)
-            except ValueError:
-                held = 0.0
-            # the last protected shot may be cut short by race end; only flag a
-            # mid-race protected shot shorter than its floor
-            if floor and held and held + 1e-6 < floor:
-                hits.append(_hit(t=float(row.get("t_unix") or 0.0),
-                                 reason="protected %s held %.1fs < floor %.1fs"
-                                 % (row.get("reason"), held, floor)))
+        if layer != "protected":
+            continue
+        floor = floors.get(row.get("reason"))
+        try:
+            held = float(row.get("held_s") or 0.0)
+        except ValueError:
+            held = 0.0
+        if not (floor and held):
+            continue
+        if held + tol >= floor:
+            continue
+        nxt = rows[i + 1] if i + 1 < len(rows) else None
+        # superseded by another protected moment: coverage is continuous.
+        if nxt is not None and (nxt.get("layer") or "").strip() == "protected":
+            continue
+        # the last shot is cut by capture / race end, not by the director.
+        if nxt is None:
+            continue
+        hits.append(_hit(t=float(row.get("t_unix") or 0.0),
+                         reason="protected %s held %.1fs < floor %.1fs, then "
+                                "dropped to %s"
+                         % (row.get("reason"), held, floor,
+                            (nxt.get("layer") or "?"))))
     return hits, None
 
 

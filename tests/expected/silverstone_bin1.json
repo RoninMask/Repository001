@@ -345,6 +345,116 @@
       "gated": true,
       "pass": 1,
       "evidence": "State before speech: zero hits"
+    },
+    {
+      "id": "V3-P2-S1-A36",
+      "check": "A36",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No single template over 12% of aired lines"
+    },
+    {
+      "id": "V3-P2-S1-A37",
+      "check": "A37",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No identical rendered line repeated within 120 s"
+    },
+    {
+      "id": "V3-P2-S1-A23",
+      "check": "A23",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Pacing within bounds incl. minimum start-to-start gap"
+    },
+    {
+      "id": "V3-P2-S1-A26",
+      "check": "A26",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Human share of shot time inside its DEC-8 band for the field size"
+    },
+    {
+      "id": "V3-P2-S1-A27",
+      "check": "A27",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No 'Player'/'Car <n>'/number-word names; no lower-case sentence starts"
+    },
+    {
+      "id": "V3-P2-S1-A39",
+      "check": "A39",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No shot held over 45 s outside red_flag/suspended/restart_grid"
+    },
+    {
+      "id": "V3-P2-S1-A40",
+      "check": "A40",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No green stretch over 35 s without a line (lull coverage)"
+    },
+    {
+      "id": "V3-P2-S1-A41",
+      "check": "A41",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "speech_text present, carries no digit and no unspoken abbreviation"
+    },
+    {
+      "id": "V3-P2-S1-A43",
+      "check": "A43",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Every cut carries a layer; a protected hold meets its floor"
+    },
+    {
+      "id": "V3-P2-S1-A21",
+      "check": "A21",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Winner held on screen at least 5 s from the leader's crossing"
+    },
+    {
+      "id": "V3-P2-S1-A29",
+      "check": "A29",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No aired ordering line contradicted by the final classification"
     }
   ]
 }

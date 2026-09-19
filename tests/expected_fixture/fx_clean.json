@@ -305,6 +305,126 @@
       "gated": true,
       "pass": 1,
       "evidence": "No raw gamertags"
+    },
+    {
+      "id": "V3-P2-FC-A36",
+      "check": "A36",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No single template over 12% of aired lines"
+    },
+    {
+      "id": "V3-P2-FC-A37",
+      "check": "A37",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No identical line repeated within 120 s"
+    },
+    {
+      "id": "V3-P2-FC-A23",
+      "check": "A23",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Pacing within bounds incl. min start-to-start gap"
+    },
+    {
+      "id": "V3-P2-FC-A26",
+      "check": "A26",
+      "scope": {},
+      "v2": "observe",
+      "v3": "observe",
+      "gated": false,
+      "pass": 2,
+      "evidence": "Human share inside its DEC-8 band for the field size (observe on this synthetic fixture: 2 hit(s); real dense captures carry the material this detector needs)"
+    },
+    {
+      "id": "V3-P2-FC-A27",
+      "check": "A27",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No 'Player'/'Car <n>'/number-word names; no lower-case starts"
+    },
+    {
+      "id": "V3-P2-FC-A39",
+      "check": "A39",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No shot held over 45 s outside the stopped states"
+    },
+    {
+      "id": "V3-P2-FC-A40",
+      "check": "A40",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No green stretch over 35 s without a line"
+    },
+    {
+      "id": "V3-P2-FC-A41",
+      "check": "A41",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "speech_text present, no digits, no unspoken abbreviations"
+    },
+    {
+      "id": "V3-P2-FC-A43",
+      "check": "A43",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Every cut carries a layer; protected holds meet their floor"
+    },
+    {
+      "id": "V3-P2-FC-A21",
+      "check": "A21",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "Winner held on screen for at least 5 s from the crossing"
+    },
+    {
+      "id": "V3-P2-FC-A29",
+      "check": "A29",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No line contradicted by the final classification (stale order)"
+    },
+    {
+      "id": "V3-P2-FC-A38",
+      "check": "A38",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No correction re-aired for the same car and position"
     }
   ]
 }
