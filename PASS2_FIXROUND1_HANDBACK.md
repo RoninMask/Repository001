@@ -8,7 +8,7 @@ deterministic, no expectation weakened to hide a failure. **No pull request.**
 
 ## Branch and commit
 
-- Branch: `claude/baby-hoover-v3-pass2`, HEAD `<filled at push>`.
+- Branch: `claude/baby-hoover-v3-pass2`, HEAD `6740fea` (this hand-back).
 - Fix commits: F1–F9 (booth/words/director), F10–F14 (lull/A29/hygiene/temps),
   unit tests for F1–F5 and F10.
 
