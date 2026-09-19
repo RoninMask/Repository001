@@ -535,6 +535,8 @@ class World:
         self.season_link = None
         self.network_game = 0
         self.weather = 0
+        self.track_temp = None          # F14: Session m_trackTemperature (C)
+        self.air_temp = None            # F14: Session m_airTemperature (C)
         self.lights_out_t = None
         self.chequered_t = None
         self.leader_idx = None
@@ -608,6 +610,9 @@ class Parser:
         w = self.w
         w.last_session_t = t
         w.weather = d[OFF_S_WEATHER]
+        # F14: track/air temperature (signed C) for the weather lull.
+        w.track_temp = struct.unpack_from("<b", d, OFF_S_TRACKTEMP)[0]
+        w.air_temp = struct.unpack_from("<b", d, OFF_S_AIRTEMP)[0]
         w.total_laps = d[OFF_S_TOTALLAPS]
         stype = d[OFF_S_SESSIONTYPE]
         w.track_id = struct.unpack_from("<b", d, OFF_S_TRACKID)[0]
@@ -4189,14 +4194,22 @@ class RaceModel:
                     and self._pending_lead[1] == leader
                     and t - self._pending_lead[0] >= self.pass_hold):
                 a = leader
-                self.emit(Claim("LEAD_CHANGE", CLASS_ACTION, [a],
-                                [self._name(a)], self._pending_lead[0],
+                prev = self._pending_lead[2] if len(self._pending_lead) > 2 \
+                    else None
+                # F11: carry the previous leader as the second subject even when
+                # the chosen wording speaks only {a}, so A29 can connect the
+                # earlier pass to this lead change.
+                subs = [a, prev] if prev is not None else [a]
+                names = [self._name(x) for x in subs]
+                self.emit(Claim("LEAD_CHANGE", CLASS_ACTION, subs,
+                                names, self._pending_lead[0],
                                 facts={"for_p1": True}, priority=65.0,
                                 demotable=True, max_age_key="lead_change"))
                 self._pending_lead = None
             self._maybe_settle_lead(t)
             return
         # the lead just changed
+        prev_leader = self._last_leader
         self._last_leader = leader
         self._lead_events.append((t, leader))
         recent = [e for e in self._lead_events
@@ -4216,7 +4229,8 @@ class RaceModel:
                                 facts={"leader": leader}, priority=66.0,
                                 demotable=True, max_age_key="lead_change"))
         else:
-            self._pending_lead = (t, leader)   # solo change, confirm on hold
+            # solo change, confirm on hold; carry the previous leader (F11)
+            self._pending_lead = (t, leader, prev_leader)
 
     def _maybe_settle_lead(self, t):
         c = self._lead_contest
@@ -4523,6 +4537,7 @@ class RaceModel:
 
     # ---- Part E: lull content, all derived from the wire (A14 stays green) --
     _lull_rot = 0
+    _fastest_lull_ms = None
 
     @staticmethod
     def _fmt_laptime(ms):
@@ -4575,9 +4590,23 @@ class RaceModel:
                     best = c
         if best is None:
             return None
+        # F10: a fastest-lap lull fires only when the fastest lap has changed
+        # since one last aired -- not every rotation on a static best.
+        if best.last_lap_ms == self._fastest_lull_ms:
+            return None
+        self._fastest_lull_ms = best.last_lap_ms
         return Claim("LULL_FASTEST", CLASS_FILLER, [best.idx],
                      [self._name(best.idx)], t,
                      facts={"time": self._fmt_laptime(best.last_lap_ms)},
+                     priority=10.0, demotable=True)
+
+    def _lull_weather(self, t):
+        # F14: a weather lull from the Session packet's track/air temperatures.
+        tt, at = self.w.track_temp, self.w.air_temp
+        if tt is None or at is None:
+            return None
+        return Claim("LULL_WEATHER", CLASS_FILLER, [], [], t,
+                     facts={"temp_track": tt, "temp_air": at},
                      priority=10.0, demotable=True)
 
     def _lull_progress(self, t):
@@ -4588,16 +4617,16 @@ class RaceModel:
                      t, facts={"places": c.grid - c.position}, priority=10.0,
                      demotable=True)
 
-    def build_lull(self, t):
+    def build_lull(self, t, avoid=None):
         """Rotate through the derivable lull kinds; return the first that has
-        wire data, else None. LULL_WEATHER is not built -- the parser does not
-        store track/air temperature (noted for the hand-back)."""
+        wire data and is not on cooldown (avoid), else None."""
+        avoid = avoid or set()
         builders = [self._lull_gap, self._lull_human, self._lull_distance,
-                    self._lull_fastest, self._lull_progress]
+                    self._lull_fastest, self._lull_progress, self._lull_weather]
         n = len(builders)
         for step in range(n):
             claim = builders[(self._lull_rot + step) % n](t)
-            if claim is not None:
+            if claim is not None and claim.kind not in avoid:
                 self._lull_rot = (self._lull_rot + step + 1) % n
                 return claim
         return None
@@ -4949,7 +4978,10 @@ class V3Booth:
         ll = config.get("v3", "lull", default={}) or {}
         self.lull_after = ll.get("after_s", 20.0)
         self.lull_max_per_min = ll.get("max_per_minute", 1)
+        self.lull_cooldowns = ll.get("kind_cooldown_s", {}) or {}
         self._lull_times = []
+        self._lull_kind_times = {}     # F10: last-aired time per lull kind
+        self._weather_aired = None     # F14: (track_temp, air_temp) last aired
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
@@ -5189,13 +5221,30 @@ class V3Booth:
         recent = [x for x in self._lull_times if (t - x) < 60.0]
         if len(recent) >= self.lull_max_per_min:
             return False
-        claim = self.model.build_lull(t)
+        # F10: a lull kind still inside its per-kind cooldown is skipped, so the
+        # picker moves on to another kind rather than repeating (14 lap
+        # countdowns in one race). The rotation itself lives in build_lull.
+        avoid = {k for k, ct in self.lull_cooldowns.items()
+                 if k in self._lull_kind_times
+                 and (t - self._lull_kind_times[k]) < ct}
+        # F14: a track/air swing of >=3 C bypasses the weather cooldown.
+        if "LULL_WEATHER" in avoid and self._weather_aired is not None:
+            tt, at = self.model.w.track_temp, self.model.w.air_temp
+            lt, la = self._weather_aired
+            if tt is not None and at is not None \
+                    and (abs(tt - lt) >= 3 or abs(at - la) >= 3):
+                avoid.discard("LULL_WEATHER")
+        claim = self.model.build_lull(t, avoid=avoid)
         if claim is None:
             return False
         # repetition guard applies to lull lines like any other
         if self._repetition_reason(claim, t) is not None:
             return False
         self._lull_times.append(t)
+        self._lull_kind_times[claim.kind] = t
+        if claim.kind == "LULL_WEATHER":
+            self._weather_aired = (self.model.w.track_temp,
+                                   self.model.w.air_temp)
         self.take(claim)
         return True
 
@@ -6009,6 +6058,13 @@ class BabyHooverV3:
             "humans": sum(1 for c in self.world.cars
                           if c.seen and c.is_human),
             "_camera_protected_floors": self.gallery.protected_floors(),
+            # F12: the capture's own packet histogram and record count, written
+            # into the manifest beside the capture so H3 has the recorded totals
+            # to check against the .bin (the reading of 0 came from the harness
+            # looking at the V3 output manifest, which never carried them).
+            "packet_counts_by_id": {str(k): v
+                                    for k, v in self.world.packet_counts.items()},
+            "record_count": int(sum(self.world.packet_counts.values())),
         }
         with open(p + "_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)

@@ -365,7 +365,10 @@
     "finish": {
       "winner_call_max_delay_s": 5.0,
       "max_corrections_per_car": 2,
-      "correct_only_if": ["podium", "human"]
+      "correct_only_if": [
+        "podium",
+        "human"
+      ]
     },
     "claims": {
       "max_age_s": {
@@ -386,10 +389,19 @@
       "max_continuous_speech_s": 12.0,
       "breath_after_run_s": 4.5,
       "window_s": 60.0,
-      "window_max_share": 0.70,
-      "hard_interrupt_kinds": ["START", "RESTART", "LEAD_CHANGE", "SAFETY_CAR",
-                                "VSC", "RED_FLAG", "RETIREMENT", "WINNER",
-                                "RACE_END", "PENALTY"]
+      "window_max_share": 0.7,
+      "hard_interrupt_kinds": [
+        "START",
+        "RESTART",
+        "LEAD_CHANGE",
+        "SAFETY_CAR",
+        "VSC",
+        "RED_FLAG",
+        "RETIREMENT",
+        "WINNER",
+        "RACE_END",
+        "PENALTY"
+      ]
     },
     "repetition": {
       "exact_repeat_window_s": 120.0,
@@ -400,7 +412,15 @@
     },
     "lull": {
       "after_s": 20.0,
-      "max_per_minute": 3
+      "max_per_minute": 1,
+      "kind_cooldown_s": {
+        "LULL_DISTANCE": 180,
+        "LULL_FASTEST": 120,
+        "LULL_GAP": 90,
+        "LULL_HUMAN": 90,
+        "LULL_WEATHER": 300,
+        "LULL_PROGRESS": 90
+      }
     },
     "camera": {
       "roster_wait_max_s": 10.0,
@@ -415,30 +435,96 @@
       "max_hold_s": 40.0,
       "lull_top_score_threshold": 45.0,
       "human_share_bands": [
-        {"min_humans": 5, "band": [0.60, 0.70]},
-        {"min_humans": 3, "band": [0.50, 0.65]},
-        {"min_humans": 2, "band": [0.40, 0.60]},
-        {"min_humans": 1, "band": [0.25, 0.45]},
-        {"min_humans": 0, "band": null}
+        {
+          "min_humans": 5,
+          "band": [
+            0.6,
+            0.7
+          ]
+        },
+        {
+          "min_humans": 3,
+          "band": [
+            0.5,
+            0.65
+          ]
+        },
+        {
+          "min_humans": 2,
+          "band": [
+            0.4,
+            0.6
+          ]
+        },
+        {
+          "min_humans": 1,
+          "band": [
+            0.25,
+            0.45
+          ]
+        },
+        {
+          "min_humans": 0,
+          "band": null
+        }
       ],
       "protected": {
-        "red_flag": {"hold_s": null, "priority": 100},
-        "start": {"hold_s": 8.0, "priority": 95},
+        "red_flag": {
+          "hold_s": null,
+          "priority": 100
+        },
+        "start": {
+          "hold_s": 8.0,
+          "priority": 95
+        },
         "winner_hold_s": 5.0,
-        "winner": {"hold_s": 5.0, "priority": 95},
-        "safety_car": {"hold_s": 6.0, "priority": 90},
-        "retirement": {"hold_s": 5.0, "priority": 85},
-        "collision_human": {"hold_s": 5.0, "priority": 85},
-        "lead_change": {"hold_s": 6.0, "priority": 80},
-        "penalty_human": {"hold_s": 4.0, "priority": 70},
-        "collision_ai": {"hold_s": 3.5, "priority": 55}
+        "winner": {
+          "hold_s": 5.0,
+          "priority": 95
+        },
+        "safety_car": {
+          "hold_s": 6.0,
+          "priority": 90
+        },
+        "retirement": {
+          "hold_s": 5.0,
+          "priority": 85
+        },
+        "collision_human": {
+          "hold_s": 5.0,
+          "priority": 85
+        },
+        "lead_change": {
+          "hold_s": 6.0,
+          "priority": 80
+        },
+        "penalty_human": {
+          "hold_s": 4.0,
+          "priority": 70
+        },
+        "collision_ai": {
+          "hold_s": 3.5,
+          "priority": 55
+        }
       }
     },
     "naming": {
-      "fallback_order": ["team", "number", "generic"]
+      "fallback_order": [
+        "team",
+        "number",
+        "generic"
+      ]
     },
     "speech": {
-      "abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"]
+      "abbreviations": [
+        "DRS",
+        "ERS",
+        "MGU-K",
+        "MGU-H",
+        "KERS",
+        "VSC",
+        "SC"
+      ]
     },
     "parity": {
       "max_line_delta_s": 0.25

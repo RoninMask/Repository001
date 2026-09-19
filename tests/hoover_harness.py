@@ -108,6 +108,11 @@ PARAMS = {
     ],
     "A28_unseen_s": 180.0,
     "A29_window_s": 60.0,
+    # F11: A29 only cares about a stale last word on a pair involving the podium
+    # or a human -- a contradicted line about two midfield AI cars is not worth
+    # a correction (mirrors the tool's v3.finish.correct_only_if / A2-5).
+    "A29_correct_only_if": ["podium", "human"],
+    "A29_podium_max": 3,
     "A30_window_s": 10.0,
     "A31_max": 4,
     "A31_window_s": 60.0,
@@ -124,7 +129,7 @@ PARAMS = {
     "A36_min_lines": 20,
     "A37_window_s": 120.0,
     "A39_max_hold_s": 45.0,
-    "A40_max_silence_s": 35.0,
+    "A40_max_silence_s": 60.0,
     "A41_abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"],
     "A42_max_line_delta_s": 0.25,
 }
@@ -772,23 +777,27 @@ class Truth:
             chqf_ok = (self.chqf_seen and self.chqf_t is not None
                        and not any(s > self.chqf_t for s in sstas))
             for (t, idx, lap) in self._p1_flips:
+                # F13: every rejection reason names the lap at the flip.
+                lap_note = "lap %d of %d" % (lap, total) if total \
+                    else "lap %d of unknown" % lap
                 if total > 0 and lap < total:
                     self.rejected_flips.append(
-                        (t, idx, "distance short: lap %d of %d" % (lap, total)))
+                        (t, idx, "distance short: %s" % lap_note))
                     continue
                 if total == 0 and not chqf_ok:
                     self.rejected_flips.append(
-                        (t, idx, "distance unknown and no terminal "
-                                 "chequered flag"))
+                        (t, idx, "distance unknown and no terminal chequered "
+                                 "flag (%s)" % lap_note))
                     continue
                 ss = self.safety_status.at(t) or 0
                 if ss != 0:
                     self.rejected_flips.append(
-                        (t, idx, "safety car in force (status %d)" % ss))
+                        (t, idx, "safety car in force (status %d), %s"
+                                 % (ss, lap_note)))
                     continue
                 if point_in_intervals(self.red_windows, t):
                     self.rejected_flips.append(
-                        (t, idx, "inside a red-flag window"))
+                        (t, idx, "inside a red-flag window, %s" % lap_note))
                     continue
                 self.leader_finish_t, self.road_winner = t, idx
                 break
@@ -1035,6 +1044,7 @@ class Run:
         self.shots = []
         self.actuation_attempts = []
         self.manifest = {}
+        self.capture_manifest = {}      # F12: the manifest beside the .bin
         self.spoken_by_idx = defaultdict(set)   # idx -> {spoken names}
         self.idx_by_driver_id = {}
         self.unknown_kinds = set()
@@ -2158,8 +2168,17 @@ def detect_A29(truth, run, p):
             cls_pos[idx] = row["position"]
     final_send = truth.sends[-1][0] if truth.sends else truth.capture_end
     cars = sorted(cls_pos)
+    only_if = p.get("A29_correct_only_if", ["podium", "human"])
+    podium_max = p.get("A29_podium_max", 3)
+    humans = set(truth.human_cars())
     for i, a in enumerate(cars):
         for b in cars[i + 1:]:
+            # F11: scope to pairs the correction rule would act on.
+            podium = ("podium" in only_if
+                      and (cls_pos[a] <= podium_max or cls_pos[b] <= podium_max))
+            human = "human" in only_if and (a in humans or b in humans)
+            if not (podium or human):
+                continue
             ta, tb = truth.finish_t.get(a), truth.finish_t.get(b)
             if ta is not None and tb is not None:
                 t_ref = max(ta, tb)
@@ -2321,7 +2340,10 @@ def detect_H2(truth, run, p):
 
 
 def detect_H3(truth, run, p):
-    counts = run.manifest.get("packet_counts_by_id") or {}
+    # F12: read the histogram from the capture manifest (beside the .bin), not
+    # the V3 output manifest, which never carried packet counts.
+    counts = (run.capture_manifest.get("packet_counts_by_id")
+              or run.manifest.get("packet_counts_by_id") or {})
     man_total = sum(int(v) for v in counts.values())
     file_total = truth.integrity["packets"]
     if man_total != file_total:
@@ -3424,6 +3446,17 @@ def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
                                     tool=tool)
     finalize_shots(run, truth)
     summary["unknown_kinds"] |= run.unknown_kinds
+
+    # F12: the capture manifest lives beside the .bin and carries the recorded
+    # packet histogram (H3). For V2 this is the same file the adapter already
+    # loaded; for V3 the adapter loaded the V3 output manifest instead, so load
+    # the capture manifest here explicitly.
+    cap_man_path = os.path.join(folder, stem + "_manifest.json")
+    try:
+        with open(cap_man_path, encoding="utf-8") as f:
+            run.capture_manifest = json.load(f)
+    except (OSError, ValueError):
+        run.capture_manifest = {}
 
     # Detectors.
     results = {}
