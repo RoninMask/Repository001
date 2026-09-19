@@ -1973,18 +1973,23 @@ def detect_A26(truth, run, p):
     away_lim = p["A26_away_s"]
     grace = p["A26_leader_grace_s"]
 
-    # DEC-8: pick the share band by the human count in the V3 manifest. If the
-    # manifest carries no count (V2, or an old run), do not guess a band — run
-    # the away-shot check only and report the share test as n/a.
-    man = run.v3_manifest or run.manifest or {}
-    human_n = man.get("humans")
-    band = "absent"
-    if human_n is not None:
-        for rule in sorted(p["A26_bands"], key=lambda r: r["min_humans"],
-                           reverse=True):
-            if human_n >= rule["min_humans"]:
-                band = rule["band"]
-                break
+    # Share band. V2 has no per-run human count and its E-* rows depend on the
+    # original constant band, so V2 keeps that band (V2 has not changed). V3
+    # (Pass 2) picks the band by the human count in its manifest (DEC-8); if
+    # that count is absent, do not guess -- report the share test as n/a.
+    human_n = None
+    if run.tool == "v3":
+        man = run.v3_manifest or run.manifest or {}
+        human_n = man.get("humans")
+        band = "absent"
+        if human_n is not None:
+            for rule in sorted(p["A26_bands"], key=lambda r: r["min_humans"],
+                               reverse=True):
+                if human_n >= rule["min_humans"]:
+                    band = rule["band"]
+                    break
+    else:
+        band = p["A26_band"]
 
     # Events that excuse a leader hold: lead changes, start, finish.
     excuse_ts = [t for (t, _o, _n) in truth.leader.changes()]
@@ -2053,11 +2058,13 @@ def detect_A26(truth, run, p):
         lo_band, hi_band = band
         share = human_time / total_time
         if not (lo_band <= share <= hi_band):
+            note = (" (%d humans, DEC-8)" % human_n
+                    if human_n is not None else "")
             hits.append(_hit(
                 t=windows[0][0], sub="b", share=round(share, 3),
                 reason="human share of shot time %.1f%% outside %.0f-%.0f%% "
-                       "band (%d humans, DEC-8)"
-                % (100 * share, 100 * lo_band, 100 * hi_band, human_n),
+                       "band%s"
+                % (100 * share, 100 * lo_band, 100 * hi_band, note),
                 evidence="human %.1fs of %.1fs shot time in Green with a "
                          "human running" % (human_time, total_time)))
     # away-shot hits stand regardless; n/a only reported when nothing fired

@@ -509,6 +509,11 @@ def build_fx_baku(root):
         (SSTA2, "SSTA", {}),
         (1789507621.4, "STLG", {"num_lights": 1}),
         (LGOT2, "LGOT", {}),
+        # A2-9: a virtual safety car is deployed ~21 s before the terminal mass
+        # status flip and never lifts (as on the real Baku capture). It puts
+        # both the tool and the harness truth model into VSC at the flip, so
+        # both decline the lap-at-distance status-3 change as a road finish.
+        (1789507818.0, "SCAR", {"safety_car_type": 2, "event_type": 0}),
         (1789507838.966, "PENA", {"penalty_type": 16, "infringement_type": 7,
                                   "vehicle_idx": 18}),
         (1789507839.001, "RTMT", {"vehicle_idx": 18, "reason": 3}),

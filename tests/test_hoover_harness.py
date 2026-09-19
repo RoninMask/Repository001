@@ -736,16 +736,20 @@ class TestDetectors(unittest.TestCase):
             t += dur
             human = not human
         run = make_run(shots=shots, manifest={"humans": 1})
+        run.tool = "v3"
         hits, _ = hh.detect_A26(tr, run, P)
         self.assertTrue(any(h["sub"] == "b" for h in hits))     # fails band
         run = make_run(shots=shots, manifest={"humans": 5})
+        run.tool = "v3"
         self.assertFalse(any(h["sub"] == "b"
                              for h in hh.detect_A26(tr, run, P)[0]))
 
     def test_A26_na_without_human_count(self):
-        # No human count in the manifest -> share band reported n/a, not guessed
+        # V3 run with no human count in the manifest -> share band reported
+        # n/a, not guessed
         tr = derived(base_truth())
         run = make_run(shots=[(B, B + 30, 1, "advisory")], manifest={})
+        run.tool = "v3"
         hits, na = hh.detect_A26(tr, run, P)
         self.assertFalse(any(h.get("sub") == "b" for h in hits))
         self.assertIsNotNone(na)
