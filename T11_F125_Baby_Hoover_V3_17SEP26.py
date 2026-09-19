@@ -4495,6 +4495,149 @@ def _ordinal(n):
     return "%d%s" % (n, suffix)
 
 
+# --- Part B: the words file --------------------------------------------------
+# Every spoken template lives in hoover_words_v3.json. The Booth selects a
+# variant by deterministic rotation (DEC-11), fills placeholders, returns. No
+# broadcast English is authored in this source below _text. A32-neutral: this
+# reads a JSON file, decodes no packet and names no event code.
+
+V3_WORDS_NAME = "hoover_words_v3.json"
+
+# Kinds the Booth can emit, and the placeholders each can supply. A template
+# referencing a placeholder outside its kind's set is a load-time error (B-2).
+KIND_PLACEHOLDERS = {
+    "START": set(), "RESTART": set(), "SAFETY_CAR": set(), "VSC": set(),
+    "RED_FLAG": set(),
+    "PASS": {"a", "b"}, "LEAD_CHANGE": {"a", "b"}, "LEAD_CONTEST": {"a"},
+    "LEAD_SETTLED": {"a", "swaps"}, "CONTESTED": {"a", "b", "swaps"},
+    "COLLAPSE": {"a", "places", "cause"}, "BATTLE": {"a", "b"},
+    "SPEED_TRAP": {"a", "speed"}, "WARNING": {"a", "b"},
+    "PENALTY": {"a", "penalty", "seconds", "cause"}, "RETIREMENT": {"a", "cause"},
+    "PIT": {"a", "count"}, "WINNER": {"a"}, "RESULT": {"a", "pos"},
+    "CORRECTION": {"a", "pos"}, "RACE_END": {"a"},
+    "LULL_GAP": {"a", "b", "gap"}, "LULL_HUMAN": {"a", "pos"},
+    "LULL_WEATHER": {"temp_track", "temp_air"},
+    "LULL_DISTANCE": {"laps", "remaining"}, "LULL_FASTEST": {"a", "time"},
+    "LULL_PROGRESS": {"a", "places"},
+}
+
+# Minimum variant floors (B-3). Below the floor is a load-time error.
+MIN_VARIANTS = {
+    "PASS": 8, "COLLAPSE": 6, "CONTESTED": 6, "SPEED_TRAP": 5, "WARNING": 4,
+    "PIT": 4, "LEAD_CHANGE": 4, "RETIREMENT": 4, "PENALTY": 4, "BATTLE": 3,
+    "LEAD_CONTEST": 3, "LEAD_SETTLED": 3, "START": 2, "RESTART": 2,
+    "SAFETY_CAR": 2, "VSC": 2, "RED_FLAG": 2, "RACE_END": 2, "WINNER": 2,
+    "RESULT": 2, "CORRECTION": 2, "LULL_GAP": 4, "LULL_HUMAN": 4,
+    "LULL_WEATHER": 4, "LULL_DISTANCE": 4, "LULL_FASTEST": 4, "LULL_PROGRESS": 4,
+}
+
+_PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
+
+
+class WordsFileError(Exception):
+    """Raised at load for a malformed words file -- a clean refusal naming the
+    fault, never a silent fallback (B-2, acceptance item 8)."""
+
+
+class WordsFile:
+    def __init__(self, path):
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        self.path = path
+        self.hash = hashlib.sha256(raw).hexdigest()
+        doc = json.loads(raw.decode("utf-8"))
+        self.version = doc.get("words_version")
+        self.penalty_nouns = doc.get("penalty_nouns", {}) or {}
+        self.kinds = doc.get("kinds", {}) or {}
+        self._rot = {}
+        self._validate()
+
+    def _validate(self):
+        for kind, allowed in KIND_PLACEHOLDERS.items():
+            entry = self.kinds.get(kind)
+            if not entry or not entry.get("variants"):
+                raise WordsFileError("kind %r missing or has no variants" % kind)
+            variants = entry["variants"]
+            floor = MIN_VARIANTS.get(kind, 1)
+            if len(variants) < floor:
+                raise WordsFileError(
+                    "kind %r has %d variants; floor is %d"
+                    % (kind, len(variants), floor))
+            for v in variants:
+                if not v.get("speaker"):
+                    raise WordsFileError("a variant in %r has no speaker" % kind)
+                if "present" not in v:
+                    raise WordsFileError(
+                        "a variant in %r has no present form" % kind)
+                for form in ("present", "past"):
+                    tmpl = v.get(form)
+                    if tmpl is None:
+                        continue
+                    if "..." in tmpl or "--" in tmpl or "<" in tmpl:
+                        raise WordsFileError(
+                            "variant in %r uses ellipsis/em-dash/markup: %r"
+                            % (kind, tmpl))
+                    for ph in _PLACEHOLDER_RE.findall(tmpl):
+                        if ph not in allowed:
+                            raise WordsFileError(
+                                "kind %r cannot supply placeholder {%s}: %r"
+                                % (kind, ph, tmpl))
+
+    def penalty_noun(self, pena_type, seconds):
+        raw = self.penalty_nouns.get(str(pena_type))
+        if raw is None:
+            return None
+        try:
+            filled = raw.format(seconds=("" if seconds is None else seconds))
+        except Exception:
+            return None
+        return None if "{" in filled else filled
+
+    def select(self, kind, ctx, facts_view, past, avoid_templates=None):
+        """Deterministic rotation over the satisfiable variants of `kind`.
+        Returns (speaker, text, template_key) or None. avoid_templates lets the
+        repetition guard skip a recently-used template without going random."""
+        entry = self.kinds.get(kind)
+        if not entry:
+            return None
+        avoid = avoid_templates or set()
+        sat = []
+        for v in entry["variants"]:
+            when = v.get("when")
+            if when and any(facts_view.get(k) != val for k, val in when.items()):
+                continue
+            if any(ctx.get(ph) is None
+                   for ph in _PLACEHOLDER_RE.findall(v["present"])):
+                continue
+            sat.append(v)
+        if not sat:
+            return None
+        n = len(sat)
+        start = self._rot.get(kind, 0)
+        chosen = None
+        for step in range(n):
+            cand = sat[(start + step) % n]
+            if cand["present"] in avoid and step < n - 1:
+                continue
+            chosen = cand
+            self._rot[kind] = (start + step + 1) % n
+            break
+        if chosen is None:
+            chosen = sat[start % n]
+            self._rot[kind] = (start + 1) % n
+        form = "past" if (past and chosen.get("past")) else "present"
+        fill = {k: ("" if val is None else val) for k, val in ctx.items()}
+        text = chosen[form].format(**fill)
+        text = text[:1].upper() + text[1:]
+        return chosen["speaker"], text, chosen["present"]
+
+
+def _find_words_file(config):
+    """The words file lives beside the tool (repo root), like the config."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(here, V3_WORDS_NAME)
+
+
 class V3Booth:
     """Serial two-voice scheduler over race-model claims. One occupancy
     channel; deterministic ordering keyed on packet arrival time."""
@@ -4502,6 +4645,7 @@ class V3Booth:
     def __init__(self, model, config):
         self.model = model
         self.cfg = config
+        self.words = WordsFile(_find_words_file(config))
         self.queue = []
         self.emitted = []
         self.claim_records = []
@@ -4512,6 +4656,7 @@ class V3Booth:
         self.max_age = cl.get("max_age_s", {"default": 12.0})
         self._line_seq = 0
         self._winner_named = False
+        self._last_template = None
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
@@ -4560,112 +4705,73 @@ class V3Booth:
             return "drop:expired"
         return "ok"
 
-    # ---- wording ------------------------------------------------------------
-    def _text(self, claim, past):
+    # ---- wording (selection only; every phrasing lives in the words file) ---
+    def _build_context(self, claim):
+        """Compute the fill context and the fact discriminators for a claim.
+        No broadcast English here -- only values the words file interpolates."""
         k = claim.kind
-        nm = claim.names
         f = claim.facts
+        nm = claim.names
+        ctx = {}
+        fv = {}
+        if len(nm) >= 1:
+            ctx["a"] = nm[0]
+        if len(nm) >= 2:
+            ctx["b"] = nm[1]
         if k == "START":
-            if f.get("kind") == "lights_out":
-                return LEAD_V3, "Lights out and away we go."
-            if f.get("kind") == "under_way":
-                return LEAD_V3, "And we're under way."
-        if k == "RESTART":
-            return LEAD_V3, "Racing resumes."
-        if k == "SAFETY_CAR":
-            return LEAD_V3, "The safety car is deployed."
-        if k == "VSC":
-            return LEAD_V3, "Virtual safety car, the field is neutralised."
-        if k == "RED_FLAG":
-            return LEAD_V3, "Red flag, the session is stopped."
-        if k == "PASS":
-            v = "went through on" if past else "goes through on"
-            return LEAD_V3, "%s %s %s." % (nm[0], v, nm[1])
-        if k == "LEAD_CHANGE":
-            v = "took the lead" if past else "takes the lead"
-            if len(nm) >= 2:
-                return LEAD_V3, "%s %s from %s." % (nm[0], v, nm[1])
-            return LEAD_V3, "%s %s." % (nm[0], v)
-        if k == "LEAD_CONTEST":
-            return LEAD_V3, ("The lead is changing hands -- %s ahead for now."
-                             % nm[0])
-        if k == "LEAD_SETTLED":
-            return ANALYST_V3, ("After %s swaps, %s keeps the lead."
-                                % (_num_word(f.get("swaps", 0)), nm[0]))
-        if k == "CONTESTED":
-            return ANALYST_V3, ("After %s swaps, %s is ahead of %s."
-                                % (_num_word(f.get("swaps", 0)), nm[0], nm[1]))
-        if k == "COLLAPSE":
-            base = "%s has dropped %s places" % (nm[0],
-                                                 _num_word(f.get("places", 0)))
+            fv["kind"] = f.get("kind")
+        elif k == "SPEED_TRAP":
+            fv["quickest"] = bool(f.get("quickest"))
+            ctx["speed"] = "%.0f" % (f.get("speed") or 0.0)
+        elif k in ("CONTESTED", "LEAD_SETTLED"):
+            ctx["swaps"] = _num_word(f.get("swaps", 0))
+        elif k == "COLLAPSE":
+            ctx["places"] = _num_word(f.get("places", 0))
             cause = f.get("cause")
-            if cause:
-                return ANALYST_V3, "%s after %s." % (base, cause["text"])
-            return ANALYST_V3, base + "."
-        if k == "BATTLE":
-            return ANALYST_V3, "%s is closing on %s." % (nm[0], nm[1])
-        if k == "SPEED_TRAP":
-            if f.get("quickest"):
-                return ANALYST_V3, ("%s is quickest through the speed trap at "
-                                    "%.0f." % (nm[0], f.get("speed", 0)))
-            return ANALYST_V3, ("%s clocks %.0f through the speed trap."
-                                % (nm[0], f.get("speed", 0)))
-        if k == "WARNING":
-            if len(nm) >= 2:
-                return ANALYST_V3, ("Contact between %s and %s, both warned."
-                                    % (nm[0], nm[1]))
-            return ANALYST_V3, "A warning for %s." % nm[0]
-        if k == "PENALTY":
+            ctx["cause"] = cause["text"] if cause else None
+        elif k == "PENALTY":
             pt = f.get("pena_type")
-            who = nm[0]
+            fv["pena_type"] = pt
+            secs = f.get("seconds")
+            ctx["penalty"] = self.words.penalty_noun(
+                pt, secs if secs is not None else None)
             cause = f.get("cause")
-            tail = (" after %s" % cause["text"]) if cause else ""
-            if pt == 4:
-                return ANALYST_V3, ("A %s-second penalty for %s%s."
-                                    % (_num_word(f.get("seconds") or 0), who,
-                                       tail))
-            if pt == 0:
-                return ANALYST_V3, "A drive-through penalty for %s%s." % (who,
-                                                                         tail)
-            if pt == 1:
-                return ANALYST_V3, "A stop-go penalty for %s%s." % (who, tail)
-            if pt == 2:
-                return ANALYST_V3, "A grid penalty for %s%s." % (who, tail)
-            if pt == 6:
-                return ANALYST_V3, "%s is disqualified." % who
-            return ANALYST_V3, "A penalty for %s%s." % (who, tail)
-        if k == "RETIREMENT":
+            ctx["cause"] = cause["text"] if cause else None
+        elif k == "RETIREMENT":
             cause = f.get("cause")
-            v = "is out of the race" if not past else "retired"
-            if cause:
-                return ANALYST_V3, "%s %s after %s." % (nm[0], v, cause["text"])
-            return ANALYST_V3, "%s %s." % (nm[0], v)
-        if k == "PIT":
+            ctx["cause"] = cause["text"] if cause else None
+        elif k == "PIT":
             n = f.get("count", len(nm))
-            if n > 1 and nm:
-                return ANALYST_V3, ("%s cars pit, %s among them."
-                                    % (_num_word(n).capitalize(), nm[0]))
-            if nm:
-                return ANALYST_V3, "%s pits." % nm[0]
-            return ANALYST_V3, "A stop in the pit lane."
-        if k == "WINNER":
-            return LEAD_V3, ("Chequered flag, and %s takes the win!" % nm[0]
-                             if nm else "Chequered flag!")
-        if k == "RESULT":
+            fv["multi"] = n > 1
+            ctx["count"] = _num_word(n)
+        elif k in ("RESULT", "CORRECTION"):
             pos = f.get("position")
-            if nm and pos:
-                return LEAD_V3, "%s finishes %s." % (nm[0], _ordinal(pos))
-            return LEAD_V3, "A result confirmed."
-        if k == "CORRECTION":
-            pos = f.get("position")
-            if nm and pos:
-                return LEAD_V3, "Correction -- %s is classified %s." % (
-                    nm[0], _ordinal(pos))
-            return LEAD_V3, "A classification correction."
-        if k == "RACE_END":
-            who = (" with %s in front" % nm[0]) if nm else ""
-            return LEAD_V3, "The session has ended%s." % who
-        return LEAD_V3, "%s." % (nm[0] if nm else "Racing")
+            ctx["pos"] = _ordinal(pos) if pos else None
+        elif k == "LULL_HUMAN":
+            pos = f.get("pos")
+            ctx["pos"] = _ordinal(pos) if pos else None
+        elif k == "LULL_PROGRESS":
+            ctx["places"] = _num_word(f.get("places", 0))
+        # lull kinds carry pre-formatted display strings on their facts
+        for key in ("gap", "temp_track", "temp_air", "laps", "remaining",
+                    "time"):
+            if f.get(key) is not None:
+                ctx[key] = f[key]
+        return ctx, fv
+
+    def _text(self, claim, past, avoid_templates=None):
+        ctx, fv = self._build_context(claim)
+        res = self.words.select(claim.kind, ctx, fv, past,
+                                avoid_templates=avoid_templates)
+        if res is None:
+            # No silent fallback to "Racing." A kind with no satisfiable
+            # variant is a real gap, surfaced rather than papered over.
+            raise WordsFileError(
+                "no satisfiable variant for kind %r (facts=%r)"
+                % (claim.kind, claim.facts))
+        speaker, text, tmpl_key = res
+        self._last_template = tmpl_key
+        return speaker, text
 
     # ---- per-tick scheduling ------------------------------------------------
     def tick(self, t):
