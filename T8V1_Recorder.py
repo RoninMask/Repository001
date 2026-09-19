@@ -1500,6 +1500,15 @@ class Recorder(object):
                 "send_rate_hz_measured": rate,
             },
             "session_autofill": autofill,
+            # Part I / H3: the per-packet-ID histogram at the top level, keyed
+            # as the harness reads it (packet_counts_by_id), summing to the
+            # non-marker record count. record_count excludes markers so the two
+            # numbers are separately meaningful; markers are documented and
+            # counted on their own (see "markers").
+            "packet_counts_by_id": {str(k): v for k, v in sorted(
+                stats["packets_by_id"].items())},
+            "record_count": stats["packets"],
+            "marker_count": stats["markers"],
             "capture": {
                 "duration_s": round(duration, 1),
                 "packets": stats["packets"],
