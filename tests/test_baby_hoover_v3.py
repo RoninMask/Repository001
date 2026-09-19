@@ -866,6 +866,42 @@ class TestPacingAndRepetition(unittest.TestCase):
         os.unlink(p.name)
 
 
+class TestLiveActuation(unittest.TestCase):
+    def test_director_actuates_on_live(self):
+        # Part G: on live with a sender, a cut presses the direct-select key;
+        # on replay (no sender) it never does.
+        m = make_model()
+        g = v3.V3Gallery(m, m.cfg, "live", "live")
+
+        class FakeSender:
+            available = True
+
+            def __init__(self):
+                self.presses = []
+
+            def tap(self, k):
+                self.presses.append(("tap", k))
+
+            def chord(self, mod, k):
+                self.presses.append(("chord", mod, k))
+
+        fs = FakeSender()
+        g.attach_sender(fs)
+        set_car(m.w, 3, pos=4)
+        g._cut(100.0, 3, "default", "leader", "")
+        self.assertEqual(fs.presses[-1], ("tap", "4"))
+        set_car(m.w, 5, pos=13)
+        g._cut(101.0, 5, "default", "leader", "")
+        self.assertEqual(fs.presses[-1], ("chord", "LSHIFT", "3"))
+
+    def test_replay_never_actuates(self):
+        m = make_model()
+        g = v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+        set_car(m.w, 3, pos=4)
+        g._cut(100.0, 3, "default", "leader", "")   # no sender attached
+        self.assertIsNone(g.sender)
+
+
 def fx_header(pid):
     import struct
     return struct.pack(v3.HEADER_FMT, 2025, 25, 1, 0, 1, pid,

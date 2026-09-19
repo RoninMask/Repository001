@@ -439,6 +439,9 @@
     },
     "speech": {
       "abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"]
+    },
+    "parity": {
+      "max_line_delta_s": 0.25
     }
   }
 }

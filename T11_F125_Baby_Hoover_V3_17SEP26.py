@@ -5304,6 +5304,37 @@ class V3Gallery:
         self._first_seen_t = None
         self._checkin_until = 0.0
         self._humans = 0
+        self.sender = None            # set on live (Part G); None on replay
+
+    def attach_sender(self, sender):
+        self.sender = sender
+
+    @staticmethod
+    def _keys_for_position(pos):
+        if 1 <= pos <= 9:
+            return ("tap", str(pos))
+        if pos == 10:
+            return ("tap", "0")
+        if 11 <= pos <= 19:
+            return ("chord", str(pos - 10))
+        if pos == 20:
+            return ("chord", "0")
+        return None
+
+    def _actuate(self, car):
+        if (self.sender is None or not getattr(self.sender, "available", False)
+                or self.actuation_state != "live"):
+            return
+        keys = self._keys_for_position(car.position)
+        if not keys:
+            return
+        try:
+            if keys[0] == "tap":
+                self.sender.tap(keys[1])
+            else:
+                self.sender.chord("LSHIFT", keys[1])
+        except Exception:
+            pass
 
     # ---- shared helpers ----------------------------------------------------
     def _is_human(self, idx):
@@ -5580,6 +5611,7 @@ class V3Gallery:
         self.cuts.append(row)
         self.current = idx
         self.hold_since = t
+        self._actuate(car)
 
     def close(self, t):
         if self.cuts and self.cuts[-1]["_end"] is None:
@@ -5629,12 +5661,75 @@ class BabyHooverV3:
         print(line, flush=True)
         self.log_lines.append(line)
 
+    # ---- live loop (Part G) -------------------------------------------------
+    def run_live(self):
+        """Live capture: the socket reader feeds the SAME decision tick that
+        replay uses (one tick, two sources). Every datagram is recorded to a
+        .bin so the race can be replayed and checked for parity (A42). Camera
+        actuation is gated on --no-camera and the foreground-window constraint.
+        Cannot be fully verified without a live race -- see the hand-back."""
+        stem = datetime.now().strftime("HOOVER_%Y%m%d_%H%M%S_s01")
+        outdir = os.path.join(os.path.abspath(self.args.out), stem)
+        os.makedirs(outdir, exist_ok=True)
+        bin_path = os.path.join(outdir, stem + ".bin")
+        writer = CaptureWriter(bin_path, {"tool": V3_TOOL_NAME,
+                                          "mode": "live"})
+        sender = make_input(self.camera_requested)
+        self.gallery.attach_sender(sender)
+        self.actuation_state = ("live" if (self.camera_requested
+                                           and getattr(sender, "available", False))
+                                else "advisory")
+        self.gallery.actuation_state = self.actuation_state
+        self._live_stem = stem
+        self._live_outdir = outdir
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+        try:
+            sock.bind((self.args.bind, self.args.port))
+        except OSError as e:
+            self._log("FATAL: cannot bind %s:%d (%s)"
+                      % (self.args.bind, self.args.port, e))
+            return 2
+        sock.settimeout(0.25)
+        self._log("live: listening on %s:%d (actuation %s)"
+                  % (self.args.bind, self.args.port, self.actuation_state))
+        idle_close = self.args.idle_close
+        last_t = None
+        try:
+            while True:
+                try:
+                    data, _addr = sock.recvfrom(4096)
+                except socket.timeout:
+                    now = time.time()
+                    if (last_t is not None and idle_close
+                            and now - last_t > idle_close):
+                        self._log("live: idle %ds -- closing" % int(idle_close))
+                        break
+                    continue
+                t = time.time()
+                if self.rec_start is None:
+                    self.rec_start = t
+                    self.model.rec_start = t
+                writer.write(t, data)
+                self._feed(t, data)
+                last_t = t
+                if idle_close is None:
+                    idle_close = self.model.idle_watchdog_s()
+        except KeyboardInterrupt:
+            self._log("live: interrupt -- finalising")
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+            writer.close()
+        self._close(last_t if last_t is not None else (self.rec_start or 0.0))
+        return 0
+
     # ---- replay loop --------------------------------------------------------
     def run(self):
         if self.source in ("live",):
-            self._log("live capture is unchanged from V2 and out of scope for "
-                      "this Pass 1 replay harness build; use --source replay/fast")
-            return 4
+            return self.run_live()
         if not self.args.replay:
             self._log("STOP: --replay <path.bin> is required for replay/fast")
             return 2
@@ -5731,6 +5826,8 @@ class BabyHooverV3:
 
     # ---- artefacts ----------------------------------------------------------
     def _stem(self):
+        if getattr(self, "_live_stem", None):
+            return self._live_stem
         if self.args.replay:
             return os.path.splitext(os.path.basename(self.args.replay))[0]
         return datetime.now().strftime("HOOVER_%Y%m%d_%H%M%S_s01")
@@ -6007,6 +6104,11 @@ def main():
     ap.add_argument("--video-anchor", default="lights_out",
                     help="audio-kit anchor: lights_out (default), session_start, "
                          "first_record, or +N.NN / -N.NN seconds from lights out")
+    ap.add_argument("--port", type=int, default=20777, help="UDP port (live)")
+    ap.add_argument("--bind", default="0.0.0.0", help="UDP bind address (live)")
+    ap.add_argument("--idle-close", type=float, default=None,
+                    help="close a live session after this many seconds without "
+                         "lap data (default: the idle watchdog from config)")
     args = ap.parse_args()
     if args.pace is None:
         args.pace = "fast"
