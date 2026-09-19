@@ -8,7 +8,7 @@ to hide a failure. **No pull request.**
 
 ## Branch and commit
 
-- Branch: `claude/baby-hoover-v3-pass2`, HEAD `<this hand-back>`.
+- Branch: `claude/baby-hoover-v3-pass2`, HEAD `8ac0bd3` (this hand-back).
 - Commits: G1–G7 implementation, G1–G7 unit tests, this hand-back.
 
 ## Where it stands
