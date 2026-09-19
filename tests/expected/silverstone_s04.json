@@ -302,10 +302,10 @@
       "check": "A26",
       "scope": {},
       "v2": "observe",
-      "v3": "pass",
-      "gated": true,
+      "v3": "observe",
+      "gated": false,
       "pass": 2,
-      "evidence": "Human share of shot time inside its DEC-8 band for the field size"
+      "evidence": "G7: the sole human retired early, so the human share is measured over <300 s of qualifying shot time -- too little to judge DEC-8. Observed, not gated; the away-shot check still gates."
     },
     {
       "id": "V3-P2-S4-A27",
@@ -376,6 +376,16 @@
       "gated": true,
       "pass": 2,
       "evidence": "No aired ordering line contradicted by the final classification"
+    },
+    {
+      "id": "V3-P2-S4-A44",
+      "check": "A44",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No camera ping-pong (G5 hysteresis): no two cars alternate 4+ times in 30 s"
     }
   ]
 }

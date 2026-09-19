@@ -420,13 +420,14 @@
         "LULL_HUMAN": 90,
         "LULL_WEATHER": 300,
         "LULL_PROGRESS": 90
-      }
+      },
+      "max_silence_s": 50.0
     },
     "camera": {
       "roster_wait_max_s": 10.0,
       "leader_checkin_s": 150.0,
       "leader_checkin_hold_s": 8.0,
-      "away_max_s": 20.0,
+      "away_max_s": 17.0,
       "away_margin": 15.0,
       "human_share_window_s": 300.0,
       "hold_floor_normal_s": 4.0,
@@ -505,8 +506,10 @@
         "collision_ai": {
           "hold_s": 3.5,
           "priority": 55
-        }
-      }
+        },
+        "incident_merge_s": 5.0
+      },
+      "share_hysteresis_s": 20.0
     },
     "naming": {
       "fallback_order": [

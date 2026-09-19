@@ -132,6 +132,10 @@ PARAMS = {
     "A40_max_silence_s": 60.0,
     "A41_abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"],
     "A42_max_line_delta_s": 0.25,
+    # Fix round 2
+    "A44_min_alternations": 4,   # G5: camera ping-pong between two cars
+    "A44_window_s": 30.0,
+    "A26_min_share_sample_s": 300.0,   # G7: min qualifying shot time to judge share
 }
 
 # Penalty type appendix.  The appendix is not in the spec text file, so it is
@@ -2062,8 +2066,16 @@ def detect_A26(truth, run, p):
 
     # (b) share band — only when we know the human count and the band is set
     na = None
+    min_sample = p.get("A26_min_share_sample_s", 300.0)
     if band == "absent":
         na = "no human count in manifest; share band not tested"
+    elif run.tool == "v3" and band is not None and 0 < total_time < min_sample:
+        # G7: a share over less than min_sample of qualifying shot time measures
+        # one or two shots, not DEC-8. Report it, do not gate on it (same
+        # statistical-validity reasoning as A29's scope). The away-shot check is
+        # unaffected and still gates.
+        na = ("share sample %.0fs < %.0fs minimum; band not judged"
+              % (total_time, min_sample))
     elif band is not None and total_time > 0:
         lo_band, hi_band = band
         share = human_time / total_time
@@ -2752,6 +2764,40 @@ def detect_A43(truth, run, p):
     return hits, None
 
 
+def detect_A44(truth, run, p):
+    """Ping-pong (G5): the camera alternates between the same two cars
+    A44_min_alternations or more times within A44_window_s. An alternation is a
+    cut that returns to the car shown two cuts ago (A -> B -> A). Cuts on the
+    default/checkin layers only -- a genuine incident flurry is layer 1."""
+    rows = sorted(run.cut_rows, key=lambda r: float(r.get("t_unix") or 0.0))
+    seq = [(float(r.get("t_unix") or 0.0), r.get("car_idx"))
+           for r in rows if (r.get("layer") or "") in ("default", "checkin")]
+    need = p["A44_min_alternations"]
+    win = p["A44_window_s"]
+    hits = []
+    n = len(seq)
+    for i in range(n):
+        # count alternations starting at i within the window
+        alts = 0
+        j = i + 2
+        while j < n and (seq[j][0] - seq[i][0]) <= win:
+            if seq[j][1] == seq[j - 2][1] and seq[j][1] != seq[j - 1][1]:
+                alts += 1
+            else:
+                break
+            j += 1
+        if alts >= need:
+            a, b = seq[i][1], seq[i + 1][1]
+            hits.append(_hit(t=seq[i][0],
+                             reason="camera ping-pongs between car %s and car "
+                                    "%s %d times in %.0fs"
+                             % (a, b, alts, win),
+                             evidence="cuts %.1f..%.1f"
+                             % (seq[i][0], seq[j - 1][0])))
+            break        # one report is enough
+    return hits, None
+
+
 DETECTORS = {
     "A1": ("Overlap", detect_A1),
     "A6": ("Coverage floor", detect_A6),
@@ -2787,6 +2833,7 @@ DETECTORS = {
     "A41": ("Speech normalisation", detect_A41),
     "A42": ("Live/replay parity", detect_A42),
     "A43": ("Camera layer accounting", detect_A43),
+    "A44": ("Camera ping-pong", detect_A44),
     "H1": ("Byte accounting", detect_H1),
     "H2": ("Marker records", detect_H2),
     "H3": ("Manifest histogram", detect_H3),

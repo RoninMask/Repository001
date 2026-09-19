@@ -122,6 +122,16 @@
       "gated": false,
       "pass": 2,
       "evidence": "No green stretch over 35 s without a line (lull coverage)"
+    },
+    {
+      "id": "V3-P2-S1F-A44",
+      "check": "A44",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No camera ping-pong (G5 hysteresis): no two cars alternate 4+ times in 30 s"
     }
   ]
 }

@@ -1022,6 +1022,7 @@ class TestP2FixRound1(unittest.TestCase):
         gal = v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
         gal.current = 0                        # on the AI leader
         gal.hold_since = 1100.0
+        gal._away_since = 1100.0               # away run started here (G2)
         gal._first_seen_t = 1090.0
         gal._leader_seen_t = 1100.0
         gal._checkin_until = 0.0

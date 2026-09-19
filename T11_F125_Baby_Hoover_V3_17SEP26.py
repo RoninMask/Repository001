@@ -437,7 +437,8 @@ class Car:
                  "warnings",
                  # --- V2 identity (resolved once, then frozen: Naming V1 N3/N4)
                  "driver_id", "spoken_short", "spoken_full", "spoken_rung",
-                 "level", "possessive_ok", "name_resolved", "show_online_names")
+                 "level", "possessive_ok", "name_resolved", "show_online_names",
+                 "participated")
 
     def __init__(self, idx):
         self.idx = idx
@@ -476,6 +477,7 @@ class Car:
         self.possessive_ok = False
         self.name_resolved = False
         self.show_online_names = None
+        self.participated = False    # G6: the Participants packet named this car
 
     @property
     def participation(self):
@@ -692,6 +694,9 @@ class Parser:
                 c.ai = ai
             c.team = team
             c.race_number = racenum
+            # G6: this car's identity fields now come from Participants, so a
+            # name resolved from here on is real, not a pre-roster placeholder.
+            c.participated = True
             c.platform_id = plat
             c.telemetry_public = ytel
             c.show_online_names = showname   # V2: the name gate (Naming V1 s04)
@@ -964,6 +969,12 @@ def resolve_car_identity(car, roster, fallback_order=None, world=None):
     if car.name_resolved:
         return False
     entry = roster.match(car) if roster else None
+    # G6 / A2-3: a name is resolved only once the Participants packet has been
+    # seen for this car (real team/number/name) or a roster entry matched. A
+    # race-number fallback invented before Participants is NOT resolved -- the
+    # booth holds the claim until it is, so no "Car <n>" is ever spoken.
+    if entry is None and not car.participated:
+        return False
     confirmed = None
     if entry:
         confirmed = (entry.get("spoken", {}).get("full")
@@ -4978,6 +4989,7 @@ class V3Booth:
         ll = config.get("v3", "lull", default={}) or {}
         self.lull_after = ll.get("after_s", 20.0)
         self.lull_max_per_min = ll.get("max_per_minute", 1)
+        self.lull_max_silence = ll.get("max_silence_s", 50.0)   # G1 coverage floor
         self.lull_cooldowns = ll.get("kind_cooldown_s", {}) or {}
         self._lull_times = []
         self._lull_kind_times = {}     # F10: last-aired time per lull kind
@@ -5214,19 +5226,25 @@ class V3Booth:
         wire-derived line, capped per minute. Never during the stopped states."""
         if self._last_air_end is None or self.channel_busy_until > t + 1e-9:
             return False
-        if (t - self._last_air_end) < self.lull_after:
+        silence = t - self._last_air_end
+        if silence < self.lull_after:
             return False
         if self.model.state not in ("green", "safety_car", "vsc"):
             return False
+        # G1: once silence reaches the coverage floor, fire whatever material is
+        # available -- bypass the per-minute cap and the per-kind cooldowns so
+        # no green silence exceeds max_silence_s (inside the A40 limit).
+        forced = silence >= self.lull_max_silence
         recent = [x for x in self._lull_times if (t - x) < 60.0]
-        if len(recent) >= self.lull_max_per_min:
+        if not forced and len(recent) >= self.lull_max_per_min:
             return False
         # F10: a lull kind still inside its per-kind cooldown is skipped, so the
         # picker moves on to another kind rather than repeating (14 lap
         # countdowns in one race). The rotation itself lives in build_lull.
-        avoid = {k for k, ct in self.lull_cooldowns.items()
-                 if k in self._lull_kind_times
-                 and (t - self._lull_kind_times[k]) < ct}
+        avoid = set() if forced else {
+            k for k, ct in self.lull_cooldowns.items()
+            if k in self._lull_kind_times
+            and (t - self._lull_kind_times[k]) < ct}
         # F14: a track/air swing of >=3 C bypasses the weather cooldown.
         if "LULL_WEATHER" in avoid and self._weather_aired is not None:
             tt, at = self.model.w.track_temp, self.model.w.air_temp
@@ -5237,8 +5255,9 @@ class V3Booth:
         claim = self.model.build_lull(t, avoid=avoid)
         if claim is None:
             return False
-        # repetition guard applies to lull lines like any other
-        if self._repetition_reason(claim, t) is not None:
+        # repetition guard applies to lull lines like any other -- except a
+        # forced coverage lull, where covering the silence wins over variety.
+        if not forced and self._repetition_reason(claim, t) is not None:
             return False
         self._lull_times.append(t)
         self._lull_kind_times[claim.kind] = t
@@ -5393,11 +5412,17 @@ class V3Gallery:
         self.lull_thresh = cam.get("lull_top_score_threshold", 45.0)
         self.bands = cam.get("human_share_bands", [])
         self.prot_cfg = cam.get("protected", {})
+        self.incident_merge_s = self.prot_cfg.get("incident_merge_s", 5.0)  # G3
+        self.share_hysteresis = cam.get("share_hysteresis_s", 20.0)         # G5
         self._prot = None
         self._leader_seen_t = None
         self._first_seen_t = None
         self._checkin_until = 0.0
         self._humans = 0
+        self._away_since = None        # G2: first non-human shot in a run away
+        self._steer_dir = None         # G5: last share-steer direction
+        self._steer_car = None         # G5: the car steered to
+        self._steer_until = 0.0        # G5: commit to that shot until this t
         self.sender = None            # set on live (Part G); None on replay
 
     def attach_sender(self, sender):
@@ -5566,9 +5591,13 @@ class V3Gallery:
             prio = cfg.get("priority", prio_default)
             if car is None or start is None or hold is None:
                 return
+            # G4: every protected moment carries a maximum hold (floor + 6 s by
+            # default) so it releases the camera even if it keeps re-arming.
+            hold_max = cfg.get("hold_max_s", hold + 6.0)
             if start <= t < start + hold:
                 cands.append({"until": start + hold, "priority": prio,
-                              "car": car, "reason": key, "hold": hold})
+                              "car": car, "reason": key, "hold": hold,
+                              "hold_max": hold_max})
 
         if m.anchor_t is not None and not m.restarts:
             add("start", m.anchor_t, m.leader_idx, 95, 8.0)
@@ -5578,11 +5607,34 @@ class V3Gallery:
             add("safety_car", m.state_since, m.leader_idx, 90, 6.0)
         for idx, rt in m.retired_at.items():
             add("retirement", rt, idx, 85, 5.0)
-        for (ct, a, b) in m.colls:
-            human = m.w.cars[a].is_human or m.w.cars[b].is_human
-            key = "collision_human" if human else "collision_ai"
-            add(key, ct, self._lower_car(a, b), 85 if human else 55,
-                5.0 if human else 3.5)
+        # G3-2: merge contacts within incident_merge_s that share a car into one
+        # incident with a single shot -- a lap-one melee is a single story, not
+        # fifteen strobed cuts.
+        incidents = []
+        for (ct, a, b) in sorted(m.colls):
+            for inc in incidents:
+                if (ct - inc["t_last"]) <= self.incident_merge_s \
+                        and ({a, b} & inc["cars"]):
+                    inc["cars"].update((a, b))
+                    inc["t_last"] = ct
+                    break
+            else:
+                incidents.append({"t0": ct, "t_last": ct, "cars": {a, b}})
+        for inc in incidents:
+            cars = inc["cars"]
+            human = any(m.w.cars[i].is_human for i in cars)
+            # show the lowest-placed car in the incident
+            car = max(cars, key=lambda i: m.last_pos.get(i, 99))
+            if human:
+                add("collision_human", inc["t0"], car, 85, 5.0)
+            else:
+                # G3-3 / DEC-3: an AI-only collision is protected only if it
+                # involves a top-three car or causes a retirement; otherwise it
+                # is an ordinary layer-3 scoring input, not a protected moment.
+                top3 = any(0 < m.last_pos.get(i, 99) <= 3 for i in cars)
+                retired = any(i in m.retired_at for i in cars)
+                if top3 or retired:
+                    add("collision_ai", inc["t0"], car, 55, 3.5)
         for i in range(1, len(m._lead_events)):
             lt, leader = m._lead_events[i]
             prev_leader = m._lead_events[i - 1][1]
@@ -5622,23 +5674,29 @@ class V3Gallery:
         best = self._active_protected(t)
         if best is not None:
             # F4: don't overwrite the live moment with a freshly-computed copy
-            # of itself -- that would discard the on-screen hold reset below and
-            # clip the shot to (event + floor) instead of (cut + floor). Replace
-            # only for a genuinely different moment (or a higher-priority one).
+            # of itself -- that would discard the on-screen hold reset below.
+            # G3-1: a protected moment cannot be preempted by one of EQUAL or
+            # lower priority (that is what strobed Baku's AI collisions); only a
+            # strictly higher priority, or an expired moment, replaces it.
             same = (self._prot is not None
                     and best["reason"] == self._prot["reason"]
                     and best["car"] == self._prot["car"]
                     and t < self._prot["until"])
             if not same and (self._prot is None
-                             or best["priority"] >= self._prot["priority"]
+                             or best["priority"] > self._prot["priority"]
                              or t >= self._prot["until"]):
                 self._prot = best
         if self._prot is not None:
-            if t < self._prot["until"]:
-                # F4: the hold floor is a minimum time ON SCREEN, not from the
-                # event. When the shot actually goes up (the cut fires), reset
-                # the clock so the moment owns the camera for its full floor
-                # from that point, not from the event a beat or two earlier.
+            # G4: a protected shot is capped at its hold_max (and never past
+            # max_hold); past the cap it releases the camera to a lower layer so
+            # a moment that keeps re-arming cannot freeze the shot (A39).
+            prot_held = (t - self.hold_since) if (
+                self.hold_since is not None
+                and self.current == self._prot["car"]) else 0.0
+            cap = min(self._prot.get("hold_max", 1e9), self.max_hold)
+            if t < self._prot["until"] and prot_held < cap:
+                # F4: hold the floor from when the shot goes on screen (the cut),
+                # not from the event a beat or two earlier.
                 if self._prot["car"] != self.current:
                     self._prot["until"] = t + self._prot.get("hold", 0.0)
                 self._cut_if_new(t, self._prot["car"], "protected",
@@ -5704,23 +5762,49 @@ class V3Gallery:
                       forced["score"])
             return
 
+        # G5: after a steering decision, commit to that shot for the hysteresis
+        # window rather than letting normal scoring yank the camera back and
+        # forth as the rolling share crosses the band edge (the final-lap
+        # ping-pong). The away_max return off a non-human still applies.
+        if (self._steer_car is not None and self.current == self._steer_car
+                and t < self._steer_until):
+            away_due = (not self._is_human(self.current) and best_h is not None
+                        and self._away_since is not None
+                        and (t - self._away_since) >= self.away_max)
+            if not away_due:
+                return
+
         # F6: the DEC-8 share band is an active controller, not a preference.
         # Below the floor -> steer to a human; above the ceiling -> steer AWAY
         # to a non-human to bring the human share down. F5: an away shot past
         # away_max returns to a human. Any of these overrides the score once the
         # hold floor has passed, so the correction actually happens.
         correct = None
+        steer = None                                 # "human" | "ai"
         if band is not None:
             share = self._share(t)
             if share is not None and share < band[0] and best_h is not None:
-                correct = best_h                     # too little human
+                steer, correct = "human", best_h     # too little human
             elif share is not None and share > band[1] and best_ai is not None:
-                correct = best_ai                    # too much human: go away
+                steer, correct = "ai", best_ai       # too much human: go away
+        # G5: hysteresis. After a steer, hold that direction for
+        # share_hysteresis_s so a share nudging across the band edge does not
+        # ping-pong the camera between the same two cars.
+        if (steer is not None and self._steer_dir is not None
+                and t < self._steer_until and steer != self._steer_dir):
+            steer = correct = None
+        # G2: the away clock runs from the first non-human shot in a run away
+        # from the human, across consecutive AI cuts -- not reset each cut.
         if (correct is None and not self._is_human(self.current)
-                and best_h is not None and held >= self.away_max):
-            correct = best_h                         # away_max return
+                and best_h is not None and self._away_since is not None
+                and (t - self._away_since) >= self.away_max):
+            correct, steer = best_h, "human"
         if correct is not None and correct["idx"] != self.current \
                 and held >= floor:
+            if steer is not None:
+                self._steer_dir = steer
+                self._steer_car = correct["idx"]
+                self._steer_until = t + self.share_hysteresis
             self._cut(t, correct["idx"], "default", correct["reason"],
                       correct["score"])
             return
@@ -5767,6 +5851,12 @@ class V3Gallery:
         self.cuts.append(row)
         self.current = idx
         self.hold_since = t
+        # G2: the run-away clock starts on the first non-human shot and clears
+        # only when a human is on screen; it spans consecutive AI cuts.
+        if self._is_human(idx):
+            self._away_since = None
+        elif self._away_since is None:
+            self._away_since = t
         self._actuate(car)
 
     def close(self, t):

@@ -704,9 +704,10 @@ class TestDetectors(unittest.TestCase):
     def test_A26_share_band(self):
         tr = derived(base_truth())
         man = {"humans": 5, "packet_counts_by_id": {"2": 10}}   # band 60-70%
+        Plow = dict(P, A26_min_share_sample_s=0)   # judge the band on any sample
         # all human: share 100%, above band
         run = make_run(shots=[(B, B + 100, 1, "advisory")], manifest=man)
-        hits, _ = hh.detect_A26(tr, run, P)
+        hits, _ = hh.detect_A26(tr, run, Plow)
         self.assertTrue(any(h["sub"] == "b" for h in hits))
         # 65 s human of 100: inside band, spans below 20 s each way? the
         # away span is 35 s -> also sub a; use interleaved shots instead
@@ -735,14 +736,15 @@ class TestDetectors(unittest.TestCase):
                           "advisory"))
             t += dur
             human = not human
+        Plow = dict(P, A26_min_share_sample_s=0)
         run = make_run(shots=shots, manifest={"humans": 1})
         run.tool = "v3"
-        hits, _ = hh.detect_A26(tr, run, P)
+        hits, _ = hh.detect_A26(tr, run, Plow)
         self.assertTrue(any(h["sub"] == "b" for h in hits))     # fails band
         run = make_run(shots=shots, manifest={"humans": 5})
         run.tool = "v3"
         self.assertFalse(any(h["sub"] == "b"
-                             for h in hh.detect_A26(tr, run, P)[0]))
+                             for h in hh.detect_A26(tr, run, Plow)[0]))
 
     def test_A26_na_without_human_count(self):
         # V3 run with no human count in the manifest -> share band reported

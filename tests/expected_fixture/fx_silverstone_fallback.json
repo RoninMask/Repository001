@@ -152,6 +152,16 @@
       "gated": true,
       "pass": 2,
       "evidence": "No correction re-aired for the same car and position"
+    },
+    {
+      "id": "V3-P2-FSF-A44",
+      "check": "A44",
+      "scope": {},
+      "v2": "observe",
+      "v3": "pass",
+      "gated": true,
+      "pass": 2,
+      "evidence": "No camera ping-pong: no two cars alternate 4+ times in 30 s"
     }
   ]
 }
