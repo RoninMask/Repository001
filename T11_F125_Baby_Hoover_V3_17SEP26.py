@@ -3228,7 +3228,8 @@ class BabyHoover:
                 return 1
 
         self.t0 = time.time()
-        with open(os.path.join(self.root, self.run_id, "SYNC.txt"), "w") as f:
+        with open(os.path.join(self.root, self.run_id, "SYNC.txt"), "w",
+                  encoding="utf-8") as f:
             f.write("OBS T0 (unix): %.6f\n" % self.t0)
             f.write("OBS T0 (local): %s\n" % datetime.now().isoformat())
             f.write("All beat timecodes are relative to this instant.\n")
@@ -3810,6 +3811,14 @@ class RaceModel:
         self.humans_result_done = set()
         self.chqf_seen = False
         self.result_aired_pos = {}    # idx -> position aired on the road
+        # A2-1: at most one correction per (car, position); capped per car.
+        fin = v3.get("finish", {})
+        self.max_corrections_per_car = fin.get("max_corrections_per_car", 2)
+        self.correct_only_if = fin.get("correct_only_if", ["podium", "human"])
+        self.final_order_guard = (v3.get("claims", {})
+                                  .get("final_order_guard_s", 30.0))
+        self._corrected_pairs = set()          # (idx, position) already aired
+        self._corrections_aired = defaultdict(int)   # idx -> count
 
         # speed trap best
         self.session_best_speed = 0.0
@@ -4277,6 +4286,22 @@ class RaceModel:
             return None
         return pa < pb
 
+    def classified_pos(self, idx):
+        """The authoritative finishing position: Final Classification if seen,
+        else the recorded finish position, else the last on-track position.
+        Used by A2-5 to validate an ordering claim near a known finish."""
+        if self.final_classification:
+            p = self.final_classification["rows"][idx].get("position")
+            if p:
+                return p
+        if idx in self.finish_pos:
+            return self.finish_pos[idx]
+        return self.last_pos.get(idx)
+
+    def near_known_finish(self, t):
+        fin_t = self.leader_finish_t or self.final_classification_t
+        return fin_t is not None and abs(t - fin_t) <= self.final_order_guard
+
     def _run_pass_engine(self, t):
         # candidate detection on current running order; confirm after hold
         cars = [c for c in self.w.cars
@@ -4456,18 +4481,34 @@ class RaceModel:
             self._set_state(t, "classified", "Final Classification")
         elif self.state in ("green", "final_lap", "suspended"):
             self._set_state(t, "classified", "Final Classification")
-        # A7.2: a human classified away from the position already aired gets
-        # one correction line
-        for idx, aired_pos in self.result_aired_pos.items():
+        # A7.2 / A2-1: a subject classified away from the position already aired
+        # gets a correction -- but at most one per (car, position), capped per
+        # car, and (A2-5) only for the podium or a human. The game re-sends the
+        # Final Classification packet on a stride, so without this guard Austria
+        # aired the same correction seven times.
+        for idx, aired_pos in list(self.result_aired_pos.items()):
             row = fc["rows"][idx]
             cls_pos = row.get("position")
-            if cls_pos and aired_pos and cls_pos != aired_pos:
-                self.emit(Claim("CORRECTION", CLASS_RESULT, [idx],
-                                [self._name(idx)], t,
-                                facts={"position": cls_pos},
-                                provenance=[{"packet_id": PID_FINALCLASS,
-                                             "t_unix": round(t, 6)}],
-                                priority=42.0, max_age_key="result"))
+            if not (cls_pos and aired_pos and cls_pos != aired_pos):
+                continue
+            if (idx, cls_pos) in self._corrected_pairs:
+                continue
+            if self._corrections_aired[idx] >= self.max_corrections_per_car:
+                continue
+            car = self.w.cars[idx]
+            allow = (("human" in self.correct_only_if and car.is_human)
+                     or ("podium" in self.correct_only_if and cls_pos <= 3))
+            if not allow:
+                continue
+            self._corrected_pairs.add((idx, cls_pos))
+            self._corrections_aired[idx] += 1
+            self.result_aired_pos[idx] = cls_pos
+            self.emit(Claim("CORRECTION", CLASS_RESULT, [idx],
+                            [self._name(idx)], t,
+                            facts={"position": cls_pos},
+                            provenance=[{"packet_id": PID_FINALCLASS,
+                                         "t_unix": round(t, 6)}],
+                            priority=42.0, max_age_key="result"))
 
     def on_speeds(self, t, speeds):
         self.speeds = speeds
@@ -4788,6 +4829,15 @@ class V3Booth:
                         claim.kind == "CONTESTED"
                         and claim.facts.get("final_crossing")):
                     return "drop:retired"
+        # A2-5: near a known finish, an ordering claim is validated against the
+        # classified/finish position, not just the live running order, so a line
+        # the final result contradicts never airs.
+        if claim.kind in ("PASS", "CONTESTED") and m.near_known_finish(t) \
+                and not claim.facts.get("final_crossing"):
+            a, b = claim.subjects[0], claim.subjects[1]
+            pa, pb = m.classified_pos(a), m.classified_pos(b)
+            if pa is not None and pb is not None and pa >= pb:
+                return "drop:stale_order"
         if claim.kind in ("PASS",):
             a, b = claim.subjects[0], claim.subjects[1]
             if m.ahead(a, b) is not True or m.w.cars[a].pit_status \

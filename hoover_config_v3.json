@@ -363,7 +363,9 @@
       "collapse_window_s": 20.0
     },
     "finish": {
-      "winner_call_max_delay_s": 5.0
+      "winner_call_max_delay_s": 5.0,
+      "max_corrections_per_car": 2,
+      "correct_only_if": ["podium", "human"]
     },
     "claims": {
       "max_age_s": {
@@ -374,18 +376,14 @@
         "retirement": 30.0,
         "penalty": 30.0,
         "result": 60.0
-      }
+      },
+      "final_order_guard_s": 30.0
     },
     "naming": {
       "fallback_order": ["team", "number", "generic"]
     },
     "speech": {
       "abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"]
-    },
-    "finish_corrections": {
-      "max_corrections_per_car": 2,
-      "correct_only_if": ["podium", "human"],
-      "final_order_guard_s": 30.0
     }
   }
 }

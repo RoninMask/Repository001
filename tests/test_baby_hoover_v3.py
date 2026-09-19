@@ -542,7 +542,8 @@ class TestConfig(unittest.TestCase):
     def test_config_value_changes_behaviour(self):
         import json
         import tempfile
-        base = json.load(open(CFG_PATH))
+        with open(CFG_PATH, encoding="utf-8") as _cf:
+            base = json.load(_cf)
         base["v3"]["passes"]["pass_hold_s"] = 100.0   # never confirm
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) \
                 as f:
@@ -748,6 +749,66 @@ class TestFixRound1(unittest.TestCase):
         kinds_seen = [c.kind for c in m.claims_out]
         self.assertIn("LEAD_CHANGE", kinds_seen)
         self.assertNotIn("LEAD_CONTEST", kinds_seen)
+
+
+class TestPass2CarryOver(unittest.TestCase):
+    def test_correction_not_repeated(self):
+        # A2-1: the game re-sends Final Classification on a stride; the same
+        # (car, position) correction airs at most once, capped per car.
+        m = make_model()
+        set_car(m.w, 3, pos=4, ai=0, name="Kannedy")
+        m.result_aired_pos = {3: 4}
+        fc = {"num_cars": 20, "rows": [
+            {"idx": i, "position": (2 if i == 3 else i + 1),
+             "result_status": 3, "result_reason": 2}
+            for i in range(v3.MAX_CARS)]}
+        total = 0
+        for _ in range(7):
+            m.claims_out = []
+            m.on_finalclass(1250.0, fc)
+            total += len([c for c in m.claims_out if c.kind == "CORRECTION"])
+        self.assertEqual(total, 1)
+
+    def test_correction_capped_per_car(self):
+        # two genuinely different corrections are allowed; a third is capped.
+        m = make_model()
+        set_car(m.w, 3, pos=6, ai=0, name="Kannedy")
+        m.result_aired_pos = {3: 6}
+        for newpos in (5, 4, 3):
+            fc = {"num_cars": 20, "rows": [
+                {"idx": i, "position": (newpos if i == 3 else i + 1),
+                 "result_status": 3, "result_reason": 2}
+                for i in range(v3.MAX_CARS)]}
+            m.on_finalclass(1250.0, fc)
+        self.assertEqual(m._corrections_aired[3], 2)   # cap 2
+
+    def test_correction_only_podium_or_human(self):
+        # A2-5: an AI classified in P17 vs P18 is not worth a correction.
+        m = make_model()
+        set_car(m.w, 10, pos=17, ai=1, name="Bearman")
+        m.result_aired_pos = {10: 17}
+        fc = {"num_cars": 20, "rows": [
+            {"idx": i, "position": (18 if i == 10 else i + 1),
+             "result_status": 3, "result_reason": 2}
+            for i in range(v3.MAX_CARS)]}
+        m.on_finalclass(1250.0, fc)
+        self.assertEqual([c for c in m.claims_out if c.kind == "CORRECTION"], [])
+
+    def test_stale_order_dropped_near_finish(self):
+        # A2-5: an ordering claim the classification contradicts is dropped in
+        # the pre-air check within the finish guard window.
+        m = make_model()
+        booth = v3.V3Booth(m, m.cfg)
+        set_car(m.w, 1, pos=2, name="A")
+        set_car(m.w, 2, pos=1, name="B")
+        m.leader_finish_t = 1200.0
+        m.final_classification = {"num_cars": 4, "rows": [
+            {"idx": i, "position": {1: 2, 2: 1}.get(i, i + 1),
+             "result_status": 3, "result_reason": 2}
+            for i in range(v3.MAX_CARS)]}
+        # claim says car 1 passed car 2, but car 2 is classified ahead
+        c = v3.Claim("PASS", v3.CLASS_ACTION, [1, 2], ["A", "B"], 1201.0)
+        self.assertEqual(booth._validate(c, 1202.0), "drop:stale_order")
 
 
 def fx_header(pid):

@@ -11,6 +11,7 @@
   "pit": ["PIT_IN", "PIT_OUT", "PIT"],
   "safety_car": ["SAFETY_CAR", "SAFETY_CAR_END", "VSC"],
   "state": ["RED_FLAG"],
-  "finish": ["CHEQUERED", "RACE_WINNER", "WINNER", "RESULT", "RACE_END"],
+  "finish": ["CHEQUERED", "RACE_WINNER", "WINNER", "RESULT", "RACE_END",
+             "CORRECTION"],
   "session": ["SESSION_END"]
 }
