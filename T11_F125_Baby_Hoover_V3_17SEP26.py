@@ -838,13 +838,31 @@ def _ladder_tokenise(handle):
     return kept, raw, len(kept) != len(raw)
 
 
-def resolve_name(handle, confirmed=None, race_number=None, team=None):
+def _fallback6(team, race_number, fallback_order, team_ambiguous):
+    """DEC-10: prefer the team, then a properly-formed number reference, then a
+    generic; never a bare lower-case 'car <number-word>'. Digits stay in text
+    (the speech normaliser handles delivery). Order is config-driven."""
+    order = fallback_order or ["team", "number", "generic"]
+    has_team = team and team not in ("the car",)
+    for rung in order:
+        if rung == "team" and has_team and not team_ambiguous:
+            return team if team.lower().startswith("the ") else ("the %s" % team)
+        if rung == "number" and race_number:
+            return "the number %d car" % race_number
+        if rung == "generic":
+            return "the car"
+    return "the car"
+
+
+def resolve_name(handle, confirmed=None, race_number=None, team=None,
+                 fallback_order=None, team_ambiguous=False):
     """Return (rung, spoken_name). Total: any input resolves. Never guesses;
-    drops unspeakable material rather than inventing letters (Naming V1 N2)."""
+    drops unspeakable material rather than inventing letters (Naming V1 N2).
+    Rung 6 uses the DEC-10 team/number/generic ladder."""
     if confirmed:
         return 1, confirmed
     if not handle or handle.strip() in ("", "Player"):
-        return 6, (f"car {say_number(race_number)}" if race_number else team or "the car")
+        return 6, _fallback6(team, race_number, fallback_order, team_ambiguous)
     kept, raw, dropped = _ladder_tokenise(handle)
     if kept:
         return (3 if dropped else 2), " ".join(t.capitalize() for t in kept)
@@ -863,7 +881,7 @@ def resolve_name(handle, confirmed=None, race_number=None, team=None):
     digits = re.sub(r"\D", "", handle)
     if digits:
         return 5, say_number(int(digits[:2])).capitalize()
-    return 6, (f"car {say_number(race_number)}" if race_number else team or "the car")
+    return 6, _fallback6(team, race_number, fallback_order, team_ambiguous)
 
 
 # =============================================================================
@@ -932,10 +950,12 @@ def team_name(team_id):
     return TEAM_NAMES.get(team_id, "the car")
 
 
-def resolve_car_identity(car, roster):
+def resolve_car_identity(car, roster, fallback_order=None, world=None):
     """Resolve and FREEZE a car's spoken identity. Idempotent: once resolved,
     a later Player read is absence of information, never a change (Naming N3/N4).
-    Returns True on first resolution."""
+    Returns True on first resolution. DEC-10: rung-6 uses the configurable
+    team/number/generic ladder; two cars sharing a team make 'team' ambiguous,
+    so both fall through to the number reference."""
     if car.name_resolved:
         return False
     entry = roster.match(car) if roster else None
@@ -943,9 +963,16 @@ def resolve_car_identity(car, roster):
     if entry:
         confirmed = (entry.get("spoken", {}).get("full")
                      or entry.get("spoken", {}).get("short"))
+    team_ambiguous = False
+    if world is not None and car.team is not None:
+        same = sum(1 for c in world.cars
+                   if c.seen and c.team == car.team)
+        team_ambiguous = same > 1
     rung, spoken = resolve_name(car.name, confirmed=confirmed,
                                 race_number=car.race_number,
-                                team=team_name(car.team))
+                                team=team_name(car.team),
+                                fallback_order=fallback_order,
+                                team_ambiguous=team_ambiguous)
     car.spoken_rung = rung
     if rung in (2, 3) and not confirmed:
         car.spoken_short = spoken.split(" ")[0]
@@ -1002,6 +1029,11 @@ def build_lexicon(cars):
                 entries[c.name] = {"type": "alias", "alias": say_number(int(digits))}
         elif c.spoken_rung in (2, 3) and c.name and c.name != c.spoken_short:
             entries[c.name] = {"type": "alias", "alias": c.spoken_short}
+        elif (c.spoken_rung == 6 and c.spoken_full
+              and any(ch.isdigit() for ch in c.spoken_full)):
+            # F-1: cover the new number fallback ("the number 76 car")
+            entries[c.spoken_full] = {"type": "alias",
+                                      "alias": speech_normalise(c.spoken_full)}
         for form, ipa in AI_IPA.items():
             if c.spoken_full and form.lower() == c.spoken_full.lower():
                 entries[c.spoken_full] = {"type": "phoneme", "phoneme": ipa}
@@ -1019,10 +1051,16 @@ def preflight_report(cars, roster):
     for c in cars:
         if not c.seen:
             continue
+        fallback = None
+        if c.spoken_rung == 6 and c.spoken_full:
+            sp = c.spoken_full.lower()
+            fallback = ("number" if sp.startswith("the number")
+                        else "generic" if sp == "the car" else "team")
         rep["cars"].append({
             "car_index": c.idx, "handle": c.name, "spoken": c.spoken_full,
             "short": c.spoken_short, "rung": c.spoken_rung, "level": c.level,
             "participation": c.participation, "driver_id": c.driver_id,
+            "fallback": fallback,
         })
         rep["level_distribution"][c.level] = rep["level_distribution"].get(c.level, 0) + 1
         if (roster and roster.entries and roster.match(c) is None
@@ -4495,6 +4533,80 @@ def _ordinal(n):
     return "%d%s" % (n, suffix)
 
 
+# --- Part F: the speech normaliser -------------------------------------------
+# `text` is what a person reads; `speech_text` is what a synthesiser gets. The
+# normaliser expands numbers, ordinals, lap times and configured abbreviations
+# so speech_text carries no digit and no bare acronym (detector A41).
+
+_N2W_ONES = ("zero one two three four five six seven eight nine ten eleven "
+             "twelve thirteen fourteen fifteen sixteen seventeen eighteen "
+             "nineteen").split()
+_N2W_TENS = {2: "twenty", 3: "thirty", 4: "forty", 5: "fifty", 6: "sixty",
+             7: "seventy", 8: "eighty", 9: "ninety"}
+
+
+def _num2words(n):
+    n = int(n)
+    if n < 0:
+        return "minus " + _num2words(-n)
+    if n < 20:
+        return _N2W_ONES[n]
+    if n < 100:
+        t, o = divmod(n, 10)
+        return _N2W_TENS[t] + (("-" + _N2W_ONES[o]) if o else "")
+    if n < 1000:
+        h, r = divmod(n, 100)
+        s = _N2W_ONES[h] + " hundred"
+        return s + (" and " + _num2words(r) if r else "")
+    if n < 1000000:
+        th, r = divmod(n, 1000)
+        s = _num2words(th) + " thousand"
+        return s + ((" and " if r < 100 else " ") + _num2words(r) if r else "")
+    return str(n)
+
+
+def _ordinal_word(n):
+    small = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+             6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth",
+             11: "eleventh", 12: "twelfth", 13: "thirteenth", 14: "fourteenth",
+             15: "fifteenth", 16: "sixteenth", 17: "seventeenth",
+             18: "eighteenth", 19: "nineteenth", 20: "twentieth"}
+    if n in small:
+        return small[n]
+    tens, ones = divmod(n, 10)
+    if ones == 0:
+        return {2: "twentieth", 3: "thirtieth", 4: "fortieth", 5: "fiftieth",
+                6: "sixtieth", 7: "seventieth", 8: "eightieth", 9: "ninetieth"
+                }.get(tens, str(n) + "th")
+    onesord = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+               6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth"}
+    return _N2W_TENS.get(tens, "") + "-" + onesord[ones]
+
+
+def speech_normalise(text, abbreviations=None):
+    s = text
+    for ab in sorted(abbreviations or [], key=len, reverse=True):
+        spaced = " ".join(list(re.sub(r"[^A-Za-z0-9]", "", ab)))
+        s = re.sub(r"\b" + re.escape(ab) + r"\b", spaced, s)
+
+    def _time(m):
+        mm, rest = m.group(0).split(":")
+        sec, frac = rest.split(".")
+        return "%s %s point %s" % (_num2words(mm), _num2words(sec),
+                                   " ".join(_num2words(d) for d in frac))
+    s = re.sub(r"\b\d+:\d{2}\.\d+\b", _time, s)
+
+    def _dec(m):
+        a, b = m.group(0).split(".")
+        return "%s point %s" % (_num2words(a),
+                                " ".join(_num2words(d) for d in b))
+    s = re.sub(r"\b\d+\.\d+\b", _dec, s)
+    s = re.sub(r"\b(\d+)(?:st|nd|rd|th)\b",
+               lambda m: _ordinal_word(int(m.group(1))), s)
+    s = re.sub(r"\d+", lambda m: _num2words(m.group(0)), s)
+    return s
+
+
 # --- Part B: the words file --------------------------------------------------
 # Every spoken template lives in hoover_words_v3.json. The Booth selects a
 # variant by deterministic rotation (DEC-11), fills placeholders, returns. No
@@ -4654,6 +4766,7 @@ class V3Booth:
                      or 2.6)
         cl = (config.get("v3", "claims", default={}) or {})
         self.max_age = cl.get("max_age_s", {"default": 12.0})
+        self._abbrevs = config.get("v3", "speech", "abbreviations", default=[])
         self._line_seq = 0
         self._winner_named = False
         self._last_template = None
@@ -4809,6 +4922,11 @@ class V3Booth:
             self._winner_named = True
         past = (t - claim.t_create) > 8.0 and claim.demotable
         speaker, text = self._text(claim, past)
+        # F-2: every line starts with a capital (never a lower-case letter).
+        if text[:1].islower():
+            raise WordsFileError("line for %s starts lower-case: %r"
+                                 % (claim.kind, text))
+        speech_text = speech_normalise(text, self._abbrevs)
         wc = max(1, len(text.split()))
         duration = wc / self.rate
         air_t = max(self.channel_busy_until, t)
@@ -4824,7 +4942,8 @@ class V3Booth:
             "t_rec": self.model._t_rec(air_t),
             "t_race": self.model.t_race(air_t),
             "est_duration_s": round(duration, 3), "kind": claim.kind,
-            "speaker": speaker, "text": text, "subjects": claim.subjects,
+            "speaker": speaker, "text": text, "speech_text": speech_text,
+            "subjects": claim.subjects,
             "subjects_spoken": claim.names,
             "claim_id": claim.claim_id, "race_state": self.model.state,
             "validated_at_t_unix": round(t, 6),
@@ -4938,6 +5057,9 @@ class BabyHooverV3:
         self.log_lines = []
         self.session_opened = False
         self._guard_since = None
+        self._fallback_order = self.config.get(
+            "v3", "naming", "fallback_order",
+            default=["team", "number", "generic"])
 
     def _log(self, msg):
         line = "[v3] %s" % msg
@@ -4994,7 +5116,9 @@ class BabyHooverV3:
         # names any car in a claim
         for c in self.world.cars:
             if c.seen and not c.name_resolved and c.ai is not None:
-                resolve_car_identity(c, self.roster)
+                resolve_car_identity(c, self.roster,
+                                     fallback_order=self._fallback_order,
+                                     world=self.world)
         # session guard: open once enough cars seen
         if not self.session_opened:
             self._maybe_open(t)
