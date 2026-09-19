@@ -3773,6 +3773,7 @@ class RaceModel:
         # anchor
         self.anchor_t = None
         self.anchor_source = None
+        self.ssta_t = None
         self.restarts = []
         self.first_lapdata_t = None
         self.saw_stlg = False
@@ -3937,6 +3938,8 @@ class RaceModel:
         elif code == "SEND":
             self._on_send(t)
         elif code == "SSTA":
+            if self.ssta_t is None:
+                self.ssta_t = t
             if self.state == "suspended":
                 self._set_state(t, "restart_grid", "SSTA")
         elif code == "PENA":
@@ -5832,6 +5835,7 @@ class BabyHooverV3:
 
         self._write_srt(p + ".srt", m)
         self._write_script(p + "_script.md", m, stem)
+        self._write_audio_kit(outdir, stem, m)
 
         # preflight + lexicon (as V2)
         try:
@@ -5887,6 +5891,83 @@ class BabyHooverV3:
                 f.write("%d\n%s --> %s\n%s\n\n"
                         % (i, self._srt_ts(start), self._srt_ts(end), text))
 
+    # ---- Part H: the manual audio kit --------------------------------------
+    def _resolve_video_anchor(self, m):
+        """Return (base_t_unix, how, confidence, offset). The anchor is stated
+        and checkable; a fallback anchor is flagged so an operator knows to
+        verify one frame."""
+        spec = self.args.video_anchor
+        if spec[:1] in ("+", "-"):
+            try:
+                off = float(spec)
+            except ValueError:
+                off = 0.0
+            base = (m.anchor_t if m.anchor_t is not None
+                    else (self.rec_start or 0.0)) + off
+            return base, "operator:offset", "operator-set", off
+        if spec == "first_record":
+            return (self.rec_start or 0.0), "first_record", "low", 0.0
+        if spec == "session_start":
+            if m.ssta_t is not None:
+                return m.ssta_t, "event:SSTA", "high", 0.0
+            return (self.rec_start or 0.0), "fallback:first_record", "low", 0.0
+        # lights_out (default)
+        if m.anchor_t is not None:
+            if m.anchor_source == "event":
+                return m.anchor_t, "event:LGOT", "high", 0.0
+            return m.anchor_t, "fallback:speed", "low", 0.0
+        return (self.rec_start or 0.0), "fallback:first_record", "low", 0.0
+
+    def _write_audio_kit(self, outdir, stem, m):
+        base, how, conf, off = self._resolve_video_anchor(m)
+        inferred = how.startswith("fallback")
+        kit = os.path.join(outdir, "audio_kit")
+        os.makedirs(kit, exist_ok=True)
+        lines = []
+        for rec in self.booth.emitted:
+            lines.append({
+                "line_id": rec["line_id"], "t_unix": rec["t_unix"],
+                "t_race": rec["t_race"],
+                "t_video": round(rec["t_unix"] - base, 3),
+                "speaker": rec["speaker"], "speech_text": rec["speech_text"],
+                "est_duration_s": rec["est_duration_s"]})
+        with open(os.path.join(kit, "audio_manifest.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"anchor": {"mode": self.args.video_anchor, "how": how,
+                                  "t_unix": round(base, 6), "confidence": conf,
+                                  "inferred": inferred, "offset_s": off},
+                       "stem": stem, "lines": lines}, f, indent=2)
+        with open(os.path.join(kit, "lines.csv"), "w", encoding="utf-8",
+                  newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["line_id", "t_unix", "t_race", "t_video", "speaker",
+                        "speech_text", "est_duration_s"])
+            for l in lines:
+                w.writerow([l["line_id"], l["t_unix"], l["t_race"],
+                            l["t_video"], l["speaker"], l["speech_text"],
+                            l["est_duration_s"]])
+        with open(os.path.join(kit, stem + "_video.srt"), "w",
+                  encoding="utf-8") as f:
+            for i, l in enumerate(lines, 1):
+                s = max(0.0, l["t_video"])
+                f.write("%d\n%s --> %s\n%s: %s\n\n"
+                        % (i, self._srt_ts(s),
+                           self._srt_ts(s + l["est_duration_s"]),
+                           l["speaker"], l["speech_text"]))
+        if inferred:
+            head = ("The anchor was INFERRED (%s), not a real lights-out event. "
+                    "Check one frame at t_video 0; if the audio is offset, re-run "
+                    "with --video-anchor +N.NN or -N.NN to correct it." % how)
+        else:
+            head = ("The anchor is the %s event at t_unix %.3f (t_video 0)."
+                    % (how, base))
+        with open(os.path.join(kit, "README.txt"), "w", encoding="utf-8") as f:
+            f.write(head + "\n\n")
+            f.write("t_video is seconds from the anchor. Synthesise each line "
+                    "from speech_text, place it at its t_video on the timeline, "
+                    "and the timing is correct by construction. No audio is "
+                    "generated here; the kit is data.\n")
+
     def _write_script(self, path, m, stem):
         with open(path, "w", encoding="utf-8") as f:
             f.write("# %s -- V3 draft script\n\n" % stem)
@@ -5923,6 +6004,9 @@ def main():
                     help="compress only the wall-clock delivery cadence of "
                          "--pace real (never the model clock, so output is "
                          "unchanged); used to keep fixture paced runs quick")
+    ap.add_argument("--video-anchor", default="lights_out",
+                    help="audio-kit anchor: lights_out (default), session_start, "
+                         "first_record, or +N.NN / -N.NN seconds from lights out")
     args = ap.parse_args()
     if args.pace is None:
         args.pace = "fast"
