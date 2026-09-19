@@ -56,7 +56,7 @@ import subprocess
 import time
 import traceback
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 HARNESS_NAME = "hoover_harness"
 HARNESS_VERSION = "Pass0_V1"
@@ -96,7 +96,16 @@ PARAMS = {
     "A25_window_s": 60.0,
     "A26_away_s": 20.0,
     "A26_leader_grace_s": 15.0,
-    "A26_band": [0.60, 0.70],
+    "A26_band": [0.60, 0.70],       # legacy constant (V2 / no manifest count)
+    # DEC-8: the human share band scales with the human field size. Read by
+    # human count from the V3 manifest; a band of None means no share test.
+    "A26_bands": [
+        {"min_humans": 5, "band": [0.60, 0.70]},
+        {"min_humans": 3, "band": [0.50, 0.65]},
+        {"min_humans": 2, "band": [0.40, 0.60]},
+        {"min_humans": 1, "band": [0.25, 0.45]},
+        {"min_humans": 0, "band": None},
+    ],
     "A28_unseen_s": 180.0,
     "A29_window_s": 60.0,
     "A30_window_s": 10.0,
@@ -109,6 +118,15 @@ PARAMS = {
     #                              event counts as at it, not before/after
     "A6_lead_group_s": 20.0,     # B4: group lead changes within this into one
     "A15_within_s": 1.0,         # tightened A15 "start call within N s of LGOT"
+    # Pass 2 (Part J)
+    "A23_min_gap_s": 1.2,        # A23 also checks min gap between lines
+    "A36_max_template_share": 0.12,
+    "A36_min_lines": 20,
+    "A37_window_s": 120.0,
+    "A39_max_hold_s": 45.0,
+    "A40_max_silence_s": 35.0,
+    "A41_abbreviations": ["DRS", "ERS", "MGU-K", "MGU-H", "KERS", "VSC", "SC"],
+    "A42_max_line_delta_s": 0.25,
 }
 
 # Penalty type appendix.  The appendix is not in the spec text file, so it is
@@ -537,6 +555,11 @@ class Truth:
         self.finish_lap = {}            # idx -> currentLapNum at that finish
         self.leader_finish_t = None
         self.road_winner = None
+        # P1 result-status-3 flips seen during the read: (t, idx, lap). The
+        # finish decision is made once in _derive() with the whole capture
+        # known (A2-9), so the state gate can consult red-flag windows.
+        self._p1_flips = []
+        self.rejected_flips = []        # (t, idx, reason) — logged, not silent
         self.race_ended_without_finish = None   # SEND time when no finish/FC
         self.chqf_seen = False
         self.chqf_t = None              # time of the first CHQF event
@@ -627,22 +650,15 @@ class Truth:
                         truth.finish_t[idx] = t
                         truth.finish_pos[idx] = car["position"]
                         truth.finish_lap[idx] = car["lap"]
-                        # Leader finish (B2, mirrors the tool's A2): result
-                        # status 3, P1 in the latest lap data, AND the race
-                        # distance actually done.  When the total lap count is
-                        # known we can decide inline (completed laps >= total);
-                        # a mass status flip at a stoppage (Baku) is short of
-                        # distance, so it is not a finish.  When the total is
-                        # unknown the decision depends on whether a restart
-                        # (SSTA) follows the chequered flag, which is only
-                        # known once the whole capture is read, so it is
-                        # resolved in _derive().
-                        total = truth.total_laps or 0
-                        if (truth.leader_finish_t is None
-                                and car["position"] == 1
-                                and total > 0 and car["lap"] >= total):
-                            truth.leader_finish_t = t
-                            truth.road_winner = idx
+                        # Record every P1 finish flip; the leader-finish
+                        # decision is deferred to _derive() (A2-9) so the state
+                        # gate (no safety car, outside red windows) can be
+                        # applied with the whole capture known.  A mass status
+                        # flip at a stoppage (Baku, under VSC) is short of
+                        # distance and at non-racing speed, so it is rejected
+                        # there, not written here.
+                        if car["position"] == 1:
+                            truth._p1_flips.append((t, idx, car["lap"]))
                 if leader_idx is not None:
                     truth.leader.add(t, leader_idx)
 
@@ -668,9 +684,10 @@ class Truth:
                     if truth.chqf_t is None:
                         truth.chqf_t = t
                 elif code == "SEND":
-                    unclassified = (truth.classification is None
-                                    and truth.leader_finish_t is None)
-                    truth.sends.append((t, unclassified))
+                    # 'unclassified' depends on the leader-finish decision,
+                    # which is deferred to _derive(); store the raw time and
+                    # tag it there once the finish is resolved.
+                    truth.sends.append((t, None))
 
             elif pid == PID_PARTICIPANTS:
                 p = decode_participants(payload)
@@ -730,32 +747,63 @@ class Truth:
             sc.append((open_t, end))
         self.sc_windows = sc
 
-        # Red flag windows: RDFL to the next SSTA.
+        # Red flag windows: RDFL to the next SSTA.  Built before the finish
+        # decision so the A2-9 state gate can consult them.
         sstas = [e["t"] for e in self.events_by_code.get("SSTA", [])]
-
-        # Fallback leader finish when the total lap count was never known.
-        # A chequered flag alone is player-relative and not enough: require a
-        # CHQF with no SSTA after it (a restart would mean the race did not
-        # end there).  Otherwise the distance is not done and there is no road
-        # finish.  Known-total finishes are decided inline during the read.
-        if (self.leader_finish_t is None and (self.total_laps or 0) == 0
-                and self.chqf_seen and self.chqf_t is not None
-                and not any(s > self.chqf_t for s in sstas)):
-            cand = sorted((ft, idx) for idx, ft in self.finish_t.items()
-                          if self.finish_pos.get(idx) == 1)
-            if cand:
-                self.leader_finish_t, self.road_winner = cand[0]
-
         red = []
         for e in self.events_by_code.get("RDFL", []):
             nxt = [s for s in sstas if s > e["t"]]
             red.append((e["t"], nxt[0] if nxt else end))
         self.red_windows = merge_intervals(red)
 
+        # Leader finish, decided once with the whole capture known (A2-9).
+        # A P1 result-status-3 flip is a real road finish only when:
+        #   - the race distance is done  (completed laps >= total when the
+        #     total is known; when unknown, a CHQF with no restart after it),
+        #   - AND the car is at racing speed: no safety car / VSC in force at
+        #     the flip, and the flip is outside every red-flag window.
+        # A flip that fails the gate is recorded in rejected_flips (surfaced in
+        # the truth report), never dropped silently.  Baku's mass status flip
+        # under VSC fails the state gate, so Baku ends without a road winner,
+        # exactly as V3 decides it.
+        self.rejected_flips = []
+        if self.leader_finish_t is None:
+            total = self.total_laps or 0
+            chqf_ok = (self.chqf_seen and self.chqf_t is not None
+                       and not any(s > self.chqf_t for s in sstas))
+            for (t, idx, lap) in self._p1_flips:
+                if total > 0 and lap < total:
+                    self.rejected_flips.append(
+                        (t, idx, "distance short: lap %d of %d" % (lap, total)))
+                    continue
+                if total == 0 and not chqf_ok:
+                    self.rejected_flips.append(
+                        (t, idx, "distance unknown and no terminal "
+                                 "chequered flag"))
+                    continue
+                ss = self.safety_status.at(t) or 0
+                if ss != 0:
+                    self.rejected_flips.append(
+                        (t, idx, "safety car in force (status %d)" % ss))
+                    continue
+                if point_in_intervals(self.red_windows, t):
+                    self.rejected_flips.append(
+                        (t, idx, "inside a red-flag window"))
+                    continue
+                self.leader_finish_t, self.road_winner = t, idx
+                break
+
+        # A SEND is 'unclassified' when, at that moment, there was neither a
+        # Final Classification nor a resolved leader finish.
+        def _unclassified(t):
+            return ((self.first_fc_t is None or t < self.first_fc_t)
+                    and (self.leader_finish_t is None
+                         or t < self.leader_finish_t))
+
         # Suspended windows: a SEND while unclassified, to the next SSTA.
         susp = []
-        for t, unclassified in self.sends:
-            if not unclassified:
+        for t, _ in self.sends:
+            if not _unclassified(t):
                 continue
             nxt = [s for s in sstas if s > t]
             susp.append((t, nxt[0] if nxt else end))
@@ -947,7 +995,7 @@ def check_anchors(truth, anchors, tol):
 class Line:
     __slots__ = ("id", "air_t", "dur_s", "kind", "category", "speaker", "text",
                  "subject_idx", "other_idx", "cause", "truncation_point",
-                 "subject_spoken", "word_count")
+                 "subject_spoken", "word_count", "speech_text", "template")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -992,6 +1040,7 @@ class Run:
         self.unknown_kinds = set()
         self.unresolved_second_car = []         # line ids (known limit)
         self.cuts_spoken = []                   # (t, spoken) for A27
+        self.cut_rows = []                      # raw cuts.csv rows (A39/A43)
         self.v3_manifest = None                 # V3 manifest, for A34
         self.v3_file_path = None                # V3 tool file, for A32
 
@@ -1181,9 +1230,11 @@ class V3Adapter:
                     subject_idx=subject_idx, other_idx=other_idx,
                     cause=(rec.get("cause") or {}).get("text")
                     if rec.get("cause") else None,
-                    truncation_point=None,
+                    truncation_point=rec.get("truncation_point"),
                     subject_spoken=None,
                     word_count=len((rec.get("text") or "").split()),
+                    speech_text=rec.get("speech_text"),
+                    template=rec.get("template"),
                 )
                 run.lines.append(line)
         run.lines.sort(key=lambda l: (l.air_t if l.air_t is not None else 0.0,
@@ -1191,6 +1242,7 @@ class V3Adapter:
 
         cuts_path = os.path.join(folder, stem + "_cuts.csv")
         rows = []
+        run.cut_rows = []
         if os.path.isfile(cuts_path):
             with open(cuts_path, encoding="utf-8", newline="") as f:
                 for row in csv.DictReader(f):
@@ -1201,6 +1253,7 @@ class V3Adapter:
                         continue
                     method = (row.get("method") or "").strip()
                     rows.append((t, car, row.get("spoken") or "", method))
+                    run.cut_rows.append(dict(row))
         rows.sort(key=lambda r: r[0])
         shots_raw = [r for r in rows if r[3] != "failed"]
         for i, (t, car, spoken, method) in enumerate(shots_raw):
@@ -1795,6 +1848,15 @@ def detect_A23(truth, run, p):
                 evidence="lines %s" % [c.id for c in chain]))
         if i < len(lines):
             chain = [lines[i]]
+    # minimum start-to-start gap between consecutive lines (Part J)
+    min_gap = p["A23_min_gap_s"]
+    for a, b in zip(lines, lines[1:]):
+        d = b.air_t - a.air_t
+        if d < min_gap:
+            hits.append(_hit(
+                t=b.air_t, line_id=b.id, sub="min_gap",
+                reason="lines %.2fs apart (min gap %.2fs)" % (d, min_gap),
+                evidence="after %s" % a.id))
     return hits, None
 
 
@@ -1910,7 +1972,19 @@ def detect_A26(truth, run, p):
     hits = []
     away_lim = p["A26_away_s"]
     grace = p["A26_leader_grace_s"]
-    lo_band, hi_band = p["A26_band"]
+
+    # DEC-8: pick the share band by the human count in the V3 manifest. If the
+    # manifest carries no count (V2, or an old run), do not guess a band — run
+    # the away-shot check only and report the share test as n/a.
+    man = run.v3_manifest or run.manifest or {}
+    human_n = man.get("humans")
+    band = "absent"
+    if human_n is not None:
+        for rule in sorted(p["A26_bands"], key=lambda r: r["min_humans"],
+                           reverse=True):
+            if human_n >= rule["min_humans"]:
+                band = rule["band"]
+                break
 
     # Events that excuse a leader hold: lead changes, start, finish.
     excuse_ts = [t for (t, _o, _n) in truth.leader.changes()]
@@ -1971,17 +2045,23 @@ def detect_A26(truth, run, p):
                     % (away_span, away_lim),
                     evidence="away [%.3f, %.3f]" % (away_start, prev_end)))
 
-    if total_time > 0:
+    # (b) share band — only when we know the human count and the band is set
+    na = None
+    if band == "absent":
+        na = "no human count in manifest; share band not tested"
+    elif band is not None and total_time > 0:
+        lo_band, hi_band = band
         share = human_time / total_time
         if not (lo_band <= share <= hi_band):
             hits.append(_hit(
                 t=windows[0][0], sub="b", share=round(share, 3),
-                reason="human share of shot time %.1f%% outside "
-                       "%.0f-%.0f%% band"
-                % (100 * share, 100 * lo_band, 100 * hi_band),
+                reason="human share of shot time %.1f%% outside %.0f-%.0f%% "
+                       "band (%d humans, DEC-8)"
+                % (100 * share, 100 * lo_band, 100 * hi_band, human_n),
                 evidence="human %.1fs of %.1fs shot time in Green with a "
                          "human running" % (human_time, total_time)))
-    return hits, None
+    # away-shot hits stand regardless; n/a only reported when nothing fired
+    return hits, (na if not hits else None)
 
 
 _CAR_NUM_RE = re.compile(r"\bCar \d+")
@@ -2285,12 +2365,69 @@ def scan_state_before_speech(v3_file_path):
     return hits, None
 
 
+def scan_open_without_encoding(v3_file_path):
+    """A2-6 static scan: every open() on a text file in the broadcast path must
+    state encoding=. Flags any open( in text mode (no 'b' in the mode) that
+    carries no encoding= argument. Returns (hits, na)."""
+    if not v3_file_path or not os.path.isfile(v3_file_path):
+        return [], "no V3 tool file provided"
+    with open(v3_file_path, encoding="utf-8") as f:
+        src = f.read()
+    lines = src.splitlines()
+    # line number for a character offset
+    starts = []
+    off = 0
+    for ln in lines:
+        starts.append(off)
+        off += len(ln) + 1
+
+    def lineno(pos):
+        import bisect
+        return bisect.bisect_right(starts, pos)
+
+    hits = []
+    # match the builtin open( only: not a method call (.open), not an
+    # attribute/name char before it, and not a "def open(" definition.
+    for m in re.finditer(r"(?<![.\w])(?<!def )open\s*\(", src):
+        i = m.end() - 1               # index of '('
+        depth = 0
+        j = i
+        n = len(src)
+        while j < n:
+            ch = src[j]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        args = src[i + 1:j]
+        # binary mode? look for a "...b..." mode literal
+        binary = bool(re.search(r"[\"'][rwaxb+]*b[rwax+]*[\"']", args))
+        has_enc = "encoding=" in args
+        if not binary and not has_enc:
+            ln = lineno(m.start())
+            hits.append(_hit(t=None, line=ln,
+                             reason="open() in text mode without encoding=",
+                             evidence="line %d: %s" % (ln,
+                                      lines[ln - 1].strip() if 0 < ln <= len(lines)
+                                      else args.strip()[:60])))
+    return hits, None
+
+
 def detect_A32(truth, run, p):
     """State before speech (source check): the V3 Booth/Gallery must not decode
-    packets."""
+    packets, and every text open() in the broadcast path states encoding=."""
     if run.tool != "v3":
         return [], "A32 applies to the V3 tool only"
-    return scan_state_before_speech(run.v3_file_path)
+    hits, na = scan_state_before_speech(run.v3_file_path)
+    if na:
+        return hits, na
+    enc_hits, enc_na = scan_open_without_encoding(run.v3_file_path)
+    if enc_na and not hits:
+        return hits, enc_na
+    return hits + enc_hits, None
 
 
 def detect_A33(truth, run, p):
@@ -2391,6 +2528,177 @@ def detect_A35(truth, run, p):
     return hits, None
 
 
+# =============================================================================
+# Pass 2 detectors (Part J)
+# =============================================================================
+
+def detect_A36(truth, run, p):
+    """Template share: no single template accounts for more than
+    A36_max_template_share of aired lines, in a race of more than A36_min_lines."""
+    lines = run.lines
+    if len(lines) <= p["A36_min_lines"]:
+        return [], None
+    counts = Counter(l.template for l in lines if l.template)
+    total = sum(counts.values())
+    if total == 0:
+        return [], None
+    hits = []
+    lim = p["A36_max_template_share"]
+    for tmpl, n in counts.items():
+        share = n / total
+        if share > lim:
+            hits.append(_hit(reason="template %r is %.0f%% of lines (limit %.0f%%)"
+                             % (tmpl, 100 * share, 100 * lim),
+                             evidence="%d of %d lines" % (n, total)))
+    return hits, None
+
+
+def detect_A37(truth, run, p):
+    """Exact repeat: identical rendered text airs twice within A37_window_s."""
+    hits = []
+    w = p["A37_window_s"]
+    seen = {}
+    for l in sorted(run.lines, key=lambda x: x.air_t or 0.0):
+        prev = seen.get(l.text)
+        if prev is not None and (l.air_t - prev) < w:
+            hits.append(_hit(line_id=l.id, t=l.air_t,
+                             reason="exact repeat within %.0fs" % w,
+                             evidence="%.1fs after the previous" % (l.air_t - prev),
+                             text=l.text))
+        seen[l.text] = l.air_t
+    return hits, None
+
+
+def detect_A38(truth, run, p):
+    """Correction repeat: a correction for the same car and position airs more
+    than once."""
+    hits = []
+    seen = defaultdict(int)
+    for l in run.lines:
+        if l.kind != "CORRECTION":
+            continue
+        key = (l.subject_idx, (l.text or ""))
+        seen[key] += 1
+        if seen[key] > 1:
+            hits.append(_hit(line_id=l.id, t=l.air_t,
+                             reason="correction repeated for car %s"
+                             % l.subject_idx, text=l.text))
+    return hits, None
+
+
+def detect_A39(truth, run, p):
+    """Max hold: a shot exceeds A39_max_hold_s outside the stopped states."""
+    hits = []
+    lim = p["A39_max_hold_s"]
+    stopped = ("red_flag", "suspended", "restart_grid")
+    for row in run.cut_rows:
+        try:
+            held = float(row.get("held_s") or 0.0)
+        except ValueError:
+            continue
+        if row.get("race_state") in stopped:
+            continue
+        if held > lim:
+            hits.append(_hit(t=float(row.get("t_unix") or 0.0),
+                             reason="shot held %.1fs (limit %.0fs) in state %s"
+                             % (held, lim, row.get("race_state")),
+                             evidence="car %s" % row.get("car_idx")))
+    return hits, None
+
+
+def detect_A40(truth, run, p):
+    """Lull coverage: a green stretch longer than A40_max_silence_s carries no
+    line."""
+    hits = []
+    lim = p["A40_max_silence_s"]
+    line_ts = sorted(l.air_t for l in run.lines if l.air_t is not None)
+    for (lo, hi) in truth.green:
+        # walk the interval; find the longest sub-gap with no line
+        marks = [lo] + [t for t in line_ts if lo <= t <= hi] + [hi]
+        for a, b in zip(marks, marks[1:]):
+            if (b - a) > lim:
+                hits.append(_hit(t=a,
+                                 reason="%.0fs of green with no line (limit %.0fs)"
+                                 % (b - a, lim),
+                                 evidence="green [%.1f, %.1f]" % (lo, hi)))
+    return hits, None
+
+
+def detect_A41(truth, run, p):
+    """Speech normalisation: a speech_text is missing, or contains a digit, or a
+    configured abbreviation."""
+    hits = []
+    abbr = p["A41_abbreviations"]
+    for l in run.lines:
+        st = l.speech_text
+        if st is None:
+            hits.append(_hit(line_id=l.id, t=l.air_t,
+                             reason="speech_text missing", text=l.text))
+            continue
+        if any(ch.isdigit() for ch in st):
+            hits.append(_hit(line_id=l.id, t=l.air_t,
+                             reason="speech_text contains a digit", text=st))
+            continue
+        for ab in abbr:
+            if re.search(r"\b" + re.escape(ab) + r"\b", st):
+                hits.append(_hit(line_id=l.id, t=l.air_t,
+                                 reason="speech_text contains abbreviation %r"
+                                 % ab, text=st))
+                break
+    return hits, None
+
+
+def detect_A42(truth, run, p, twin=None):
+    """Live/replay parity: a line's air time differs between a live run and the
+    replay of its own capture by more than max_line_delta_s. Requires a paired
+    live run (twin); n/a otherwise."""
+    if twin is None:
+        return [], "no live/replay pair supplied"
+    tol = p["A42_max_line_delta_s"]
+    hits = []
+    a = sorted(run.lines, key=lambda l: l.air_t or 0.0)
+    b = sorted(twin.lines, key=lambda l: l.air_t or 0.0)
+    for la, lb in zip(a, b):
+        if la.kind != lb.kind or la.text != lb.text:
+            hits.append(_hit(line_id=la.id,
+                             reason="line mismatch live vs replay",
+                             evidence="%r vs %r" % (la.text, lb.text)))
+            continue
+        d = abs((la.air_t or 0.0) - (lb.air_t or 0.0))
+        if d > tol:
+            hits.append(_hit(line_id=la.id,
+                             reason="air time differs by %.2fs (limit %.2fs)"
+                             % (d, tol)))
+    return hits, None
+
+
+def detect_A43(truth, run, p):
+    """Camera layer accounting: a cuts row has no layer, or a protected row's
+    hold is shorter than that moment's configured floor."""
+    hits = []
+    floors = (run.v3_manifest or {}).get("_camera_protected_floors") or {}
+    for row in run.cut_rows:
+        layer = (row.get("layer") or "").strip()
+        if not layer:
+            hits.append(_hit(t=float(row.get("t_unix") or 0.0),
+                             reason="cuts row has no layer",
+                             evidence="reason %s" % row.get("reason")))
+            continue
+        if layer == "protected":
+            floor = floors.get(row.get("reason"))
+            try:
+                held = float(row.get("held_s") or 0.0)
+            except ValueError:
+                held = 0.0
+            # the last protected shot may be cut short by race end; only flag a
+            # mid-race protected shot shorter than its floor
+            if floor and held and held + 1e-6 < floor:
+                hits.append(_hit(t=float(row.get("t_unix") or 0.0),
+                                 reason="protected %s held %.1fs < floor %.1fs"
+                                 % (row.get("reason"), held, floor)))
+    return hits, None
+
+
 DETECTORS = {
     "A1": ("Overlap", detect_A1),
     "A6": ("Coverage floor", detect_A6),
@@ -2418,6 +2726,14 @@ DETECTORS = {
     "A33": ("Race end call", detect_A33),
     "A34": ("Fallback anchor", detect_A34),
     "A35": ("False winner", detect_A35),
+    "A36": ("Template share", detect_A36),
+    "A37": ("Exact repeat", detect_A37),
+    "A38": ("Correction repeat", detect_A38),
+    "A39": ("Max hold", detect_A39),
+    "A40": ("Lull coverage", detect_A40),
+    "A41": ("Speech normalisation", detect_A41),
+    "A42": ("Live/replay parity", detect_A42),
+    "A43": ("Camera layer accounting", detect_A43),
     "H1": ("Byte accounting", detect_H1),
     "H2": ("Marker records", detect_H2),
     "H3": ("Manifest histogram", detect_H3),
@@ -2729,6 +3045,9 @@ def write_truth_report(truth, path):
         tl.append((truth.race_ended_without_finish,
                    "race_ended_without_finish (SEND, no finish, no Final "
                    "Classification)"))
+    for (t, idx, reason) in getattr(truth, "rejected_flips", []):
+        tl.append((t, "status flip at %.3f rejected: car %s -- %s"
+                   % (t, idx, reason)))
     tl.sort(key=lambda x: x[0])
     for t, desc in tl:
         off = "%.1f" % (t - t0) if t0 is not None else "-"
@@ -3078,7 +3397,7 @@ def run_race(race_id, entry, corpus_root, expected_dir, tool, kinds_map,
     # Detectors.
     results = {}
     for det_id, (name, fn) in DETECTORS.items():
-        if det_id == "A24":
+        if det_id in ("A24", "A42"):
             results[det_id] = fn(truth, run, PARAMS, twin=twin_run)
         else:
             results[det_id] = fn(truth, run, PARAMS)

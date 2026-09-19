@@ -445,24 +445,41 @@ def build_fx_baku(root):
             st[19] = 7
         if t >= 1789507839.0:
             st[18] = 7
-        # Baku trap: the P1 car (car 2 after the restart) flips to FINISHED
-        # (result status 3) at the stoppage while still on lap 1 -- distance
-        # NOT done.  The A2 fix must refuse this as a leader finish; if the
-        # distance gate were removed this lure would air a false winner and
-        # A35 would catch it.  (Brief Part D, acceptance test 5.)
+        # Baku trap (A2-9): the P1 car (car 2 after the restart) flips to
+        # FINISHED (result status 3) at the terminal stoppage with its lap
+        # number at the race distance (see lap_fn below) -- so the DISTANCE
+        # check alone is satisfied and fooled, exactly as on the real capture.
+        # A late VSC is in force at the flip (see status_fn), so the STATE gate
+        # is the only thing that refuses this as a leader finish.  On a harness
+        # with the distance check but no state gate (commit 697c056) this lures
+        # a false leader finish and A33 reports n/a; the state gate fixes it.
         if t >= 1789507838.5:
             st[2] = 3
         return st
 
+    # lap number: 1 through the race, jumping to the total at the terminal
+    # flip so the P1 car reads currentLapNum == total_laps when it goes to
+    # status 3 (A2-9).  The distance check cannot tell this from a real finish.
+    TOTAL_LAPS = 5
+
+    def lap_fn(t):
+        return TOTAL_LAPS if t >= 1789507838.5 else 1
+
     def status_fn(t):
-        return 2 if 1789507531.9 <= t < 1789507533.3 else 0
+        # early VSC at the first stoppage, and a terminal VSC neutralising the
+        # field from ~21 s before the mass status flip (A2-9 state gate).
+        if 1789507531.9 <= t < 1789507533.3:
+            return 2
+        if t >= 1789507818.0:
+            return 2
+        return 0
 
     def speed_fn(t):
         base = 0 if t < LGOT else 200
         return {i: base for i in range(20)}
 
     session_stream(cap, T0, END, status_fn, track_id=20)
-    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn)
+    lapdata_stream(cap, T0 + 0.25, END, order_fn, statuses_fn, lap_fn=lap_fn)
     speed_stream(cap, T0, END, speed_fn)
     for i in range(0, 40, 10):
         cap.add(T0 + 0.1 + i, make_participants(cars))

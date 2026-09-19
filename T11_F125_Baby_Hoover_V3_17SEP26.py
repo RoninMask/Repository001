@@ -5231,7 +5231,7 @@ class V3Booth:
             "t_race": self.model.t_race(air_t),
             "est_duration_s": round(duration, 3), "kind": claim.kind,
             "speaker": speaker, "text": text, "speech_text": speech_text,
-            "subjects": claim.subjects,
+            "template": tmpl_key, "subjects": claim.subjects,
             "subjects_spoken": claim.names,
             "claim_id": claim.claim_id, "race_state": self.model.state,
             "validated_at_t_unix": round(t, 6),
@@ -5433,6 +5433,24 @@ class V3Gallery:
         return (human / total) if total > 0 else None
 
     # ---- protected moments (layer 1) ---------------------------------------
+    # Default hold floors per protected reason; a matching entry in
+    # v3.camera.protected["<reason>"]["hold_s"] overrides. Kept here so the
+    # manifest floors (read by harness A43) and _active_protected agree.
+    _PROT_DEFAULTS = {
+        "start": 8.0, "winner": 5.0, "safety_car": 6.0, "retirement": 5.0,
+        "collision_human": 5.0, "collision_ai": 3.5, "lead_change": 6.0,
+        "penalty_human": 4.0,
+    }
+
+    def protected_floors(self):
+        """The effective hold floor (seconds) for each protected reason:
+        the configured hold_s where present, else the built-in default."""
+        out = {}
+        for key, dflt in self._PROT_DEFAULTS.items():
+            cfg = self.prot_cfg.get(key, {})
+            out[key] = cfg.get("hold_s", dflt)
+        return out
+
     def _lower_car(self, a, b):
         pa = self.model.last_pos.get(a, 99)
         pb = self.model.last_pos.get(b, 99)
@@ -5901,6 +5919,7 @@ class BabyHooverV3:
             "dropped_claim_count": dict(dropped),
             "humans": sum(1 for c in self.world.cars
                           if c.seen and c.is_human),
+            "_camera_protected_floors": self.gallery.protected_floors(),
         }
         with open(p + "_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)

@@ -115,12 +115,13 @@ def derived(tr):
 
 
 def L(lid, air_t, kind, text, subject=0, other=None, dur=2.0,
-      truncation=None, spoken=None):
+      truncation=None, spoken=None, speech_text=None, template=None):
     return hh.Line(id=lid, air_t=air_t, dur_s=dur, kind=kind,
                    category=KINDS.get(kind, "other"), speaker="LEAD",
                    text=text, subject_idx=subject, other_idx=other,
                    cause=None, truncation_point=truncation,
-                   subject_spoken=spoken, word_count=len(text.split()))
+                   subject_spoken=spoken, word_count=len(text.split()),
+                   speech_text=speech_text, template=template)
 
 
 def make_run(lines=(), shots=(), attempts=(), source="replay",
@@ -702,8 +703,9 @@ class TestDetectors(unittest.TestCase):
 
     def test_A26_share_band(self):
         tr = derived(base_truth())
+        man = {"humans": 5, "packet_counts_by_id": {"2": 10}}   # band 60-70%
         # all human: share 100%, above band
-        run = make_run(shots=[(B, B + 100, 1, "advisory")])
+        run = make_run(shots=[(B, B + 100, 1, "advisory")], manifest=man)
         hits, _ = hh.detect_A26(tr, run, P)
         self.assertTrue(any(h["sub"] == "b" for h in hits))
         # 65 s human of 100: inside band, spans below 20 s each way? the
@@ -717,8 +719,36 @@ class TestDetectors(unittest.TestCase):
                           "advisory"))
             t += dur
             human = not human
-        run = make_run(shots=shots)
+        run = make_run(shots=shots, manifest=man)
         self.assertEqual(hh.detect_A26(tr, run, P)[0], [])
+
+    def test_A26_dec8_band_by_count(self):
+        # DEC-8: the band scales with the human field. 65% human share is
+        # outside the 1-human band [0.25, 0.45] but inside the 5-human band.
+        tr = derived(base_truth())
+        shots = []
+        t = B
+        human = True
+        while t < B + 100:
+            dur = 13.0 if human else 7.0
+            shots.append((t, min(t + dur, B + 100), 1 if human else 0,
+                          "advisory"))
+            t += dur
+            human = not human
+        run = make_run(shots=shots, manifest={"humans": 1})
+        hits, _ = hh.detect_A26(tr, run, P)
+        self.assertTrue(any(h["sub"] == "b" for h in hits))     # fails band
+        run = make_run(shots=shots, manifest={"humans": 5})
+        self.assertFalse(any(h["sub"] == "b"
+                             for h in hh.detect_A26(tr, run, P)[0]))
+
+    def test_A26_na_without_human_count(self):
+        # No human count in the manifest -> share band reported n/a, not guessed
+        tr = derived(base_truth())
+        run = make_run(shots=[(B, B + 30, 1, "advisory")], manifest={})
+        hits, na = hh.detect_A26(tr, run, P)
+        self.assertFalse(any(h.get("sub") == "b" for h in hits))
+        self.assertIsNotNone(na)
 
     def test_A26_away_span(self):
         tr = derived(base_truth())
@@ -1147,6 +1177,161 @@ class TestV3Detectors(unittest.TestCase):
                            manifest={"anchor": {"t_unix": B, "source": "event"}})
         hits, _ = hh.detect_A15(tr, run, P)
         self.assertTrue(any(h.get("sub") == "within" for h in hits))
+
+    # ---- Pass 2 detectors A36-A43 ------------------------------------------
+    def _run_lines(self, lines, manifest=None, cut_rows=None, source="fast"):
+        run = hh.Run()
+        run.tool = "v3"
+        run.source = source
+        run.manifest = manifest or {}
+        run.v3_manifest = run.manifest
+        run.lines = list(lines)
+        run.cut_rows = list(cut_rows or [])
+        return run
+
+    def test_A36_template_share(self):
+        # >20 lines, one template 80% of them -> fail
+        lines = [L("L%02d" % i, B + i, "PASS", "x", template="T1")
+                 for i in range(20)]
+        lines += [L("M%02d" % i, B + 40 + i, "PASS", "y",
+                    template="T%d" % i) for i in range(5)]
+        run = self._run_lines(lines)
+        self.assertTrue(hh.detect_A36(None, run, P)[0])
+        # 25 lines, no template over 3 (=12%) -> pass
+        spread = []
+        tmpls = ["T%d" % (i % 9) for i in range(25)]
+        for i, tm in enumerate(tmpls):
+            spread.append(L("S%02d" % i, B + i, "PASS", "z", template=tm))
+        run = self._run_lines(spread)
+        self.assertEqual(hh.detect_A36(None, run, P)[0], [])
+        # 20 lines or fewer -> not checked (below floor), so no hit
+        few = [L("F%02d" % i, B + i, "PASS", "x", template="T1")
+               for i in range(20)]
+        self.assertEqual(hh.detect_A36(None, self._run_lines(few), P)[0], [])
+
+    def test_A37_exact_repeat(self):
+        run = self._run_lines([
+            L("L1", B + 10, "PASS", "Norris takes Sainz."),
+            L("L2", B + 40, "PASS", "Norris takes Sainz.")])   # 30s < 120
+        self.assertTrue(hh.detect_A37(None, run, P)[0])
+        # same text but > 120s apart -> pass
+        run = self._run_lines([
+            L("L1", B + 10, "PASS", "Norris takes Sainz."),
+            L("L2", B + 200, "PASS", "Norris takes Sainz.")])
+        self.assertEqual(hh.detect_A37(None, run, P)[0], [])
+
+    def test_A38_correction_repeat(self):
+        run = self._run_lines([
+            L("L1", B + 10, "CORRECTION", "Correction: Sainz takes P1.", 0),
+            L("L2", B + 20, "CORRECTION", "Correction: Sainz takes P1.", 0)])
+        self.assertTrue(hh.detect_A38(None, run, P)[0])
+        # one correction only, or a different one -> pass
+        run = self._run_lines([
+            L("L1", B + 10, "CORRECTION", "Correction: Sainz takes P1.", 0),
+            L("L2", B + 20, "CORRECTION", "Correction: Norris takes P3.", 1)])
+        self.assertEqual(hh.detect_A38(None, run, P)[0], [])
+
+    def test_A39_max_hold(self):
+        run = self._run_lines([], cut_rows=[
+            {"t_unix": B, "held_s": "50.0", "race_state": "green",
+             "car_idx": "3", "layer": "default", "reason": "score"}])
+        self.assertTrue(hh.detect_A39(None, run, P)[0])
+        # 40 s hold -> pass; a long hold in a stopped state -> pass
+        run = self._run_lines([], cut_rows=[
+            {"t_unix": B, "held_s": "40.0", "race_state": "green",
+             "car_idx": "3", "layer": "default", "reason": "score"},
+            {"t_unix": B + 40, "held_s": "300.0", "race_state": "red_flag",
+             "car_idx": "0", "layer": "protected", "reason": "red_flag"}])
+        self.assertEqual(hh.detect_A39(None, run, P)[0], [])
+
+    def test_A40_lull_coverage(self):
+        tr = base_truth()
+        tr.green = [(B, B + 100)]
+        # a 40 s silent stretch inside green -> fail
+        run = self._run_lines([L("L1", B + 5, "NS_STAT", "a"),
+                               L("L2", B + 90, "NS_STAT", "b")])
+        self.assertTrue(hh.detect_A40(tr, run, P)[0])
+        # lines every 30 s -> covered, pass
+        lines = [L("L%d" % i, B + i * 30, "NS_STAT", "x")
+                 for i in range(4)]
+        self.assertEqual(hh.detect_A40(tr, self._run_lines(lines), P)[0], [])
+
+    def test_A41_speech_normalisation(self):
+        # missing speech_text -> fail
+        run = self._run_lines([L("L1", B + 1, "PASS", "P1 for Sainz.")])
+        self.assertTrue(hh.detect_A41(None, run, P)[0])
+        # digit in speech_text -> fail
+        run = self._run_lines([L("L1", B + 1, "PASS", "x",
+                                 speech_text="P1 for Sainz.")])
+        self.assertTrue(hh.detect_A41(None, run, P)[0])
+        # abbreviation in speech_text -> fail
+        run = self._run_lines([L("L1", B + 1, "PASS", "x",
+                                 speech_text="Sainz has DRS.")])
+        self.assertTrue(hh.detect_A41(None, run, P)[0])
+        # clean speech_text -> pass
+        run = self._run_lines([L("L1", B + 1, "PASS", "x",
+                                 speech_text="P one for Sainz.")])
+        self.assertEqual(hh.detect_A41(None, run, P)[0], [])
+
+    def test_A42_live_replay_parity(self):
+        a = self._run_lines([L("L1", B + 1.0, "PASS", "Sainz takes Norris.")],
+                            source="live")
+        # matching within tolerance -> pass
+        b = self._run_lines([L("L1", B + 1.1, "PASS", "Sainz takes Norris.")])
+        self.assertEqual(hh.detect_A42(None, a, P, twin=b)[0], [])
+        # air time drift beyond tolerance -> fail
+        c = self._run_lines([L("L1", B + 2.0, "PASS", "Sainz takes Norris.")])
+        self.assertTrue(hh.detect_A42(None, a, P, twin=c)[0])
+        # no twin -> n/a
+        hits, na = hh.detect_A42(None, a, P)
+        self.assertIsNotNone(na)
+
+    def test_A43_layer_accounting(self):
+        man = {"_camera_protected_floors": {"winner": 5.0, "start": 8.0}}
+        # a row with no layer -> fail
+        run = self._run_lines([], manifest=man, cut_rows=[
+            {"t_unix": B, "held_s": "3.0", "race_state": "green",
+             "car_idx": "0", "layer": "", "reason": "score"}])
+        self.assertTrue(hh.detect_A43(None, run, P)[0])
+        # a protected row below its floor -> fail
+        run = self._run_lines([], manifest=man, cut_rows=[
+            {"t_unix": B, "held_s": "2.0", "race_state": "green",
+             "car_idx": "0", "layer": "protected", "reason": "winner"}])
+        self.assertTrue(hh.detect_A43(None, run, P)[0])
+        # every row has a layer, protected meets floor -> pass
+        run = self._run_lines([], manifest=man, cut_rows=[
+            {"t_unix": B, "held_s": "6.0", "race_state": "green",
+             "car_idx": "0", "layer": "protected", "reason": "winner"},
+            {"t_unix": B + 6, "held_s": "4.0", "race_state": "green",
+             "car_idx": "1", "layer": "default", "reason": "score"}])
+        self.assertEqual(hh.detect_A43(None, run, P)[0], [])
+
+    def test_A23_min_gap(self):
+        tr = derived(base_truth())
+        # two lines 0.5 s apart -> min-gap hit
+        run = self._run_lines([L("L1", B + 10, "PASS", "a"),
+                               L("L2", B + 10.5, "PASS", "b")])
+        hits, _ = hh.detect_A23(tr, run, P)
+        self.assertTrue(any(h.get("sub") == "min_gap" for h in hits))
+        # comfortably spaced -> no min-gap hit
+        run = self._run_lines([L("L1", B + 10, "PASS", "a"),
+                               L("L2", B + 15, "PASS", "b")])
+        hits, _ = hh.detect_A23(tr, run, P)
+        self.assertFalse(any(h.get("sub") == "min_gap" for h in hits))
+
+    def test_A32_open_without_encoding(self):
+        with tempfile.TemporaryDirectory() as d:
+            dirty = os.path.join(d, "dirty.py")
+            with open(dirty, "w", encoding="utf-8") as f:
+                f.write("with open(path) as fh:\n    pass\n")
+            hits, na = hh.scan_open_without_encoding(dirty)
+            self.assertTrue(hits)
+            clean = os.path.join(d, "clean.py")
+            with open(clean, "w", encoding="utf-8") as f:
+                f.write("with open(path, encoding='utf-8') as fh:\n    pass\n"
+                        "with open(b, 'rb') as g:\n    pass\n")
+            hits, na = hh.scan_open_without_encoding(clean)
+            self.assertEqual(hits, [])
 
 
 class TestCorpusHandling(unittest.TestCase):
