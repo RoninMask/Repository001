@@ -4811,6 +4811,30 @@ class V3Booth:
         self._line_seq = 0
         self._winner_named = False
         self._last_template = None
+        # Part C: the pacing governor -- the booth's sense of time between lines.
+        pc = config.get("v3", "pacing", default={}) or {}
+        self.pc_min_gap = pc.get("min_gap_s", 1.2)
+        self.pc_max_consec = pc.get("max_consecutive", 4)
+        self.pc_breath = pc.get("breath_s", 3.5)
+        self.pc_max_speech = pc.get("max_continuous_speech_s", 12.0)
+        self.pc_breath_run = pc.get("breath_after_run_s", 4.5)
+        self.pc_window = pc.get("window_s", 60.0)
+        self.pc_window_share = pc.get("window_max_share", 0.70)
+        self.pc_hard = set(pc.get("hard_interrupt_kinds", []))
+        self._last_air_end = None
+        self._consec = 0
+        self._run_start = None
+        # Part A2-2: the repetition guard.
+        rp = config.get("v3", "repetition", default={}) or {}
+        self.rp_exact_window = rp.get("exact_repeat_window_s", 120.0)
+        self.rp_ks_window = rp.get("kind_subject_window_s", 45.0)
+        self.rp_tmpl_window = rp.get("template_window_s", 30.0)
+        self.rp_subj_max = rp.get("subject_share_max", 0.25)
+        self.rp_subj_window = rp.get("subject_share_window_s", 180.0)
+        self._recent_texts = []       # (air_end_t, text)
+        self._recent_ks = []          # (t, kind, subjkey, material)
+        self._recent_templates = []   # (t, template_key)
+        self._recent_subjects = []    # (t, lead_subject)
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
@@ -4936,51 +4960,147 @@ class V3Booth:
         self._last_template = tmpl_key
         return speaker, text
 
+    # ---- pacing + repetition helpers ---------------------------------------
+    def _window_speech(self, t):
+        lo = t - self.pc_window
+        return sum(r["est_duration_s"] for r in self.emitted
+                   if lo <= r["t_unix"] <= t)
+
+    def _material(self, claim):
+        k, f = claim.kind, claim.facts
+        if k == "COLLAPSE":
+            return ("places", f.get("places"))
+        if k == "SPEED_TRAP":
+            return ("speed2", int(round((f.get("speed") or 0.0) / 2.0)))
+        if k == "CONTESTED":
+            return ("swaps", f.get("swaps"))
+        return ("*",)
+
+    def _repetition_reason(self, claim, t):
+        """A2-2: drop a claim that repeats a recent kind+subject (facts
+        unchanged), or that would over-saturate one subject. Template repeats
+        are handled at render by choosing a different variant, not dropped."""
+        subjkey = tuple(sorted(claim.subjects))
+        mat = self._material(claim)
+        for (rt, k, sk, m) in self._recent_ks:
+            if (t - rt) <= self.rp_ks_window and k == claim.kind \
+                    and sk == subjkey and m == mat:
+                return "repeat:kind_subject"
+        if claim.subjects:
+            lead = claim.subjects[0]
+            recent = [s for (rt, s) in self._recent_subjects
+                      if (t - rt) <= self.rp_subj_window]
+            if len(recent) >= 4:
+                share = (recent.count(lead) + 1.0) / (len(recent) + 1.0)
+                if share > self.rp_subj_max:
+                    return "repeat:subject_saturated"
+        return None
+
+    def _avoid_templates(self, t):
+        return {tk for (rt, tk) in self._recent_templates
+                if (t - rt) <= self.rp_tmpl_window}
+
+    def _drop(self, claim, reason, t):
+        claim.outcome = "dropped"
+        claim.outcome_reason = reason
+        claim.outcome_t = t
+        self.claim_records.append(claim.record())
+        self.queue.remove(claim)
+
     # ---- per-tick scheduling ------------------------------------------------
     def tick(self, t):
-        # drain claims that are ready and valid, one per free channel slot
+        # drain claims that are ready and valid, one per free channel slot,
+        # spread by the pacing governor (Part C).
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
+            saturated = self._window_speech(t) >= self.pc_window_share * self.pc_window
             best = None
             for c in self.queue:
                 v = self._validate(c, t)
-                if v == "ok":
-                    if best is None or (c.priority, -c.t_create) > (
-                            best.priority, -best.t_create):
-                        best = c
-                elif v.startswith("drop:"):
-                    c.outcome = "dropped"
-                    c.outcome_reason = v.split(":", 1)[1]
-                    c.outcome_t = t
-                    self.claim_records.append(c.record())
-                    self.queue.remove(c)
+                if v.startswith("drop:"):
+                    self._drop(c, v.split(":", 1)[1], t)
                     break     # queue mutated; restart scan
-                elif v.startswith("rewrite:"):
+                if v.startswith("rewrite:"):
                     c.outcome_reason = v.split(":", 1)[1]
-                    # keep in queue, reworded next scan
+                    continue
+                # v == "ok"
+                rr = self._repetition_reason(c, t)
+                if rr is not None:
+                    self._drop(c, rr, t)
+                    break
+                # window saturation: only hard interrupts may air (C-1)
+                if saturated and c.kind not in self.pc_hard:
+                    continue
+                if best is None or (c.priority, -c.t_create) > (
+                        best.priority, -best.t_create):
+                    best = c
             else:
                 if best is None:
                     return
                 self._air(best, t)
                 continue
-            # broke out due to a drop: loop again
             continue
+
+    def _pacing_gap(self, claim):
+        """The silence to insert before this line, per the governor."""
+        if self._last_air_end is None:
+            return 0.0
+        if claim.kind in self.pc_hard:
+            return self.pc_min_gap
+        gap = self.pc_min_gap
+        run_len = self.channel_busy_until - (self._run_start
+                                             if self._run_start is not None
+                                             else self.channel_busy_until)
+        if self._consec >= self.pc_max_consec:
+            gap = max(gap, self.pc_breath)
+        if run_len >= self.pc_max_speech:
+            gap = max(gap, self.pc_breath_run)
+        return gap
 
     def _air(self, claim, t):
         if claim.kind == "WINNER":
             self._winner_named = True
         past = (t - claim.t_create) > 8.0 and claim.demotable
-        speaker, text = self._text(claim, past)
+        speaker, text = self._text(claim, past,
+                                   avoid_templates=self._avoid_templates(t))
+        tmpl_key = self._last_template
         # F-2: every line starts with a capital (never a lower-case letter).
         if text[:1].islower():
             raise WordsFileError("line for %s starts lower-case: %r"
                                  % (claim.kind, text))
+        # A2-2 exact-repeat backstop: identical rendered text recently aired.
+        for (et, txt) in self._recent_texts:
+            if (t - et) <= self.rp_exact_window and txt == text:
+                self._drop(claim, "repeat:exact", t)
+                return
         speech_text = speech_normalise(text, self._abbrevs)
         wc = max(1, len(text.split()))
         duration = wc / self.rate
-        air_t = max(self.channel_busy_until, t)
+        gap = self._pacing_gap(claim)
+        prev_end = self._last_air_end
+        air_t = max(self.channel_busy_until + gap, t)
+        # update pacing run/consecutive state
+        if prev_end is None:
+            self._consec = 1
+            self._run_start = air_t
+        elif gap > self.pc_min_gap + 1e-6 or (air_t - prev_end) > \
+                self.pc_min_gap + 1e-6:
+            self._consec = 1        # a breath / real gap resets the run
+            self._run_start = air_t
+        else:
+            self._consec += 1
         self.channel_busy_until = air_t + duration
+        self._last_air_end = self.channel_busy_until
+        # repetition bookkeeping
+        self._recent_texts.append((self._last_air_end, text))
+        self._recent_texts = [x for x in self._recent_texts
+                              if (t - x[0]) <= self.rp_exact_window + 1.0]
+        self._recent_ks.append((air_t, claim.kind, tuple(sorted(claim.subjects)),
+                                self._material(claim)))
+        self._recent_templates.append((air_t, tmpl_key))
+        if claim.subjects:
+            self._recent_subjects.append((air_t, claim.subjects[0]))
         self._line_seq += 1
         line_id = "L%04d" % self._line_seq
         claim.line_id = line_id

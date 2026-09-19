@@ -811,6 +811,61 @@ class TestPass2CarryOver(unittest.TestCase):
         self.assertEqual(booth._validate(c, 1202.0), "drop:stale_order")
 
 
+class TestPacingAndRepetition(unittest.TestCase):
+    def _green(self):
+        m = make_model()
+        m.on_event(1010.6, {"code": "LGOT"})
+        for i, p in ((1, 1), (2, 2), (3, 3), (4, 4)):
+            set_car(m.w, i, pos=p, name="C%d" % i)
+        return m
+
+    def test_min_gap_between_lines(self):
+        # Part C: consecutive lines are separated by at least min_gap_s.
+        m = self._green()
+        booth = v3.V3Booth(m, m.cfg)
+        booth.take(v3.Claim("PASS", v3.CLASS_ACTION, [2, 1], ["C2", "C1"], 1100.0))
+        booth.take(v3.Claim("PASS", v3.CLASS_ACTION, [4, 3], ["C4", "C3"], 1100.0))
+        m.last_pos = {2: 1, 1: 2, 4: 3, 3: 4}   # 2 ahead of 1, 4 ahead of 3
+        booth.tick(1100.0)
+        booth.tick(1103.0)   # advance a little so the second can air, unexpired
+        self.assertGreaterEqual(len(booth.emitted), 2)
+        a, b = booth.emitted[0], booth.emitted[1]
+        gap = b["t_unix"] - (a["t_unix"] + a["est_duration_s"])
+        self.assertGreaterEqual(gap + 1e-6, booth.pc_min_gap)
+
+    def test_repeat_kind_subject_dropped(self):
+        # A2-2: same kind + subject + unchanged facts within the window drops.
+        m = self._green()
+        booth = v3.V3Booth(m, m.cfg)
+        c1 = v3.Claim("COLLAPSE", v3.CLASS_ACTION, [3], ["C3"], 1100.0,
+                      facts={"places": 3, "collapsed_pos": 6})
+        c2 = v3.Claim("COLLAPSE", v3.CLASS_ACTION, [3], ["C3"], 1103.0,
+                      facts={"places": 3, "collapsed_pos": 6})
+        set_car(m.w, 3, pos=6)
+        booth.take(c1)
+        booth.tick(1100.0)
+        booth.take(c2)
+        booth.tick(1104.0)
+        drops = [r for r in booth.claim_records
+                 if r["outcome"] == "dropped"
+                 and r["outcome_reason"] == "repeat:kind_subject"]
+        self.assertEqual(len(drops), 1)
+
+    def test_words_integrity_rejects_malformed(self):
+        # acceptance item 8: a malformed words file refuses cleanly at load.
+        import json
+        import tempfile
+        with open(v3._find_words_file(None), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["kinds"]["PASS"]["variants"] = doc["kinds"]["PASS"]["variants"][:1]
+        p = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump(doc, p)
+        p.close()
+        with self.assertRaises(v3.WordsFileError):
+            v3.WordsFile(p.name)
+        os.unlink(p.name)
+
+
 def fx_header(pid):
     import struct
     return struct.pack(v3.HEADER_FMT, 2025, 25, 1, 0, 1, pid,

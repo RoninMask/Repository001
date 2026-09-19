@@ -379,6 +379,29 @@
       },
       "final_order_guard_s": 30.0
     },
+    "pacing": {
+      "min_gap_s": 1.2,
+      "max_consecutive": 4,
+      "breath_s": 3.5,
+      "max_continuous_speech_s": 12.0,
+      "breath_after_run_s": 4.5,
+      "window_s": 60.0,
+      "window_max_share": 0.70,
+      "hard_interrupt_kinds": ["START", "RESTART", "LEAD_CHANGE", "SAFETY_CAR",
+                                "VSC", "RED_FLAG", "RETIREMENT", "WINNER",
+                                "RACE_END", "PENALTY"]
+    },
+    "repetition": {
+      "exact_repeat_window_s": 120.0,
+      "kind_subject_window_s": 45.0,
+      "template_window_s": 30.0,
+      "subject_share_max": 0.25,
+      "subject_share_window_s": 180.0
+    },
+    "lull": {
+      "after_s": 20.0,
+      "max_per_minute": 1
+    },
     "naming": {
       "fallback_order": ["team", "number", "generic"]
     },
