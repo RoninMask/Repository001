@@ -3801,6 +3801,7 @@ class RaceModel:
         self.finish_t = {}
         self.disqualified = set()
         self.colls = []               # (t, a, b)
+        self.penalty_events = []      # (t, car, is_human) -- for the director
 
         # finish
         self.leader_finish_t = None
@@ -4029,12 +4030,14 @@ class RaceModel:
                 return          # AI-only warning: silent
             subs = [car] + ([other] if other is not None
                             and 0 <= other < MAX_CARS else [])
+            self.penalty_events.append((t, car, self.w.cars[car].is_human))
             self.emit(Claim("WARNING", CLASS_LIFECYCLE, subs,
                             [self._name(i) for i in subs], t,
                             facts={"pena_type": 5}, provenance=prov,
                             priority=45.0, demotable=True, max_age_key="penalty"))
             return
         if pt in (0, 1, 2, 4, 6):
+            self.penalty_events.append((t, car, self.w.cars[car].is_human))
             # A10: name the contact when an AI is penalised after a COLL with
             # a human within cause_lookback_s
             cause = self._penalty_contact_cause(t, car)
@@ -5150,6 +5153,12 @@ class V3Booth:
 # leader's car (no cycling).
 
 class V3Gallery:
+    """Three-layer camera director (Part D). Reads the model only; advisory on
+    replay (never presses a key). Layer 1: protected moments own the camera for a
+    stated hold. Layer 2: a leader check-in if the lead has been off screen too
+    long. Layer 3: human-default scoring against the DEC-8 share band. During
+    red_flag / suspended / restart_grid it holds the leader and does not cycle."""
+
     def __init__(self, model, config, actuation_state, source):
         self.model = model
         self.cfg = config
@@ -5158,24 +5167,290 @@ class V3Gallery:
         self.cuts = []          # dict rows
         self.current = None
         self.hold_since = None
+        cam = config.get("v3", "camera", default={}) or {}
+        self.pw = config.get("pit_wall", default={}) or {}
+        self.part_cfg = self.pw.get("participation", {})
+        self.gap_bands = self.pw.get("gap_bands", [])
+        self.roster_wait = cam.get("roster_wait_max_s", 10.0)
+        self.checkin_s = cam.get("leader_checkin_s", 180.0)
+        self.checkin_hold = cam.get("leader_checkin_hold_s", 8.0)
+        self.away_max = cam.get("away_max_s", 20.0)
+        self.away_margin = cam.get("away_margin", 15.0)
+        self.share_window = cam.get("human_share_window_s", 300.0)
+        self.floor_normal = cam.get("hold_floor_normal_s", 4.0)
+        self.floor_incident = cam.get("hold_floor_incident_s", 2.5)
+        self.floor_lull = cam.get("hold_floor_lull_s", 7.0)
+        self.max_hold = cam.get("max_hold_s", 45.0)
+        self.lull_thresh = cam.get("lull_top_score_threshold", 45.0)
+        self.bands = cam.get("human_share_bands", [])
+        self.prot_cfg = cam.get("protected", {})
+        self._prot = None
+        self._leader_seen_t = None
+        self._first_seen_t = None
+        self._checkin_until = 0.0
+        self._humans = 0
 
+    # ---- shared helpers ----------------------------------------------------
+    def _is_human(self, idx):
+        return bool(self.model.w.cars[idx].is_human)
+
+    def _human_count(self):
+        n = sum(1 for c in self.model.w.cars if c.seen and c.is_human)
+        if n > self._humans:
+            self._humans = n
+        return self._humans
+
+    def _band(self):
+        h = self._human_count()
+        for rule in self.bands:
+            if h >= rule.get("min_humans", 0):
+                return rule.get("band")
+        return None
+
+    def _roster_ready(self, t):
+        if any(c.seen and c.name_resolved for c in self.model.w.cars):
+            return True
+        return (self._first_seen_t is not None
+                and (t - self._first_seen_t) >= self.roster_wait)
+
+    def _participation_mult(self, cars):
+        p = self.part_cfg
+        cars = [c for c in cars if c is not None]
+        humans = sum(1 for c in cars if c.is_human)
+        if len(cars) <= 1:
+            return p.get("human_alone", 1.4) if humans else p.get("ai_vs_ai", 0.5)
+        if humans >= 2:
+            return p.get("human_vs_human", 2.2)
+        if humans == 1:
+            return p.get("human_vs_ai", 2.2)
+        return p.get("ai_vs_ai", 0.5)
+
+    def _score(self, c):
+        """Standing score for one running on-track car, ported from the tuned
+        pit_wall table (DEC/Part D-2): position stakes, gap band, closing trend,
+        multiplied by participation."""
+        pw = self.pw
+        terms = {}
+        pos = c.position
+        if pos == 1:
+            terms["leader"] = pw.get("w_leader", 25.0)
+        elif pos <= 3:
+            terms["podium"] = pw.get("w_podium", 10.0)
+        ahead = self.model.w.car_at_position(pos - 1) if pos > 1 else None
+        g = c.delta_front
+        if ahead is not None and 0.0 < g < pw.get("gap_band_max_s", 900.0):
+            for lim, val in self.gap_bands:
+                if g < lim:
+                    terms["gap"] = val
+                    break
+            trend = c.gap_trend()
+            if (trend is not None
+                    and trend < pw.get("closing_trend_threshold", -0.08)
+                    and g < pw.get("closing_gap_max_s", 4.0)):
+                terms["closing"] = pw.get("w_closing", 15.0)
+        fight = [c]
+        if ahead is not None and 0.0 < g < pw.get("human_battle_gap_max_s", 3.0):
+            fight.append(ahead)
+        mult = self._participation_mult(fight)
+        base = sum(terms.values())
+        reason = max(terms, key=terms.get) if terms else "running"
+        return base * mult, reason
+
+    def _score_field(self, t):
+        out = []
+        for c in self.model.w.cars:
+            if not c.seen or c.position <= 0:
+                continue
+            if self.model.is_retired(c.idx) or not self.model.running(c.idx):
+                continue
+            if c.result_status not in (0, 2, 3):
+                continue
+            s, reason = self._score(c)
+            out.append({"idx": c.idx, "score": s, "reason": reason,
+                        "human": c.is_human})
+        out.sort(key=lambda r: r["score"], reverse=True)
+        return out
+
+    def _share(self, t):
+        lo = t - self.share_window
+        total = human = 0.0
+        for row in self.cuts:
+            st = row["_t"]
+            en = row["_end"] if row["_end"] is not None else t
+            a, b = max(st, lo), min(en, t)
+            if b <= a:
+                continue
+            d = b - a
+            total += d
+            if self._is_human(row["car_idx"]):
+                human += d
+        return (human / total) if total > 0 else None
+
+    # ---- protected moments (layer 1) ---------------------------------------
+    def _lower_car(self, a, b):
+        pa = self.model.last_pos.get(a, 99)
+        pb = self.model.last_pos.get(b, 99)
+        return a if pa >= pb else b
+
+    def _active_protected(self, t):
+        m = self.model
+        pc = self.prot_cfg
+        cands = []
+
+        def add(key, start, car, prio_default, hold_default):
+            cfg = pc.get(key, {})
+            hold = cfg.get("hold_s", hold_default)
+            prio = cfg.get("priority", prio_default)
+            if car is None or start is None or hold is None:
+                return
+            if start <= t < start + hold:
+                cands.append({"until": start + hold, "priority": prio,
+                              "car": car, "reason": key})
+
+        if m.anchor_t is not None and not m.restarts:
+            add("start", m.anchor_t, m.leader_idx, 95, 8.0)
+        if m.leader_finish_t is not None:
+            add("winner", m.leader_finish_t, m.road_winner, 95, 5.0)
+        if m.state in ("safety_car", "vsc") and m.state_since is not None:
+            add("safety_car", m.state_since, m.leader_idx, 90, 6.0)
+        for idx, rt in m.retired_at.items():
+            add("retirement", rt, idx, 85, 5.0)
+        for (ct, a, b) in m.colls:
+            human = m.w.cars[a].is_human or m.w.cars[b].is_human
+            key = "collision_human" if human else "collision_ai"
+            add(key, ct, self._lower_car(a, b), 85 if human else 55,
+                5.0 if human else 3.5)
+        for i in range(1, len(m._lead_events)):
+            lt, leader = m._lead_events[i]
+            prev_leader = m._lead_events[i - 1][1]
+            add("lead_change", lt, prev_leader, 80, 6.0)
+        for (pt_t, car, human) in m.penalty_events:
+            if human:
+                add("penalty_human", pt_t, car, 70, 4.0)
+        if not cands:
+            return None
+        cands.sort(key=lambda d: (d["priority"], d["until"]), reverse=True)
+        return cands[0]
+
+    # ---- the tick ----------------------------------------------------------
     def observe(self, t):
         m = self.model
-        target = None
-        if m.state in ("red_flag", "suspended", "restart_grid"):
-            target = m.leader_idx    # hold the leader, no cycling
-        else:
-            # advisory: follow the leader as a simple Pass-1 director
-            target = m.leader_idx
-        if target is None:
-            return
-        if target != self.current:
-            self._cut(t, target)
+        if self._first_seen_t is None and any(
+                c.seen and c.position > 0 for c in m.w.cars):
+            self._first_seen_t = t
+        if self.current is not None and self.current == m.leader_idx:
+            self._leader_seen_t = t
 
-    def _cut(self, t, idx):
+        # stopped states: hold the leader, no cycling (kept from Pass 1)
+        if m.state in ("red_flag", "suspended", "restart_grid"):
+            if m.leader_idx is not None:
+                reason = "red_flag" if m.state == "red_flag" else m.state
+                self._cut_if_new(t, m.leader_idx, "protected", reason)
+            return
+
+        # A2-3: no cut before the roster resolves (or the wait elapses)
+        if self.current is None and not self._roster_ready(t):
+            return
+
+        # layer 1: protected moments
+        best = self._active_protected(t)
+        if best is not None:
+            if (self._prot is None or best["priority"] >= self._prot["priority"]
+                    or t >= self._prot["until"]):
+                self._prot = best
+        if self._prot is not None:
+            if t < self._prot["until"]:
+                self._cut_if_new(t, self._prot["car"], "protected",
+                                 self._prot["reason"])
+                return
+            self._prot = None
+
+        if m.leader_idx is None:
+            return
+        if self._leader_seen_t is None:
+            self._leader_seen_t = t
+
+        # layer 2: leader check-in
+        if t < self._checkin_until:
+            self._cut_if_new(t, m.leader_idx, "checkin", "leader_checkin")
+            return
+        if (t - self._leader_seen_t) >= self.checkin_s:
+            self._cut_if_new(t, m.leader_idx, "checkin", "leader_checkin")
+            self._checkin_until = t + self.checkin_hold
+            return
+
+        # layer 3: human-default scoring
+        self._layer3(t)
+
+    def _layer3(self, t):
+        ranked = self._score_field(t)
+        if not ranked:
+            # nothing scorable, but the ceiling still holds: refresh onto the
+            # leader so no shot runs past max_hold (D-4).
+            held = (t - self.hold_since) if self.hold_since is not None else 1e9
+            if (self.current is not None and held >= self.max_hold
+                    and self.model.leader_idx is not None):
+                self._cut(t, self.model.leader_idx, "default", "leader", "")
+            return
+        top_score = ranked[0]["score"]
+        band = self._band()
+        humans = [r for r in ranked if r["human"]]
+        best_h = humans[0] if humans else None
+
+        target = ranked[0]
+        if band is not None:
+            share = self._share(t)
+            if best_h is not None and share is not None and share < band[0]:
+                target = best_h                      # below floor: prefer humans
+            elif share is not None and share > band[1]:
+                if ranked[0]["human"]:
+                    target = ranked[0]
+                elif best_h is not None and (ranked[0]["score"]
+                                             <= best_h["score"] + self.away_margin):
+                    target = best_h                  # above ceiling: stay human
+            # inside the band: normal top
+
+        # away_max: if we have lingered on a non-human, return to a human
+        if (self.current is not None and not self._is_human(self.current)
+                and best_h is not None and self.hold_since is not None
+                and (t - self.hold_since) >= self.away_max):
+            target = best_h
+
+        # hold floor / ceiling
+        held = (t - self.hold_since) if self.hold_since is not None else 1e9
+        floor = self.floor_lull if top_score < self.lull_thresh else self.floor_normal
+        if self.current is None:
+            self._cut(t, target["idx"], "default", target["reason"],
+                      target["score"])
+            return
+        # ceiling: no shot runs past max_hold. Cut to the best available
+        # candidate, forcing movement off the current car even if it is top
+        # scored (D-4).
+        if held >= self.max_hold:
+            forced = target
+            if target["idx"] == self.current:
+                forced = next((r for r in ranked if r["idx"] != self.current),
+                              target)
+            self._cut(t, forced["idx"], "default", forced["reason"],
+                      forced["score"])
+            return
+        if target["idx"] == self.current:
+            return
+        cur_score = next((r["score"] for r in ranked
+                          if r["idx"] == self.current), -1.0)
+        if held >= floor and target["score"] > cur_score + 1e-6:
+            self._cut(t, target["idx"], "default", target["reason"],
+                      target["score"])
+
+    # ---- cut mechanics -----------------------------------------------------
+    def _cut_if_new(self, t, idx, layer, reason):
+        if idx != self.current:
+            self._cut(t, idx, layer, reason, "")
+
+    def _cut(self, t, idx, layer, reason, score):
         car = self.model.w.cars[idx]
-        # close previous
-        if self.cuts and self.cuts[-1]["held_s"] == "":
+        if self.cuts and self.cuts[-1]["_end"] is None:
+            self.cuts[-1]["_end"] = t
             self.cuts[-1]["held_s"] = round(t - self.cuts[-1]["_t"], 2)
         row = {
             "t_unix": round(t, 6), "t_rec": self.model._t_rec(t),
@@ -5183,14 +5458,17 @@ class V3Gallery:
             "spoken": car.spoken, "position": car.position,
             "method": "advisory", "held_s": "", "race_state": self.model.state,
             "source": self.source, "actuation_state": self.actuation_state,
-            "reason": "leader", "score": "", "_t": t,
+            "layer": layer, "reason": reason,
+            "score": round(score, 2) if isinstance(score, (int, float)) else "",
+            "_t": t, "_end": None,
         }
         self.cuts.append(row)
         self.current = idx
         self.hold_since = t
 
     def close(self, t):
-        if self.cuts and self.cuts[-1]["held_s"] == "":
+        if self.cuts and self.cuts[-1]["_end"] is None:
+            self.cuts[-1]["_end"] = t
             self.cuts[-1]["held_s"] = round(t - self.cuts[-1]["_t"], 2)
 # === GALLERY END ===
 
@@ -5409,6 +5687,8 @@ class BabyHooverV3:
             "ignored_events": self.ignore_events,
             "line_count": len(self.booth.emitted),
             "dropped_claim_count": dict(dropped),
+            "humans": sum(1 for c in self.world.cars
+                          if c.seen and c.is_human),
         }
         with open(p + "_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
@@ -5429,12 +5709,13 @@ class BabyHooverV3:
             w = csv.writer(f)
             w.writerow(["t_unix", "t_rec", "t_race", "car_idx", "spoken",
                         "position", "method", "held_s", "race_state", "source",
-                        "actuation_state", "reason", "score"])
+                        "actuation_state", "layer", "reason", "score"])
             for row in self.gallery.cuts:
                 w.writerow([row["t_unix"], row["t_rec"], row["t_race"],
                             row["car_idx"], row["spoken"], row["position"],
                             row["method"], row["held_s"], row["race_state"],
                             row["source"], row["actuation_state"],
+                            row.get("layer", "default"),
                             row["reason"], row["score"]])
 
         self._write_srt(p + ".srt", m)
