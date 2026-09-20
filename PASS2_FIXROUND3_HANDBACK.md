@@ -53,8 +53,9 @@ see H1 below. That is the method working as far as it can without the bytes.
 ## Branch and commit
 
 - Branch: `claude/baby-hoover-v3-pass2`, base `e87569a`.
-- This hand-back plus the H1–H7 fixes, their config/words changes, and the
-  `TestP2FixRound3` regression tests.
+- Fixes commit `4eacdde` (H1–H7 tool/config/words changes, the harness A26/H6
+  change, and the `TestP2FixRound3` + threshold-pair tests). This hand-back
+  finalised in the follow-up commit.
 
 ## Where it stands (fixtures)
 
