@@ -2070,12 +2070,14 @@ def detect_A26(truth, run, p):
     if band == "absent":
         na = "no human count in manifest; share band not tested"
     elif run.tool == "v3" and band is not None and 0 < total_time < min_sample:
-        # G7: a share over less than min_sample of qualifying shot time measures
-        # one or two shots, not DEC-8. Report it, do not gate on it (same
-        # statistical-validity reasoning as A29's scope). The away-shot check is
-        # unaffected and still gates.
-        na = ("share sample %.0fs < %.0fs minimum; band not judged"
-              % (total_time, min_sample))
+        # G7/H6: a share over less than min_sample of qualifying shot time
+        # measures one or two shots, not DEC-8, so the share sub-check is
+        # skipped INTERNALLY -- it emits neither a hit nor an n/a. The away-shot
+        # sub-check above is unaffected and still gates, so a run whose only
+        # issue would be a short share sample (e.g. s04, sole human retired
+        # early) is a clean gated pass rather than an n/a that suppresses the
+        # whole row. (The skipped sample size is reported in the hand-back.)
+        pass
     elif band is not None and total_time > 0:
         lo_band, hi_band = band
         share = human_time / total_time

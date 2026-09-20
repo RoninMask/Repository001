@@ -1164,5 +1164,204 @@ class TestP2FixRound2(unittest.TestCase):
         self.assertTrue(c.name_resolved)
 
 
+class TestP2FixRound3(unittest.TestCase):
+    """Pass 2 fix round 3: the real-race fixes H1-H7. Each isolates the exact
+    code path the round-2 fixes missed. Where a fix removed a guard, the test
+    is written so the pre-fix code would take the wrong branch (fail-without)."""
+
+    def _gallery(self):
+        m = make_model()
+        set_car(m.w, 0, pos=1, ai=1, name="Leader")
+        set_car(m.w, 1, pos=2, ai=1, name="Second")
+        set_car(m.w, 3, pos=8, ai=0, name="Human")
+        m.leader_idx = 0
+        m.state = "green"
+        m.w.last_lapdata_t = 1100.0
+        return m, v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+
+    # ---- H1: finishing + leader gone -> the camera keeps moving -------------
+    def test_h1_finishing_runs_layer3_every_tick(self):
+        # In `finishing` with the leader across the line (leader_idx None), the
+        # director must run the scoring layer EVERY tick, not only once the
+        # ceiling is hit. Pre-fix it returned without cutting below max_hold, so
+        # a stale shot lingered to the flag (bin1 56.64 s).
+        m, gal = self._gallery()
+        set_car(m.w, 0, pos=2, ai=1, name="Leader")     # was leader, now P2
+        set_car(m.w, 1, pos=1, ai=1, name="Second")     # now P1
+        m.w.cars[0].result_status = 3                    # finished (scorable)
+        m.w.cars[1].result_status = 3
+        m.leader_idx = None
+        m.state = "finishing"
+        gal.current = 5                                  # a stale off-field shot
+        gal.hold_since = 1100.0 - 30.0                   # past floor, < max_hold
+        gal._first_seen_t = 1000.0
+        gal.observe(1100.0)
+        self.assertIn(gal.current, (0, 1))              # moved onto a finisher
+        self.assertEqual(gal.hold_since, 1100.0)        # a fresh cut happened
+
+    def test_h1_layer3_empty_field_falls_back_off_leader(self):
+        # The empty-field branch must force off the current shot even when
+        # leader_idx is None, falling back to any other seen car. Pre-fix it
+        # cut only when model.leader_idx was not None, so a finishing shot with
+        # the winner gone from the order froze.
+        m, gal = self._gallery()
+        m.w.cars[0].position = 1
+        m.w.cars[1].position = 2
+        m.retired_at[0] = 1000.0                         # every seen car
+        m.retired_at[1] = 1000.0                         # unscorable ->
+        m.retired_at[3] = 1000.0                         # _score_field empty
+        m.leader_idx = None
+        gal.current = 0
+        gal.hold_since = 1100.0 - (gal.max_hold + 5)     # past the ceiling
+        self.assertEqual(gal._score_field(1100.0), [])
+        gal._layer3(1100.0)
+        self.assertEqual(gal.current, 1)                 # forced off 0 to 1
+
+    def test_h1_winner_held_full_window_from_finish(self):
+        # A21 guard: the winner stays on screen for its full protected window
+        # measured from the finish, even when G4's cap (from the stale
+        # pre-finish shot) has released the protected moment and a new leader
+        # exists -- neither H1's finish cycling nor the H5 share steer may cut
+        # a human winner away inside that window.
+        m, gal = self._gallery()
+        set_car(m.w, 0, pos=1, ai=0, name="Winner")     # human winner
+        m.leader_idx = 1                                 # a new leader exists
+        m.state = "finishing"
+        m.leader_finish_t = 1098.0
+        m.road_winner = 0
+        gal.current = 0
+        gal.hold_since = 1080.0                          # stale -> G4 cap fired
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1000.0
+        gal._human_count = lambda: 5                     # steer band [0.60,0.70]
+        gal._share = lambda t: 0.90                      # would steer away
+        gal.observe(1100.0)                             # inside finish+5 window
+        self.assertEqual(gal.current, 0)               # winner held
+        # once the window closes, the director is free to move again
+        gal.observe(1104.0)                            # finish+6 > window
+        self.assertNotEqual(gal.current, 0)
+
+    # ---- H2: names re-fetched at air time, not the emit-time snapshot -------
+    def test_h2_names_refetched_from_current_spoken(self):
+        m = make_model()
+        booth = v3.V3Booth(m, m.cfg)
+        # claim emitted before Participants: names captured "Car 18"/"Car 19"
+        m.w.cars[18].spoken_short = "Ronin"              # roster now resolved
+        m.w.cars[19].spoken_short = "Tsunoda"
+        c = v3.Claim("LEAD_CHANGE", v3.CLASS_ACTION, [18, 19],
+                     ["Car 18", "Car 19"], 1200.0)
+        ctx, _fv = booth._build_context(c)
+        self.assertEqual(ctx["a"], "Ronin")             # not the "Car 18" snap
+        self.assertEqual(ctx["b"], "Tsunoda")
+
+    def test_h2_snapshot_kept_without_a_live_subject(self):
+        # a name with no car subject (idx None) keeps the emit-time snapshot
+        m = make_model()
+        booth = v3.V3Booth(m, m.cfg)
+        c = v3.Claim("PASS", v3.CLASS_ACTION, [None], ["the field"], 1200.0)
+        ctx, _fv = booth._build_context(c)
+        self.assertEqual(ctx["a"], "the field")
+
+    # ---- H3: final-lap silence gets lull coverage --------------------------
+    def test_h3_lull_fires_in_final_lap(self):
+        m = make_model()
+        m.w.track_temp = 39
+        m.w.air_temp = 26                                # weather lull has data
+        booth = v3.V3Booth(m, m.cfg)
+        booth._last_air_end = 1000.0                     # 60 s of silence at t
+        t = 1060.0                                       # >= lull_after and
+        #                                                  >= max_silence (forced)
+        m.state = "final_lap"
+        self.assertTrue(booth._maybe_lull(t))
+        # the run-in to the flag is now covered, exactly like a green silence
+
+    def test_h3_lull_still_blocked_in_stopped_state(self):
+        m = make_model()
+        m.w.track_temp = 39
+        m.w.air_temp = 26
+        booth = v3.V3Booth(m, m.cfg)
+        booth._last_air_end = 1000.0
+        m.state = "finishing"                            # not a lull state
+        self.assertFalse(booth._maybe_lull(1060.0))
+
+    # ---- H4: no shot outside the stopped states runs past max_hold ----------
+    def test_h4_universal_ceiling_breaks_leader_holds(self):
+        # With the leader on screen past max_hold and a check-in window still
+        # open, the pre-fix check-in branch re-held the leader unbounded. The
+        # universal ceiling now hands the shot to layer 3, which moves it.
+        m, gal = self._gallery()
+        gal.current = 0                                  # on the leader
+        gal.hold_since = 1100.0 - (gal.max_hold + 5)     # past the ceiling
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1000.0
+        gal._checkin_until = 1100.0 + 100.0              # check-in window open
+        gal.observe(1100.0)
+        self.assertNotEqual(gal.current, 0)             # ceiling broke the hold
+
+    # ---- H5: the share controller steers to the inner band -----------------
+    def test_h5_steer_band_is_shrunk(self):
+        _m, gal = self._gallery()
+        gal._human_count = lambda: 5                     # band [0.60, 0.70]
+        self.assertAlmostEqual(gal._band()[0], 0.60, places=6)
+        self.assertAlmostEqual(gal._band()[1], 0.70, places=6)
+        lo, hi = gal._steer_band()
+        self.assertAlmostEqual(lo, 0.60 + gal.band_inner_margin, places=6)
+        self.assertAlmostEqual(hi, 0.70 - gal.band_inner_margin, places=6)
+        # the inner band sits strictly inside the DEC-8 gate band
+        self.assertGreater(lo, 0.60)
+        self.assertLess(hi, 0.70)
+
+    def test_h5_steers_away_on_band_edge(self):
+        # share 0.68 is inside the raw gate band [0.60, 0.70] but above the
+        # inner edge 0.67, so the controller steers AWAY to an AI. Pre-fix it
+        # only steered above 0.70, so a share resting on the edge never moved
+        # (Austria A26 70.0%).
+        m, gal = self._gallery()
+        gal._human_count = lambda: 5                     # band [0.60, 0.70]
+        gal._share = lambda t: 0.68
+        gal.current = 3                                  # on the human
+        gal.hold_since = 1100.0 - 30.0                   # past floor, < ceiling
+        gal._first_seen_t = 1000.0
+        gal._layer3(1100.0)
+        self.assertEqual(gal._steer_dir, "ai")          # steered away
+        self.assertFalse(gal._is_human(gal.current))    # onto an AI
+
+    def test_h5_no_steer_inside_inner_band(self):
+        # share 0.65 is inside the inner band -> no steer either way
+        m, gal = self._gallery()
+        gal._human_count = lambda: 5
+        gal._share = lambda t: 0.65
+        gal.current = 3
+        gal.hold_since = 1100.0 - 30.0
+        gal._first_seen_t = 1000.0
+        gal._layer3(1100.0)
+        self.assertIsNone(gal._steer_dir)
+
+    # ---- H7: the weather line says "degrees" -------------------------------
+    def test_h7_weather_templates_say_degrees(self):
+        import json as _json
+        with open(CFG_PATH.replace("hoover_config_v3.json",
+                                   "hoover_words_v3.json"),
+                  encoding="utf-8") as _wf:
+            words = _json.load(_wf)
+        variants = words["kinds"]["LULL_WEATHER"]["variants"]
+        for v in variants:
+            self.assertIn("degrees", v["present"],
+                          "weather template must read temperature in degrees: "
+                          + v["present"])
+
+    def test_h7_weather_line_speech_says_degrees(self):
+        m = make_model()
+        m.w.track_temp = 39
+        m.w.air_temp = 26                                # only weather has data
+        booth = v3.V3Booth(m, m.cfg)
+        claim = m.build_lull(1060.0)
+        self.assertIsNotNone(claim)
+        self.assertEqual(claim.kind, "LULL_WEATHER")
+        _speaker, text = booth._text(claim, False)
+        self.assertIn("degrees", text)
+        self.assertIn("degrees", v3.speech_normalise(text, booth._abbrevs))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5064,7 +5064,19 @@ class V3Booth:
         No broadcast English here -- only values the words file interpolates."""
         k = claim.kind
         f = claim.facts
-        nm = claim.names
+        # H2: render names from the car's CURRENT spoken form, not the snapshot
+        # taken when the claim was emitted. A claim emitted before Participants
+        # captured a "Car <n>" placeholder; by air time the roster has resolved
+        # (F9 only lets it air then), so re-fetching gives the real name and no
+        # placeholder ever reaches the script. Falls back to the snapshot for
+        # any name without a live car subject.
+        nm = list(claim.names)
+        for i, idx in enumerate(claim.subjects):
+            if idx is not None and 0 <= idx < len(self.model.w.cars):
+                if i < len(nm):
+                    nm[i] = self.model.w.cars[idx].spoken
+                else:
+                    nm.append(self.model.w.cars[idx].spoken)
         ctx = {}
         fv = {}
         if len(nm) >= 1:
@@ -5229,7 +5241,10 @@ class V3Booth:
         silence = t - self._last_air_end
         if silence < self.lull_after:
             return False
-        if self.model.state not in ("green", "safety_car", "vsc"):
+        # H3: the run-in to the chequered flag is state `final_lap`; it was
+        # missing here, so the last laps -- the worst place to be silent -- got
+        # no lull coverage. allows() already permits filler in final_lap.
+        if self.model.state not in ("green", "final_lap", "safety_car", "vsc"):
             return False
         # G1: once silence reaches the coverage floor, fire whatever material is
         # available -- bypass the per-minute cap and the per-kind cooldowns so
@@ -5411,6 +5426,11 @@ class V3Gallery:
         self.max_hold = cam.get("max_hold_s", 45.0)
         self.lull_thresh = cam.get("lull_top_score_threshold", 45.0)
         self.bands = cam.get("human_share_bands", [])
+        # H5: the share controller steers to a band shrunk by this margin at
+        # each end (e.g. 0.63-0.67 for a 0.60-0.70 band), so the settled share
+        # sits inside the DEC-8 band rather than resting on its edge where A26
+        # reads it at exactly the limit.
+        self.band_inner_margin = cam.get("share_band_inner_margin", 0.03)
         self.prot_cfg = cam.get("protected", {})
         self.incident_merge_s = self.prot_cfg.get("incident_merge_s", 5.0)  # G3
         self.share_hysteresis = cam.get("share_hysteresis_s", 20.0)         # G5
@@ -5471,6 +5491,20 @@ class V3Gallery:
             if h >= rule.get("min_humans", 0):
                 return rule.get("band")
         return None
+
+    def _steer_band(self):
+        """H5: the controller's steering target -- the DEC-8 band shrunk by
+        band_inner_margin at each end. Steering to this inner band leaves the
+        settled human share inside the real band, off the edge A26 measures.
+        The margin is clamped so a narrow band never inverts."""
+        band = self._band()
+        if band is None:
+            return None
+        lo, hi = band
+        m = self.band_inner_margin
+        if hi - lo <= 2 * m:                      # too narrow to shrink safely
+            return (lo, hi)
+        return (lo + m, hi - m)
 
     def _roster_ready(self, t):
         if any(c.seen and c.name_resolved for c in self.model.w.cars):
@@ -5704,18 +5738,40 @@ class V3Gallery:
                 return
             self._prot = None
 
+        # A21: while the race is `finishing`, keep the winner on screen for its
+        # full protected window measured FROM THE FINISH. G4's cap measures the
+        # protected hold from the shot start, which for a winner already on
+        # screen as the leader predates the finish and releases the moment early;
+        # this holds the winner for the whole window whatever leader_idx now is
+        # (a new leader may already exist) and before H1's finish cycling or the
+        # layer-3 share steer (H5) can cut away from a human winner.
+        if (m.state == "finishing" and m.leader_finish_t is not None
+                and m.road_winner is not None
+                and self.current == m.road_winner
+                and t < m.leader_finish_t
+                + self.prot_cfg.get("winner", {}).get("hold_s", 5.0)):
+            self._cut_if_new(t, m.road_winner, "protected", "winner")
+            return
+
         if m.leader_idx is None:
-            # F8: after the leader crosses the line, leader_idx can go None while
-            # the race is still `finishing` (winner gone from the running order,
-            # Final Classification not yet in). The ceiling must still hold: keep
-            # cycling through the finishers rather than freezing on one shot.
-            if (m.state == "finishing" and self.current is not None
-                    and self.hold_since is not None
-                    and (t - self.hold_since) >= self.max_hold):
+            # F8/H1: after the leader crosses the line, leader_idx can go None
+            # while the race is still `finishing`. Run the scoring layer every
+            # tick (not only at max_hold) so the director keeps cycling the
+            # finishers and a released protected shot cannot linger to the flag.
+            if m.state == "finishing":
                 self._layer3(t)
             return
         if self._leader_seen_t is None:
             self._leader_seen_t = t
+
+        # H4: no shot outside the stopped states runs past max_hold, whatever
+        # layer owns it. The check-in branch below otherwise holds the leader
+        # unbounded, and the scoring layer carries the away-max return, so hand
+        # a shot at the ceiling to layer 3 rather than re-holding the leader.
+        if (self.hold_since is not None
+                and (t - self.hold_since) >= self.max_hold):
+            self._layer3(t)
+            return
 
         # layer 2: leader check-in
         if t < self._checkin_until:
@@ -5732,15 +5788,22 @@ class V3Gallery:
     def _layer3(self, t):
         ranked = self._score_field(t)
         if not ranked:
-            # nothing scorable, but the ceiling still holds: refresh onto the
-            # leader so no shot runs past max_hold (D-4).
+            # nothing scorable, but the ceiling still holds: force off the
+            # current shot so no shot runs past max_hold (D-4/H1). Prefer the
+            # leader; if there is none (finishing, winner gone from the running
+            # order), fall back to any other seen car so the shot cannot freeze
+            # to the chequered flag.
             held = (t - self.hold_since) if self.hold_since is not None else 1e9
-            if (self.current is not None and held >= self.max_hold
-                    and self.model.leader_idx is not None):
-                self._cut(t, self.model.leader_idx, "default", "leader", "")
+            if self.current is not None and held >= self.max_hold:
+                tgt = self.model.leader_idx
+                if tgt is None or tgt == self.current:
+                    tgt = next((c.idx for c in self.model.w.cars
+                                if c.seen and c.position > 0
+                                and c.idx != self.current), None)
+                if tgt is not None:
+                    self._cut(t, tgt, "default", "leader", "")
             return
         top_score = ranked[0]["score"]
-        band = self._band()
         humans = [r for r in ranked if r["human"]]
         best_h = humans[0] if humans else None
         best_ai = next((r for r in ranked if not r["human"]), None)
@@ -5781,11 +5844,14 @@ class V3Gallery:
         # hold floor has passed, so the correction actually happens.
         correct = None
         steer = None                                 # "human" | "ai"
-        if band is not None:
+        # H5: trigger against the inner band, not the raw DEC-8 edge, so the
+        # correction settles the share inside the band instead of on its limit.
+        sband = self._steer_band()
+        if sband is not None:
             share = self._share(t)
-            if share is not None and share < band[0] and best_h is not None:
+            if share is not None and share < sband[0] and best_h is not None:
                 steer, correct = "human", best_h     # too little human
-            elif share is not None and share > band[1] and best_ai is not None:
+            elif share is not None and share > sband[1] and best_ai is not None:
                 steer, correct = "ai", best_ai       # too much human: go away
         # G5: hysteresis. After a steer, hold that direction for
         # share_hysteresis_s so a share nudging across the band edge does not

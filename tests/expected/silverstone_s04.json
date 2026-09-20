@@ -302,10 +302,10 @@
       "check": "A26",
       "scope": {},
       "v2": "observe",
-      "v3": "observe",
-      "gated": false,
+      "v3": "pass",
+      "gated": true,
       "pass": 2,
-      "evidence": "G7: the sole human retired early, so the human share is measured over <300 s of qualifying shot time -- too little to judge DEC-8. Observed, not gated; the away-shot check still gates."
+      "evidence": "H6: the sole human retired early, so the human share is measured over <300 s of qualifying shot time -- too little to judge DEC-8, so the share sub-check is skipped internally by the harness. The away-shot sub-check still gates and passes, so the row is a clean gated pass."
     },
     {
       "id": "V3-P2-S4-A27",

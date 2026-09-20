@@ -509,7 +509,8 @@
         },
         "incident_merge_s": 5.0
       },
-      "share_hysteresis_s": 20.0
+      "share_hysteresis_s": 20.0,
+      "share_band_inner_margin": 0.03
     },
     "naming": {
       "fallback_order": [

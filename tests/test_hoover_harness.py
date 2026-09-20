@@ -1468,7 +1468,10 @@ class TestCorpusHandling(unittest.TestCase):
 
 
 class TestFixRound2Harness(unittest.TestCase):
-    """Fix round 2: A44 (G5), A26 min-sample (G7), the threshold-pair rule (G1)."""
+    """Fix round 2: A44 (G5), A26 min-sample (G7), the threshold-pair rule (G1).
+    Fix round 3 additions: A26 short-sample now skips the share sub-check
+    internally without an n/a (H6), the away sub-check still gates on a short
+    sample (H6), and the steer band sits inside the A26 gate band (H5)."""
 
     def _run_cuts(self, cut_rows):
         run = hh.Run()
@@ -1503,17 +1506,39 @@ class TestFixRound2Harness(unittest.TestCase):
                               for i, c in enumerate([1, 2, 1, 2, 1, 2])])
         self.assertEqual(hh.detect_A44(None, run, P)[0], [])
 
-    # ---- A26 minimum sample (G7) -------------------------------------------
+    # ---- A26 minimum sample (G7 + H6) --------------------------------------
     def test_A26_min_share_sample(self):
         tr = derived(base_truth())
-        # a short human window (<300 s) with an out-of-band share: not judged
+        # a short human window (<300 s): the share sub-check is skipped
+        # INTERNALLY (H6) -- it emits neither a sub=="b" hit nor an n/a, so the
+        # away-shot sub-check alone decides the verdict. Here the human is on
+        # screen throughout, so there is no away hit and the run is a clean
+        # pass (empty hits, na is None), not an n/a that suppresses the row.
         run = make_run(shots=[(B, B + 40, 1, "advisory")],
                        manifest={"humans": 1})
         run.tool = "v3"
         hits, na = hh.detect_A26(tr, run, P)
         self.assertFalse(any(h.get("sub") == "b" for h in hits))
-        self.assertIsNotNone(na)
-        self.assertIn("sample", na)
+        self.assertIsNone(na)
+        self.assertEqual(hits, [])
+
+    def test_A26_short_sample_away_still_gates(self):
+        # H6: a short share sample must NOT excuse an over-long away shot. With
+        # the sole human off screen past the 20 s away limit and <300 s total,
+        # the away sub-check (a) still fires even though the share sub-check is
+        # skipped for the short sample.
+        tr = derived(base_truth())
+        # human 70 s of 100 s total (<300 s -> share skipped), with a 30 s away
+        # run mid-race that is not leader-excused: the away sub-check fires.
+        shots = [(B, B + 60, 1, "advisory"),
+                 (B + 60, B + 90, 0, "advisory"),   # 30 s away, not excused
+                 (B + 90, B + 100, 1, "advisory")]
+        run = make_run(shots=shots, manifest={"humans": 1})
+        run.tool = "v3"
+        hits, na = hh.detect_A26(tr, run, P)
+        self.assertTrue(any(h.get("sub") == "a" for h in hits))
+        self.assertFalse(any(h.get("sub") == "b" for h in hits))
+        self.assertIsNone(na)
 
     # ---- G1 threshold-pair rule --------------------------------------------
     def test_g1_thresholds_inside_detector_limits(self):
@@ -1539,6 +1564,27 @@ class TestFixRound2Harness(unittest.TestCase):
             self.assertLess(tv, dv,
                             "%s (%s) must sit strictly inside %s (%s)"
                             % (tk, tv, dk, dv))
+        # H5: the share controller steers to a band shrunk by
+        # share_band_inner_margin at each end; that inner band must sit
+        # strictly inside the DEC-8 gate band A26 measures, for every field
+        # size, so a settled share never rests on the gate edge.
+        margin = cam["share_band_inner_margin"]
+        gate = {r["min_humans"]: r["band"] for r in P["A26_bands"]}
+        for rule in cam["human_share_bands"]:
+            band = rule["band"]
+            if band is None:
+                continue
+            lo, hi = band
+            gband = gate.get(rule["min_humans"])
+            self.assertEqual(band, gband,
+                             "steer band %s must match A26 gate band %s for "
+                             "min_humans=%s" % (band, gband, rule["min_humans"]))
+            if hi - lo > 2 * margin:
+                ilo, ihi = lo + margin, hi - margin
+                self.assertGreater(ilo, lo)
+                self.assertLess(ihi, hi)
+                # and the inner band is non-empty
+                self.assertLess(ilo, ihi)
 
 
 if __name__ == "__main__":

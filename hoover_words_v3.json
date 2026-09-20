@@ -508,19 +508,19 @@
       "variants": [
         {
           "speaker": "ANALYST",
-          "present": "Track temperature {temp_track}, air {temp_air}."
+          "present": "Track temperature {temp_track} degrees, air {temp_air}."
         },
         {
           "speaker": "ANALYST",
-          "present": "It's {temp_track} on the track, {temp_air} in the air."
+          "present": "It's {temp_track} degrees on the track, {temp_air} in the air."
         },
         {
           "speaker": "LEAD",
-          "present": "Conditions steady, track at {temp_track}."
+          "present": "Conditions steady, track at {temp_track} degrees."
         },
         {
           "speaker": "ANALYST",
-          "present": "The track is reading {temp_track}."
+          "present": "The track is reading {temp_track} degrees."
         }
       ]
     },
