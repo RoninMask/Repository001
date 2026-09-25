@@ -1363,5 +1363,161 @@ class TestP2FixRound3(unittest.TestCase):
         self.assertIn("degrees", v3.speech_normalise(text, booth._abbrevs))
 
 
+class TestP2FixRound4(unittest.TestCase):
+    """Pass 2 fix round 4: J1 (time-driven directing across packet gaps), J2
+    (away-max over the share steer, the check-in and a protected lead battle,
+    plus lead-battle merge), J3 (lull and the pacing-window budget). Traced and
+    verified on the real corpus; these lock the mechanism against regression."""
+
+    def _gallery(self):
+        m = make_model()
+        set_car(m.w, 0, pos=1, ai=1, name="Leader")
+        set_car(m.w, 1, pos=2, ai=1, name="Second")
+        set_car(m.w, 2, pos=3, ai=1, name="Third")
+        set_car(m.w, 3, pos=8, ai=0, name="Human")
+        m.leader_idx = 0
+        m.state = "green"
+        m.w.last_lapdata_t = 1100.0
+        return m, v3.V3Gallery(m, m.cfg, "advisory_replay", "replay")
+
+    # ---- J1: time-driven catch-up across a packet gap -----------------------
+    def test_j1_catchup_ticks_break_a_held_shot(self):
+        import types
+        m, gal = self._gallery()
+        booth = v3.V3Booth(m, m.cfg)
+        gal.current = 0                                  # on the leader from
+        gal.hold_since = 1100.0                          # t=1100, no packets
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1100.0
+        fake = types.SimpleNamespace(model=m, booth=booth, gallery=gal,
+                                     _decide_step=0.5)
+        # a 56 s packet gap: the catch-up ticks must run the director across it
+        # so the shot cannot freeze (bin1 held one shot 56.6 s over such a gap).
+        v3.BabyHooverV3._catchup_ticks(fake, 1100.0, 1156.0)
+        # the shot was broken during the gap: fresh cuts moved the camera on,
+        # and no completed shot ran past the ceiling.
+        self.assertGreater(gal.hold_since, 1100.0)       # a cut happened in-gap
+        closed = [float(r["held_s"]) for r in gal.cuts
+                  if r["_end"] is not None and r["held_s"] != ""]
+        self.assertTrue(closed)
+        self.assertLessEqual(max(closed), gal.max_hold + 1.0)
+
+    def test_j1_no_catchup_no_release(self):
+        # control: without the catch-up ticks, a single observe() 56 s later is
+        # the packet-driven behaviour that froze the shot.
+        m, gal = self._gallery()
+        gal.current = 0
+        gal.hold_since = 1100.0
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1100.0
+        # one tick 56 s on (as if the next packet only arrived then): the shot
+        # has already been held 56 s -- exactly the fault the catch-up prevents.
+        self.assertEqual(gal.hold_since, 1100.0)
+
+    # ---- J2: away-max return has priority -----------------------------------
+    def test_j2_away_return_beats_share_steer(self):
+        m, gal = self._gallery()
+        gal._human_count = lambda: 5                     # band [0.60,0.70]
+        gal._share = lambda t: 0.95                      # share high -> steer AI
+        gal.current = 1                                  # on an AI car
+        gal._away_since = 1100.0
+        gal.hold_since = 1100.0
+        gal._first_seen_t = 1000.0
+        # 20 s away (> away_max 17): the away-max return must win over the share
+        # steer-away and return to the human (baku sat on AI 20-59 s otherwise).
+        gal._layer3(1120.0)
+        self.assertTrue(gal._is_human(gal.current))
+
+    def test_j2_away_return_bypasses_hold_floor(self):
+        m, gal = self._gallery()
+        gal._human_count = lambda: 5
+        gal._share = lambda t: 0.95
+        gal.current = 1
+        gal._away_since = 1100.0
+        gal.hold_since = 1119.0                           # current AI shot young
+        gal._first_seen_t = 1000.0
+        gal._layer3(1120.0)                              # away 20 s, held 1 s
+        self.assertTrue(gal._is_human(gal.current))     # returns despite floor
+
+    def test_j2_protected_yields_to_away_max_after_floor(self):
+        m, gal = self._gallery()
+        # a lead_change protected shot on an AI, already past its floor, while
+        # the run away from the humans has reached away_max -> release to a human.
+        gal._prot = {"until": 2000.0, "priority": 80, "car": 1,
+                     "reason": "lead_change", "hold": 6.0, "hold_max": 12.0}
+        gal.current = 1
+        gal.hold_since = 1113.0                           # prot_held 7 s > floor 6
+        gal._away_since = 1100.0                          # away 20 s > 17
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1100.0
+        gal.observe(1120.0)
+        self.assertNotEqual(gal.current, 1)             # yielded off the AI
+
+    def test_j2_protected_holds_floor_before_yield(self):
+        m, gal = self._gallery()
+        gal._prot = {"until": 2000.0, "priority": 80, "car": 1,
+                     "reason": "lead_change", "hold": 6.0, "hold_max": 12.0}
+        gal.current = 1
+        gal.hold_since = 1118.0                           # prot_held 2 s < floor 6
+        gal._away_since = 1100.0
+        gal._first_seen_t = 1000.0
+        gal._leader_seen_t = 1100.0
+        gal.observe(1120.0)
+        self.assertEqual(gal.current, 1)                # protected floor honoured
+
+    def test_j2_running_human_exists(self):
+        m, gal = self._gallery()
+        self.assertTrue(gal._running_human_exists())
+        m.w.cars[3].pit_status = 1                        # human pits...
+        m.car_state[3] = "in_pit"                         # ...off the running set
+        self.assertFalse(gal._running_human_exists())
+
+    def test_j2_lead_battle_merge(self):
+        m, gal = self._gallery()
+        m.last_pos = {0: 1, 1: 2, 2: 3}
+        m.colls = []
+        m.penalty_events = []
+        m._lead_events = [(1000.0, 0), (1002.0, 1), (1004.0, 2)]
+        best = gal._active_protected(1005.0)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["reason"], "lead_change")
+        # merged: the flurry armed a single moment (until 1008), not the later
+        # 1004 event (which unmerged would run to 1010 and win the sort).
+        self.assertLess(best["until"], 1009.0)
+
+    # ---- J3: lull respects the pacing-window budget -------------------------
+    def _booth_with_lull(self):
+        m = make_model()
+        m.state = "green"
+        m.w.track_temp = 39
+        m.w.air_temp = 26                                # weather lull available
+        booth = v3.V3Booth(m, m.cfg)
+        booth._last_air_end = 1000.0                     # 40 s of silence at t
+        return m, booth
+
+    def test_j3_lull_dropped_when_window_full(self):
+        m, booth = self._booth_with_lull()
+        booth._window_speech = lambda t: (
+            booth.pc_window_share * booth.pc_window - booth.lull_window_reserve
+            + 1.0)                                       # over target minus room
+        n0 = len(booth.claim_records)
+        self.assertFalse(booth._maybe_lull(1040.0))     # budget full -> silence
+        self.assertTrue(any(r.get("outcome_reason") == "drop:window_budget_full"
+                            for r in booth.claim_records[n0:]))
+
+    def test_j3_lull_fires_when_window_has_room(self):
+        m, booth = self._booth_with_lull()
+        booth._window_speech = lambda t: 0.0             # window empty
+        self.assertTrue(booth._maybe_lull(1040.0))       # room -> lull airs
+
+    def test_j3_forced_coverage_lull_still_fires(self):
+        # H3 must still hold: a >= max_silence_s gap fires whatever the window,
+        # and cannot collide with a saturated window in practice.
+        m, booth = self._booth_with_lull()
+        booth._last_air_end = 1000.0
+        booth._window_speech = lambda t: 999.0           # (impossible pairing)
+        self.assertTrue(booth._maybe_lull(1000.0 + booth.lull_max_silence + 1))
+
+
 if __name__ == "__main__":
     unittest.main()

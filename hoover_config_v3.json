@@ -421,7 +421,8 @@
         "LULL_WEATHER": 300,
         "LULL_PROGRESS": 90
       },
-      "max_silence_s": 50.0
+      "max_silence_s": 50.0,
+      "window_reserve_s": 4.0
     },
     "camera": {
       "roster_wait_max_s": 10.0,
@@ -510,7 +511,8 @@
         "incident_merge_s": 5.0
       },
       "share_hysteresis_s": 20.0,
-      "share_band_inner_margin": 0.03
+      "share_band_inner_margin": 0.03,
+      "lead_battle_merge_s": 8.0
     },
     "naming": {
       "fallback_order": [

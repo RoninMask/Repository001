@@ -4990,6 +4990,7 @@ class V3Booth:
         self.lull_after = ll.get("after_s", 20.0)
         self.lull_max_per_min = ll.get("max_per_minute", 1)
         self.lull_max_silence = ll.get("max_silence_s", 50.0)   # G1 coverage floor
+        self.lull_window_reserve = ll.get("window_reserve_s", 4.0)  # J3
         self.lull_cooldowns = ll.get("kind_cooldown_s", {}) or {}
         self._lull_times = []
         self._lull_kind_times = {}     # F10: last-aired time per lull kind
@@ -5194,7 +5195,13 @@ class V3Booth:
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
-            saturated = self._window_speech(t) >= self.pc_window_share * self.pc_window
+            # J3: the governor holds its own target (window_max_share) with room
+            # for the line about to air, so no single line tips a 60 s window
+            # past the target and over A23's limit (Austria packed 45.5 s of
+            # real calls into 60 s = 76 %). Reserving a line's worth keeps the
+            # busiest window under the target; only hard interrupts still bypass.
+            saturated = (self._window_speech(t) + self.lull_window_reserve
+                         >= self.pc_window_share * self.pc_window)
             best = None
             for c in self.queue:
                 v = self._validate(c, t)
@@ -5269,6 +5276,22 @@ class V3Booth:
                 avoid.discard("LULL_WEATHER")
         claim = self.model.build_lull(t, avoid=avoid)
         if claim is None:
+            return False
+        # J3: a lull is the lowest-priority line the booth can say, so it is the
+        # first thing the rolling-window budget refuses. Route it through the
+        # same window-load check as every other line (it is never a hard
+        # interrupt): a lull may air only if the trailing window plus room for
+        # the lull itself stays under the governor's target (window_max_share,
+        # inside A23's limit). Bypassing this let a filler line tip a 60 s window
+        # to 76 % (Austria). When the budget is full the correct outcome is
+        # silence -- record the drop and do not air. A forced coverage lull
+        # (a >= max_silence_s gap) cannot collide with a saturated window, so
+        # H3's silence coverage still holds.
+        if (not forced and self._window_speech(t) + self.lull_window_reserve
+                > self.pc_window_share * self.pc_window):
+            claim.outcome_reason = "drop:window_budget_full"
+            claim.outcome_t = t
+            self.claim_records.append(claim.record())
             return False
         # repetition guard applies to lull lines like any other -- except a
         # forced coverage lull, where covering the silence wins over variety.
@@ -5433,6 +5456,7 @@ class V3Gallery:
         self.band_inner_margin = cam.get("share_band_inner_margin", 0.03)
         self.prot_cfg = cam.get("protected", {})
         self.incident_merge_s = self.prot_cfg.get("incident_merge_s", 5.0)  # G3
+        self.lead_battle_merge_s = cam.get("lead_battle_merge_s", 8.0)       # J2
         self.share_hysteresis = cam.get("share_hysteresis_s", 20.0)         # G5
         self._prot = None
         self._leader_seen_t = None
@@ -5444,6 +5468,41 @@ class V3Gallery:
         self._steer_car = None         # G5: the car steered to
         self._steer_until = 0.0        # G5: commit to that shot until this t
         self.sender = None            # set on live (Part G); None on replay
+        # Debug: a per-tick observe() trace, off unless HOOVER_TRACE=lo:hi is
+        # set in the environment. No normal run sets it, so it never fires in
+        # the gate or in production; it exists only to diagnose the camera on a
+        # real capture (Fix Round 4). Prints to stderr.
+        self._trace_lo = self._trace_hi = None
+        _tw = os.environ.get("HOOVER_TRACE", "")
+        if ":" in _tw:
+            try:
+                lo, hi = _tw.split(":", 1)
+                self._trace_lo, self._trace_hi = float(lo), float(hi)
+            except ValueError:
+                self._trace_lo = self._trace_hi = None
+
+    def _trace(self, t, branch, ranked_n=None):
+        if self._trace_lo is None or not (self._trace_lo <= t <= self._trace_hi):
+            return
+        m = self.model
+        prot = self._prot
+        ps = ("None" if prot is None else
+              "%s/car%s/until%.2f/hmax%.2f" % (prot.get("reason"),
+              prot.get("car"), prot.get("until", 0.0),
+              prot.get("hold_max", 0.0)))
+        hs = self.hold_since
+        held = (t - hs) if hs is not None else -1.0
+        aw = self._away_since
+        away = (t - aw) if aw is not None else -1.0
+        curh = (self._is_human(self.current)
+                if self.current is not None else False)
+        sys.stderr.write(
+            "TRACE t=%.3f state=%s leader=%s cur=%s curH=%s hold_since=%s "
+            "held=%.2f away_since=%s away=%.2f prot=%s ranked=%s -> %s\n"
+            % (t, m.state, m.leader_idx, self.current, curh,
+               ("%.3f" % hs) if hs is not None else "None", held,
+               ("%.3f" % aw) if aw is not None else "None", away, ps,
+               ranked_n, branch))
 
     def attach_sender(self, sender):
         self.sender = sender
@@ -5478,6 +5537,22 @@ class V3Gallery:
     # ---- shared helpers ----------------------------------------------------
     def _is_human(self, idx):
         return bool(self.model.w.cars[idx].is_human)
+
+    def _running_human_exists(self):
+        """J2: is there a human the director could return to right now? Uses the
+        same on-track criteria as _score_field, so the away-max return never
+        releases a shot when no human is scorable (retired, in the pits, gone)."""
+        for c in self.model.w.cars:
+            if not c.seen or c.position <= 0 or not c.is_human:
+                continue
+            if self.model.is_retired(c.idx):
+                continue
+            if not self.model.running(c.idx) and c.result_status != 3:
+                continue
+            if c.result_status not in (0, 2, 3):
+                continue
+            return True
+        return False
 
     def _human_count(self):
         n = sum(1 for c in self.model.w.cars if c.seen and c.is_human)
@@ -5669,10 +5744,19 @@ class V3Gallery:
                 retired = any(i in m.retired_at for i in cars)
                 if top3 or retired:
                     add("collision_ai", inc["t0"], car, 55, 3.5)
+        # J2: merge a flurry of lead changes into one moment. A post-restart
+        # see-saw for the lead (Baku swapped 0<->2<->0 in ~12 s) otherwise
+        # chains a 6 s protected hold per change, holding the front for ~25 s
+        # away from the human leader (A26). One lead battle is one story: show
+        # it once, then the away-max return can take the camera back.
+        _last_lc = None
         for i in range(1, len(m._lead_events)):
             lt, leader = m._lead_events[i]
             prev_leader = m._lead_events[i - 1][1]
+            if _last_lc is not None and (lt - _last_lc) < self.lead_battle_merge_s:
+                continue
             add("lead_change", lt, prev_leader, 80, 6.0)
+            _last_lc = lt
         for (pt_t, car, human) in m.penalty_events:
             if human:
                 add("penalty_human", pt_t, car, 70, 4.0)
@@ -5698,10 +5782,12 @@ class V3Gallery:
             if m.leader_idx is not None:
                 reason = "red_flag" if m.state == "red_flag" else m.state
                 self._cut_if_new_reason(t, m.leader_idx, "protected", reason)
+            self._trace(t, "stopped_state")
             return
 
         # A2-3: no cut before the roster resolves (or the wait elapses)
         if self.current is None and not self._roster_ready(t):
+            self._trace(t, "roster_not_ready")
             return
 
         # layer 1: protected moments
@@ -5721,6 +5807,16 @@ class V3Gallery:
                              or t >= self._prot["until"]):
                 self._prot = best
         if self._prot is not None:
+            # J2: a mid/low-priority protected shot on a non-human must not keep
+            # the camera off the humans past away_max. During Baku's post-restart
+            # the lead swapped between two AI cars, chaining lead_change moments
+            # that held the front for ~25 s while the human leader ran elsewhere.
+            # When the away run reaches the limit and a running human exists to
+            # return to, release the moment so layer 3 cuts back; it re-arms next
+            # tick if still live, giving a brief human cut then back to the
+            # action. Only the top-priority moments (retirement and above:
+            # red flag, start, winner, safety car, retirement, human collision)
+            # override the away limit.
             # G4: a protected shot is capped at its hold_max (and never past
             # max_hold); past the cap it releases the camera to a lower layer so
             # a moment that keeps re-arming cannot freeze the shot (A39).
@@ -5728,14 +5824,33 @@ class V3Gallery:
                 self.hold_since is not None
                 and self.current == self._prot["car"]) else 0.0
             cap = min(self._prot.get("hold_max", 1e9), self.max_hold)
-            if t < self._prot["until"] and prot_held < cap:
+            # J2: a mid/low-priority protected shot on a non-human must not keep
+            # the camera off the humans past away_max. During Baku's post-restart
+            # the lead swapped between AI cars, chaining lead_change moments that
+            # held the front while the human leader ran elsewhere. Once the away
+            # run reaches the limit, cap the protected hold too -- but only after
+            # the moment has met its floor, so protected content still gets its
+            # guaranteed screen time (A43) before the camera returns to a human.
+            floor_reason = self._prot.get("hold", 0.0)
+            away_capped = (
+                self._away_since is not None
+                and (t - self._away_since) >= self.away_max
+                and prot_held >= floor_reason
+                and not self._is_human(self._prot["car"])
+                and self._prot.get("priority", 0)
+                < self.prot_cfg.get("retirement", {}).get("priority", 85)
+                and self._running_human_exists())
+            if t < self._prot["until"] and prot_held < cap and not away_capped:
                 # F4: hold the floor from when the shot goes on screen (the cut),
                 # not from the event a beat or two earlier.
                 if self._prot["car"] != self.current:
                     self._prot["until"] = t + self._prot.get("hold", 0.0)
                 self._cut_if_new(t, self._prot["car"], "protected",
                                  self._prot["reason"])
+                self._trace(t, "protected_hold")
                 return
+            if away_capped:
+                self._trace(t, "protected_yield_to_away_max")
             self._prot = None
 
         # A21: while the race is `finishing`, keep the winner on screen for its
@@ -5751,6 +5866,7 @@ class V3Gallery:
                 and t < m.leader_finish_t
                 + self.prot_cfg.get("winner", {}).get("hold_s", 5.0)):
             self._cut_if_new(t, m.road_winner, "protected", "winner")
+            self._trace(t, "a21_winner_hold")
             return
 
         if m.leader_idx is None:
@@ -5759,7 +5875,10 @@ class V3Gallery:
             # tick (not only at max_hold) so the director keeps cycling the
             # finishers and a released protected shot cannot linger to the flag.
             if m.state == "finishing":
+                self._trace(t, "leader_none_finishing->layer3")
                 self._layer3(t)
+            else:
+                self._trace(t, "leader_none_not_finishing")
             return
         if self._leader_seen_t is None:
             self._leader_seen_t = t
@@ -5770,19 +5889,37 @@ class V3Gallery:
         # a shot at the ceiling to layer 3 rather than re-holding the leader.
         if (self.hold_since is not None
                 and (t - self.hold_since) >= self.max_hold):
+            self._trace(t, "h4_ceiling->layer3")
+            self._layer3(t)
+            return
+
+        # J2: the away-max return also overrides a leader check-in. A check-in on
+        # an AI leader is a non-human shot; without this it extends a run away
+        # from the humans past away_max (s02: a 13 s AI shot fed into an 8 s
+        # leader check-in, 21 s off the human). Hand to layer 3, whose away
+        # logic returns to a human when one is available.
+        if (self._away_since is not None
+                and (t - self._away_since) >= self.away_max
+                and self.current is not None
+                and not self._is_human(self.current)
+                and self._running_human_exists()):
+            self._trace(t, "away_ceiling_over_checkin->layer3")
             self._layer3(t)
             return
 
         # layer 2: leader check-in
         if t < self._checkin_until:
             self._cut_if_new(t, m.leader_idx, "checkin", "leader_checkin")
+            self._trace(t, "checkin_active")
             return
         if (t - self._leader_seen_t) >= self.checkin_s:
             self._cut_if_new(t, m.leader_idx, "checkin", "leader_checkin")
             self._checkin_until = t + self.checkin_hold
+            self._trace(t, "checkin_due")
             return
 
         # layer 3: human-default scoring
+        self._trace(t, "fallthrough->layer3")
         self._layer3(t)
 
     def _layer3(self, t):
@@ -5802,6 +5939,11 @@ class V3Gallery:
                                 and c.idx != self.current), None)
                 if tgt is not None:
                     self._cut(t, tgt, "default", "leader", "")
+                    self._trace(t, "layer3_empty_cut_to_%s" % tgt, 0)
+                else:
+                    self._trace(t, "layer3_empty_no_target", 0)
+            else:
+                self._trace(t, "layer3_empty_below_ceiling", 0)
             return
         top_score = ranked[0]["score"]
         humans = [r for r in ranked if r["human"]]
@@ -5823,6 +5965,8 @@ class V3Gallery:
                           ranked[0])
             self._cut(t, forced["idx"], "default", forced["reason"],
                       forced["score"])
+            self._trace(t, "layer3_ceiling_forced_to_%s" % forced["idx"],
+                        len(ranked))
             return
 
         # G5: after a steering decision, commit to that shot for the hysteresis
@@ -5835,56 +5979,79 @@ class V3Gallery:
                         and self._away_since is not None
                         and (t - self._away_since) >= self.away_max)
             if not away_due:
+                self._trace(t, "layer3_steer_commit_hold(bh=%s)"%(best_h is not None), len(ranked))
                 return
 
         # F6: the DEC-8 share band is an active controller, not a preference.
-        # Below the floor -> steer to a human; above the ceiling -> steer AWAY
-        # to a non-human to bring the human share down. F5: an away shot past
-        # away_max returns to a human. Any of these overrides the score once the
-        # hold floor has passed, so the correction actually happens.
+        # Below the band -> steer to a human; above it -> steer AWAY to a
+        # non-human to bring the human share down. F5/J2: a run away from the
+        # humans past away_max returns to a human. Any of these overrides the
+        # score once the hold floor has passed, so the correction happens.
         correct = None
         steer = None                                 # "human" | "ai"
-        # H5: trigger against the inner band, not the raw DEC-8 edge, so the
-        # correction settles the share inside the band instead of on its limit.
-        sband = self._steer_band()
-        if sband is not None:
-            share = self._share(t)
-            if share is not None and share < sband[0] and best_h is not None:
-                steer, correct = "human", best_h     # too little human
-            elif share is not None and share > sband[1] and best_ai is not None:
-                steer, correct = "ai", best_ai       # too much human: go away
-        # G5: hysteresis. After a steer, hold that direction for
-        # share_hysteresis_s so a share nudging across the band edge does not
-        # ping-pong the camera between the same two cars.
-        if (steer is not None and self._steer_dir is not None
-                and t < self._steer_until and steer != self._steer_dir):
-            steer = correct = None
-        # G2: the away clock runs from the first non-human shot in a run away
-        # from the human, across consecutive AI cuts -- not reset each cut.
-        if (correct is None and not self._is_human(self.current)
-                and best_h is not None and self._away_since is not None
-                and (t - self._away_since) >= self.away_max):
+        # J2: the away-max return has PRIORITY over the share steer-away. A run
+        # away from the humans must end within away_max whenever a human is
+        # available to return to, whatever the share controller wants -- the old
+        # order let the steer-away set `correct` first, so the away return
+        # (guarded by `correct is None`) never fired and the camera sat on AI
+        # cars for 20-59 s while the human leader ran (baku). The brief return
+        # resets the away clock; the share steer may then go away again, so the
+        # share stays near band without any single away run exceeding the limit.
+        # It also overrides the G5 hysteresis commit for the same reason.
+        away_run = (not self._is_human(self.current) and best_h is not None
+                    and self._away_since is not None
+                    and (t - self._away_since) >= self.away_max)
+        if away_run:
             correct, steer = best_h, "human"
+        else:
+            # H5: trigger against the inner band, not the raw DEC-8 edge, so the
+            # correction settles the share inside the band, off its limit.
+            sband = self._steer_band()
+            if sband is not None:
+                share = self._share(t)
+                if share is not None and share < sband[0] and best_h is not None:
+                    steer, correct = "human", best_h     # too little human
+                elif share is not None and share > sband[1] \
+                        and best_ai is not None:
+                    steer, correct = "ai", best_ai       # too much human: away
+            # G5: hysteresis. After a steer, hold that direction for
+            # share_hysteresis_s so a share nudging across the band edge does
+            # not ping-pong the camera between the same two cars.
+            if (steer is not None and self._steer_dir is not None
+                    and t < self._steer_until and steer != self._steer_dir):
+                steer = correct = None
+        # J2: the away-max return bypasses the per-shot hold floor -- it is a
+        # hard safety (away_max 17 s sits only 3 s under A26's 20 s limit), so
+        # waiting out a floor on the last AI shot could push the run over.
         if correct is not None and correct["idx"] != self.current \
-                and held >= floor:
+                and (held >= floor or away_run):
             if steer is not None:
                 self._steer_dir = steer
                 self._steer_car = correct["idx"]
                 self._steer_until = t + self.share_hysteresis
             self._cut(t, correct["idx"], "default", correct["reason"],
                       correct["score"])
+            self._trace(t, "layer3_%s_cut_to_%s" % (steer or "away",
+                        correct["idx"]), len(ranked))
             return
 
         # normal: cut to the top candidate when it beats the current shot and
         # the hold floor has passed.
         target = ranked[0]
         if target["idx"] == self.current:
+            self._trace(t, "layer3_top_is_current_hold(bh=%s)"%(best_h is not None), len(ranked))
             return
         cur_score = next((r["score"] for r in ranked
                           if r["idx"] == self.current), -1.0)
         if held >= floor and target["score"] > cur_score + 1e-6:
             self._cut(t, target["idx"], "default", target["reason"],
                       target["score"])
+            self._trace(t, "layer3_normal_cut_to_%s" % target["idx"],
+                        len(ranked))
+        else:
+            self._trace(t, "layer3_normal_no_cut(held=%.1f floor=%.1f cur=%.1f "
+                        "top=%.1f)" % (held, floor, cur_score,
+                        target["score"]), len(ranked))
 
     # ---- cut mechanics -----------------------------------------------------
     def _cut_if_new(self, t, idx, layer, reason):
@@ -5963,6 +6130,10 @@ class BabyHooverV3:
         self.rec_start = None
         self.log_lines = []
         self.session_opened = False
+        # J1: the camera/booth run on a decide clock, so replay ticks them
+        # across packet gaps at this spacing (see run()); mirrors live directing.
+        self._decide_step = self.config.get(
+            "session", "decide_interval_s", default=0.5)
         self._guard_since = None
         self._fallback_order = self.config.get(
             "v3", "naming", "fallback_order",
@@ -6058,6 +6229,17 @@ class BabyHooverV3:
                 self.rec_start = t
                 self.model.rec_start = t
                 prev_arrival = t
+            # J1: directing is time-driven, not packet-driven. When the capture
+            # goes quiet -- cars parked after the leader finishes, the run-in to
+            # the flag -- packets can stop for tens of seconds; without ticks
+            # the last shot freezes on screen (bin1 held a protected shot 56.6 s
+            # across a packet gap) and silences go unfilled. Fire the missed
+            # camera/booth ticks across the gap so a held shot releases at its
+            # cap and the lull engine can still speak. Live mode already ticks
+            # on the wall clock; this makes replay match it.
+            elif self.session_opened and prev_arrival is not None \
+                    and t - prev_arrival > self._decide_step:
+                self._catchup_ticks(prev_arrival, t)
             if self.pace == "real" and prev_arrival is not None:
                 # Match recorded spacing. Scheduling still runs on arrival time
                 # (the model clock); only the wall-clock delivery cadence is
@@ -6071,6 +6253,23 @@ class BabyHooverV3:
             last_t = t
         self._close(last_t if last_t is not None else (self.rec_start or 0.0))
         return 0
+
+    def _catchup_ticks(self, prev, t):
+        """J1: advance the camera and booth across a packet gap at the decide
+        step, with no new packet data. The model clock moves, so a held shot
+        reaches its cap and releases and the lull engine can fill silence,
+        exactly as on the wall clock in live mode."""
+        step = self._decide_step
+        nt = prev + step
+        while nt < t:
+            self.model.observe(nt)
+            if self.model.claims_out:
+                for claim in self.model.claims_out:
+                    self.booth.take(claim)
+                self.model.claims_out = []
+            self.gallery.observe(nt)
+            self.booth.tick(nt)
+            nt += step
 
     def _feed(self, t, payload):
         if len(payload) < HEADER_SIZE:
