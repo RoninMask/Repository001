@@ -1587,5 +1587,77 @@ class TestFixRound2Harness(unittest.TestCase):
                 self.assertLess(ilo, ihi)
 
 
+class TestFixRound5Harness(unittest.TestCase):
+    """Fix round 5: K1 (the away rule only applies while a human is on track)
+    and K2 (DEC-8 rev 1 -- the one-human band ceiling is 0.50)."""
+
+    # ---- K1: away clock only runs while a human is on track ----------------
+    def test_k1_away_paused_while_sole_human_pits(self):
+        # The sole human pits; the camera stays on AI for 75 s but only 5 s of
+        # that overlaps on-track time, so the away run does not fault the
+        # director -- there was no human to cut to. Without K1 the raw 75 s span
+        # fires. (Away starts at B+25, clear of the LGOT leader exemption.)
+        tr = derived(base_truth())
+        tr.pit[1].add(B + 30, 1)          # human enters the pit at B+30
+        tr.pit[1].add(B + 100, 0)         # rejoins at the flag
+        run = make_run(shots=[(B, B + 25, 1, "advisory"),   # brief human shot
+                              (B + 25, B + 100, 0, "advisory")],  # then AI
+                       manifest={"humans": 1})
+        run.tool = "v3"
+        hits, _ = hh.detect_A26(tr, run, P)
+        self.assertFalse(any(h.get("sub") == "a" for h in hits))
+
+    def test_k1_reverse_on_track_human_ignored_still_fires(self):
+        # The human is on track throughout and ignored for 30 s -> still fires.
+        tr = derived(base_truth())        # car 1 human, pit 0 throughout
+        shots = [(B, B + 60, 1, "advisory"),
+                 (B + 60, B + 90, 0, "advisory"),   # 30 s away, human on track
+                 (B + 90, B + 100, 1, "advisory")]
+        hits, _ = hh.detect_A26(tr, make_run(shots=shots), P)
+        self.assertTrue(any(h.get("sub") == "a" for h in hits))
+
+    def test_k1_pause_named_in_evidence(self):
+        tr = derived(base_truth())
+        tr.pit[1].add(B + 55, 1)          # human on track B..B+55, then pits
+        tr.pit[1].add(B + 100, 0)
+        # away from B+20 (clear of LGOT): 35 s on-track (> 20, fires) then 45 s
+        # with the sole human pitted -- the evidence names the paused pit time.
+        run = make_run(shots=[(B, B + 20, 1, "advisory"),
+                              (B + 20, B + 100, 0, "advisory")],
+                       manifest={"humans": 1})
+        run.tool = "v3"
+        hits, _ = hh.detect_A26(tr, run, P)
+        away = [h for h in hits if h.get("sub") == "a"]
+        self.assertTrue(away)
+        self.assertIn("paused", away[0]["evidence"])
+
+    # ---- K2: DEC-8 rev 1, one-human band ceiling 0.50 ----------------------
+    def test_k2_one_human_band_is_0_25_to_0_50(self):
+        band1 = next(r["band"] for r in P["A26_bands"] if r["min_humans"] == 1)
+        self.assertEqual(band1, [0.25, 0.50])
+        import json as _json
+        with open(os.path.join(HERE, "..", "hoover_config_v3.json"),
+                  encoding="utf-8") as _cf:
+            bands = _json.load(_cf)["v3"]["camera"]["human_share_bands"]
+        cfg1 = next(r["band"] for r in bands if r["min_humans"] == 1)
+        self.assertEqual(cfg1, [0.25, 0.50])            # config and harness agree
+
+    def test_k2_forty_eight_percent_now_in_band(self):
+        tr = derived(base_truth())
+        Pb = dict(P, A26_min_share_sample_s=0, A26_away_s=9999)  # isolate share
+        run = make_run(shots=[(B, B + 48, 1, "advisory"),
+                              (B + 48, B + 100, 0, "advisory")],
+                       manifest={"humans": 1})
+        run.tool = "v3"
+        self.assertFalse(any(h.get("sub") == "b"
+                             for h in hh.detect_A26(tr, run, Pb)[0]))  # 48% in
+        run2 = make_run(shots=[(B, B + 52, 1, "advisory"),
+                               (B + 52, B + 100, 0, "advisory")],
+                        manifest={"humans": 1})
+        run2.tool = "v3"
+        self.assertTrue(any(h.get("sub") == "b"
+                            for h in hh.detect_A26(tr, run2, Pb)[0]))  # 52% out
+
+
 if __name__ == "__main__":
     unittest.main()

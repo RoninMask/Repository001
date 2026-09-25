@@ -103,7 +103,7 @@ PARAMS = {
         {"min_humans": 5, "band": [0.60, 0.70]},
         {"min_humans": 3, "band": [0.50, 0.65]},
         {"min_humans": 2, "band": [0.40, 0.60]},
-        {"min_humans": 1, "band": [0.25, 0.45]},
+        {"min_humans": 1, "band": [0.25, 0.50]},   # DEC-8 rev 1: ceiling 0.45->0.50
         {"min_humans": 0, "band": None},
     ],
     "A28_unseen_s": 180.0,
@@ -1975,6 +1975,54 @@ def _humans_running_intervals(truth):
     return [(start, max(rts))] if max(rts) > start else []
 
 
+def _union_intervals(ivals):
+    """Coalesce a list of (a, b) intervals into a sorted, non-overlapping set."""
+    ivals = sorted((a, b) for (a, b) in ivals if b > a)
+    out = []
+    for a, b in ivals:
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def _step_zero_intervals(series, start, end):
+    """Sub-intervals of [start, end] where a StepSeries reads 0 (here: pit
+    status 0 == on track). No sample (None) counts as 0, so a car with no pit
+    record is treated as on track throughout."""
+    if end <= start:
+        return []
+    if series is None or not series.times:
+        return [(start, end)]
+    bounds = sorted(set([start, end]
+                        + [t for t in series.times if start < t < end]))
+    out = []
+    for i in range(len(bounds) - 1):
+        a, b = bounds[i], bounds[i + 1]
+        v = series.at((a + b) / 2.0)
+        if v in (0, None):
+            out.append((a, b))
+    return _union_intervals(out)
+
+
+def _humans_ontrack_intervals(truth):
+    """K1: intervals during which at least one human is ON TRACK -- seen, not
+    yet retired, and not in the pit lane (pit_status == 0). The away rule only
+    applies while such a human exists for the director to cut to; when none does
+    (the sole human pits), the away clock has nothing to measure against."""
+    humans = truth.human_cars()
+    start, end = truth.capture_start, truth.capture_end
+    if not humans or start is None or end is None:
+        return []
+    per = []
+    for h in humans:
+        rt = truth.retired_at(h)
+        h_end = rt if rt is not None else end
+        per.extend(_step_zero_intervals(truth.pit.get(h), start, h_end))
+    return _union_intervals(per)
+
+
 def detect_A26(truth, run, p):
     """Human share: (a) continuous away shot over 20 s without the leader
     exemption; (b) human share of shot time outside 60-70%."""
@@ -1986,6 +2034,33 @@ def detect_A26(truth, run, p):
     hits = []
     away_lim = p["A26_away_s"]
     grace = p["A26_leader_grace_s"]
+    # K1: the away clock only runs while at least one human is ON TRACK (not
+    # retired, not in the pit lane). A run that spans a pit stop is measured on
+    # the on-track time either side, not the stop; a run wholly during a pit has
+    # no human to cut to and cannot fault the director.
+    ontrack = intersect_intervals(truth.green, _humans_ontrack_intervals(truth))
+
+    def _emit_away(a_start, a_end, all_leader):
+        raw = a_end - a_start
+        on = sum(b - x for (x, b) in
+                 intersect_intervals([(a_start, a_end)], ontrack))
+        paused = raw - on
+        if on <= away_lim:
+            return
+        excused = all_leader and any(0 <= a_start - et <= grace
+                                     for et in excuse_ts)
+        if excused:
+            return
+        ev = ("away [%.3f, %.3f]; leader exemption %s"
+              % (a_start, a_end,
+                 "checked" if all_leader else "not on leader"))
+        if paused > 0.05:
+            ev += ("; away clock paused %.1f s: no human on track" % paused)
+        hits.append(_hit(
+            t=a_start, sub="a",
+            reason="continuous away shot of %.1fs (limit %.0fs)"
+            % (on, away_lim),
+            evidence=ev))
 
     # Share band. V2 has no per-run human count and its E-* rows depend on the
     # original constant band, so V2 keeps that band (V2 has not changed). V3
@@ -2027,22 +2102,7 @@ def detect_A26(truth, run, p):
             if s.car_idx in human_set:
                 human_time += b - a
                 if away_start is not None:
-                    away_span = (prev_end or a) - away_start
-                    if away_span > away_lim:
-                        excused = (away_all_leader and any(
-                            0 <= away_start - et <= grace
-                            for et in excuse_ts))
-                        if not excused:
-                            hits.append(_hit(
-                                t=away_start, sub="a",
-                                reason="continuous away shot of %.1fs "
-                                       "(limit %.0fs)"
-                                % (away_span, away_lim),
-                                evidence="away [%.3f, %.3f]; leader "
-                                         "exemption %s"
-                                % (away_start, prev_end or a,
-                                   "checked" if away_all_leader
-                                   else "not on leader")))
+                    _emit_away(away_start, prev_end or a, away_all_leader)
                     away_start = None
                     away_all_leader = True
             else:
@@ -2053,16 +2113,7 @@ def detect_A26(truth, run, p):
                     away_all_leader = False
                 prev_end = b
     if away_start is not None and prev_end is not None:
-        away_span = prev_end - away_start
-        if away_span > away_lim:
-            excused = (away_all_leader and any(
-                0 <= away_start - et <= grace for et in excuse_ts))
-            if not excused:
-                hits.append(_hit(
-                    t=away_start, sub="a",
-                    reason="continuous away shot of %.1fs (limit %.0fs)"
-                    % (away_span, away_lim),
-                    evidence="away [%.3f, %.3f]" % (away_start, prev_end)))
+        _emit_away(away_start, prev_end, away_all_leader)
 
     # (b) share band — only when we know the human count and the band is set
     na = None
