@@ -4753,6 +4753,18 @@ def _ordinal_word(n):
     return _N2W_TENS.get(tens, "") + "-" + onesord[ones]
 
 
+def _cap_first_alpha(s):
+    """K3: upper-case the first alphabetic character of a finalised line. A
+    normalised number word landing at the start ("three point zero ...") reads
+    lower-case in script.txt and the SRT. Leading non-letters are skipped. Not
+    applied inside the normaliser, which also serves inline numbers where lower
+    case is correct."""
+    for i, ch in enumerate(s):
+        if ch.isalpha():
+            return s[:i] + ch.upper() + s[i + 1:] if ch.islower() else s
+    return s
+
+
 def speech_normalise(text, abbreviations=None):
     s = text
     for ab in sorted(abbreviations or [], key=len, reverse=True):
@@ -5091,6 +5103,9 @@ class V3Booth:
             ctx["speed"] = "%.0f" % (f.get("speed") or 0.0)
         elif k in ("CONTESTED", "LEAD_SETTLED"):
             ctx["swaps"] = _num_word(f.get("swaps", 0))
+            # K4: a discriminator so the words file can gate a singular noun
+            # ("one swap", "one time", "one change") against the plural.
+            fv["swaps_one"] = (f.get("swaps") == 1)
         elif k == "COLLAPSE":
             ctx["places"] = _num_word(f.get("places", 0))
             cause = f.get("cause")
@@ -5339,7 +5354,7 @@ class V3Booth:
                 if (t - et) <= self.rp_exact_window and txt == text:
                     self._drop(claim, "repeat:exact", t)
                     return
-        speech_text = speech_normalise(text, self._abbrevs)
+        speech_text = _cap_first_alpha(speech_normalise(text, self._abbrevs))
         wc = max(1, len(text.split()))
         duration = wc / self.rate
         gap = self._pacing_gap(claim)

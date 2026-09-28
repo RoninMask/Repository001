@@ -174,7 +174,13 @@
       "variants": [
         {
           "speaker": "ANALYST",
+          "when": {"swaps_one": false},
           "present": "After {swaps} swaps, {a} keeps the lead."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {"swaps_one": true},
+          "present": "After {swaps} swap, {a} keeps the lead."
         },
         {
           "speaker": "ANALYST",
@@ -190,11 +196,23 @@
       "variants": [
         {
           "speaker": "ANALYST",
+          "when": {"swaps_one": false},
           "present": "After {swaps} swaps, {a} is ahead of {b}."
         },
         {
           "speaker": "ANALYST",
+          "when": {"swaps_one": true},
+          "present": "After {swaps} swap, {a} is ahead of {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {"swaps_one": false},
           "present": "They have traded places {swaps} times, and {a} holds it over {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {"swaps_one": true},
+          "present": "They have traded places {swaps} time, and {a} holds it over {b}."
         },
         {
           "speaker": "LEAD",
@@ -210,7 +228,13 @@
         },
         {
           "speaker": "ANALYST",
+          "when": {"swaps_one": false},
           "present": "{swaps} changes later, {a} leads {b}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {"swaps_one": true},
+          "present": "{swaps} change later, {a} leads {b}."
         }
       ]
     },

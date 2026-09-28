@@ -1519,5 +1519,122 @@ class TestP2FixRound4(unittest.TestCase):
         self.assertTrue(booth._maybe_lull(1000.0 + booth.lull_max_silence + 1))
 
 
+class TestP2FixRound5Text(unittest.TestCase):
+    """Pass 2 fix round 5, text layer: K3 (sentence-initial capitalisation of a
+    normalised number) and K4 (number agreement on counted-noun lines)."""
+
+    # ---- K3 ----------------------------------------------------------------
+    def test_k3_cap_first_alpha(self):
+        self.assertEqual(
+            v3._cap_first_alpha("three point zero seconds covers Norris."),
+            "Three point zero seconds covers Norris.")          # number start
+        self.assertEqual(v3._cap_first_alpha("Norris takes Leclerc."),
+                         "Norris takes Leclerc.")                # name start
+        self.assertEqual(v3._cap_first_alpha("  two to go."), "  Two to go.")
+
+    def test_k3_finalisation_capitalises_number_start(self):
+        # the finalisation composition: normalise lower-cases the number word,
+        # then cap-first re-capitalises the sentence start.
+        text = "3 laps done, 2 to go."
+        sn = v3.speech_normalise(text, [])
+        self.assertTrue(sn[:1].islower())                       # "three ..."
+        self.assertTrue(v3._cap_first_alpha(sn)[:1].isupper())  # "Three ..."
+
+    def test_k3_midsentence_number_stays_lower(self):
+        sn = v3.speech_normalise("Gap is 3.0 seconds now.", [])
+        self.assertIn("three point zero", sn)                   # inline stays low
+
+    # ---- K4 ----------------------------------------------------------------
+    def _render(self, booth, kind, subs, names, swaps, rot=0):
+        booth.words._rot = {kind: rot}
+        c = v3.Claim(kind, v3.CLASS_ACTION, subs, names, 1200.0,
+                     facts={"swaps": swaps})
+        return booth._text(c, False)[1]
+
+    def test_k4_lead_settled_swap_agreement(self):
+        m = make_model(); m.state = "green"
+        booth = v3.V3Booth(m, m.cfg)
+        self.assertIn("one swap,", self._render(booth, "LEAD_SETTLED", [0],
+                                                ["N"], 1))
+        self.assertNotIn("one swaps", self._render(booth, "LEAD_SETTLED", [0],
+                                                   ["N"], 1))
+        self.assertIn("two swaps,", self._render(booth, "LEAD_SETTLED", [0],
+                                                 ["N"], 2))
+        self.assertIn("zero swaps,", self._render(booth, "LEAD_SETTLED", [0],
+                                                  ["N"], 0))
+
+    def test_k4_contested_no_plural_mismatch_at_one(self):
+        m = make_model(); m.state = "green"
+        booth = v3.V3Booth(m, m.cfg)
+        # sweep every rotation position so each counted-noun variant is exercised
+        seen = {self._render(booth, "CONTESTED", [0, 1], ["N", "L"], 1, r)
+                for r in range(10)}
+        joined = " || ".join(seen).lower()
+        for bad in ("one swaps", "one times", "one changes"):
+            self.assertNotIn(bad, joined)
+        # and the singular forms are reachable
+        self.assertIn("one swap,", joined)
+        self.assertIn("one time,", joined)
+        self.assertIn("one change later", joined)
+
+    def test_k4_contested_plural_at_two(self):
+        m = make_model(); m.state = "green"
+        booth = v3.V3Booth(m, m.cfg)
+        seen = {self._render(booth, "CONTESTED", [0, 1], ["N", "L"], 2, r)
+                for r in range(10)}
+        joined = " || ".join(seen).lower()
+        self.assertIn("two swaps,", joined)
+        self.assertIn("two times,", joined)
+        self.assertIn("two changes later", joined)
+
+    def test_k4_every_counted_noun_has_singular(self):
+        # Audit across EVERY counted-noun template (§4), not just the swap line.
+        import json as _json
+        with open(CFG_PATH.replace("hoover_config_v3.json",
+                                   "hoover_words_v3.json"),
+                  encoding="utf-8") as wf:
+            words = _json.load(wf)
+        kinds = words["kinds"]
+
+        # (1) swap family: each plural {swaps} template has a matched
+        #     {swaps_one:true} singular twin (the K4 fix).
+        for kind in ("LEAD_SETTLED", "CONTESTED"):
+            vs = kinds[kind]["variants"]
+            plural = [v for v in vs if "{swaps}" in v["present"]
+                      and (v.get("when") or {}).get("swaps_one") is False]
+            singular = [v for v in vs if "{swaps}" in v["present"]
+                        and (v.get("when") or {}).get("swaps_one") is True]
+            self.assertEqual(len(plural), len(singular),
+                             "%s: %d plural vs %d singular {swaps} templates"
+                             % (kind, len(plural), len(singular)))
+            self.assertTrue(plural)
+
+        # (2) COLLAPSE {places}: floored, so it can never render "one places".
+        #     The detector only emits when lost >= collapse_places (>= 2), so a
+        #     singular twin is not needed and none is expected.
+        with open(CFG_PATH, encoding="utf-8") as cf:
+            cfg = _json.load(cf)
+        collapse_places = cfg["v3"]["passes"]["collapse_places"]
+        self.assertGreaterEqual(collapse_places, 2,
+                                "COLLAPSE {places} must be floored above 1")
+
+        # (3) Documented Pass-3 follow-up (hand-back K4 audit): LULL_PROGRESS
+        #     {places} and LULL_DISTANCE {laps} CAN render 1 but have no singular
+        #     twin. This is a deliberate known gap kept out of the closing round;
+        #     not exercised by any of the six real captures. If a twin is ever
+        #     added here, update the hand-back audit table to match.
+        for kind, slot in (("LULL_PROGRESS", "{places}"),
+                           ("LULL_DISTANCE", "{laps}")):
+            vs = kinds[kind]["variants"]
+            has_singular = any(slot in v["present"]
+                               and (v.get("when") or {}).get(
+                                   "places_one" if slot == "{places}"
+                                   else "laps_one") is True
+                               for v in vs)
+            self.assertFalse(has_singular,
+                             "%s grew a singular %s twin -- update the hand-back "
+                             "K4 audit (this gap is now closed)" % (kind, slot))
+
+
 if __name__ == "__main__":
     unittest.main()
