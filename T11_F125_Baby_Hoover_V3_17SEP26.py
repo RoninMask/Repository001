@@ -61,6 +61,7 @@ import argparse
 import binascii
 import bisect
 import collections
+import concurrent.futures
 import csv
 import hashlib
 import json
@@ -3732,9 +3733,13 @@ class Claim:
         self.outcome_reason = None
         self.outcome_t = None
         self.line_id = None
+        # Pass 3 Part P: writer meta + latency stamps, attached only when the
+        # model was involved. Left None for a template line so its claim record
+        # stays byte-identical to the pre-Pass-3 output (acceptance item 1).
+        self.writer_meta = None
 
     def record(self):
-        return {
+        rec = {
             "claim_id": self.claim_id, "kind": self.kind,
             "subjects": self.subjects, "facts": self.facts,
             "provenance": self.provenance, "created_t_unix": round(self.t_create, 6),
@@ -3742,6 +3747,9 @@ class Claim:
             "outcome_t_unix": (round(self.outcome_t, 6)
                                if self.outcome_t is not None else None),
         }
+        if self.writer_meta:
+            rec["writer"] = self.writer_meta
+        return rec
 
 
 def _step_at(times, values, t):
@@ -5007,10 +5015,23 @@ class V3Booth:
         self._lull_times = []
         self._lull_kind_times = {}     # F10: last-aired time per lull kind
         self._weather_aired = None     # F14: (track_temp, air_temp) last aired
+        # Part L: the writer seam. TemplateWriter is the default and the
+        # guaranteed fallback; BabyHooverV3 may replace it with a model/hybrid
+        # writer per --writer after construction.
+        wr = config.get("v3", "writer", default={}) or {}
+        self._recent_n = wr.get("recent_lines", 4)
+        self.writer = TemplateWriter(self)
+        self._last_line_result = None
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
         self.queue.append(claim)
+        # Part N: fire the model round trip the moment the claim enters the
+        # queue, so it happens inside the queue wait that already exists. The
+        # template writer's submit() is a no-op.
+        if self.writer.needs_blob:
+            self.writer.submit(
+                self._line_request(claim, past=False, t=claim.t_create))
 
     def _max_age_for(self, claim):
         return self.max_age.get(claim.max_age_key, self.max_age.get("default", 12.0))
@@ -5153,6 +5174,50 @@ class V3Booth:
         speaker, text, tmpl_key = res
         self._last_template = tmpl_key
         return speaker, text
+
+    # ---- Part L: the writer seam -------------------------------------------
+    def _line_request(self, claim, past, t):
+        """Assemble a LineRequest. The heavy state blob and recent-line snapshot
+        are built only when a model writer is active, so the template path pays
+        nothing for the seam."""
+        blob = speaker = deadline = None
+        word_budget = 0
+        recent = ()
+        if self.writer.needs_blob:
+            blob = build_state_blob(claim, self.model)
+            speaker = self._model_speaker(claim)
+            word_budget = self._word_budget_words(claim)
+            recent = tuple((r["speaker"], r["text"])
+                           for r in self.emitted[-self._recent_n:])
+            # The deadline is in MODEL time (the pacing governor's clock): the
+            # latest the claim could still air before it expires. The call site
+            # converts it to a wall-clock socket timeout using the replay rate.
+            deadline = claim.t_create + self._max_age_for(claim)
+        return LineRequest(claim, past, self._avoid_templates(t),
+                           blob=blob, speaker=speaker, register=None,
+                           word_budget=word_budget, recent=recent,
+                           deadline=deadline, t=t)
+
+    def _model_speaker(self, claim):
+        """The speaker for a MODEL line, decided at enqueue. In V3 the words file
+        couples speaker to template selection, but a model line is written before
+        any template is drawn, so pick deterministically from the kind's first
+        variant (the words file's own leading voice for that kind)."""
+        entry = self.words.kinds.get(claim.kind) or {}
+        for v in entry.get("variants", []):
+            sp = v.get("speaker")
+            if sp:
+                return sp
+        return claim.speaker or "LEAD"
+
+    def _word_budget_words(self, claim):
+        """The governor's word allowance for this slot, as an integer word count
+        (Part M). The slot is owned in SECONDS; convert to words through the
+        two-term duration model, per-kind slot seconds overriding the default."""
+        wr = self.cfg.get("v3", "writer", default={}) or {}
+        slot_s = (wr.get("slot_budget_by_kind", {}) or {}).get(
+            claim.kind, wr.get("slot_budget_s", 8.0))
+        return words_for_duration(slot_s, self.cfg)
 
     # ---- pacing + repetition helpers ---------------------------------------
     def _window_speech(self, t):
@@ -5340,9 +5405,10 @@ class V3Booth:
         if claim.kind == "WINNER":
             self._winner_named = True
         past = (t - claim.t_create) > 8.0 and claim.demotable
-        speaker, text = self._text(claim, past,
-                                   avoid_templates=self._avoid_templates(t))
-        tmpl_key = self._last_template
+        result = self.writer.write_line(self._line_request(claim, past, t))
+        speaker, text = result.speaker, result.text
+        tmpl_key = result.template_id
+        self._last_line_result = result
         # F-2: every line starts with a capital (never a lower-case letter).
         if text[:1].islower():
             raise WordsFileError("line for %s starts lower-case: %r"
@@ -5401,6 +5467,34 @@ class V3Booth:
             "cause": ({"text": cause["text"], "provenance": cause["provenance"]}
                       if cause else None),
         }
+        # Part O/P: which writer wrote the line, and the latency stamps.
+        result = self._last_line_result
+        if result is not None:
+            stamps = dict(result.stamps or {})
+            stamps["t_air"] = round(air_t, 6)          # model clock (deterministic)
+            if "t_checked" in stamps:                   # a network run: add wall t_air
+                stamps["t_air_wall"] = round(time.time(), 6)
+            writer_meta = {
+                "writer": result.writer,
+                "model_id": result.model_id,
+                "prompt_version": result.prompt_version,
+                "cache_hit": result.cache_hit,
+                "dropped_reason": result.dropped_reason,
+                "latency_ms": (round(result.latency_ms, 3)
+                               if result.latency_ms is not None else None),
+                "stamps": stamps,
+            }
+            rec["writer"] = result.writer
+            rec["model_id"] = result.model_id
+            rec["prompt_version"] = result.prompt_version
+            rec["cache_hit"] = result.cache_hit
+            rec["dropped_reason"] = result.dropped_reason
+            rec["stamps"] = stamps
+            # the claim record carries the stamps only when the model was
+            # involved (writer != template), so a template line's claim record
+            # stays byte-identical to the pre-Pass-3 output.
+            if result.writer != "template":
+                claim.writer_meta = writer_meta
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -5423,6 +5517,771 @@ class V3Booth:
                 c.outcome_t = t
                 self.claim_records.append(c.record())
 # === BOOTH END ===
+
+
+# =============================================================================
+# SECTION 16 -- THE WRITER SEAM (Pass 3, Parts L-Q)
+# =============================================================================
+# Pass 3 puts a seam under line-writing so a language model MAY write a line in
+# place of the words file, proves the plumbing end to end, and measures what it
+# costs in time. It does NOT try to make the commentary good.
+#
+# The property that must survive: the booth never says anything untrue. The
+# model is NOT trusted. It is handed a state blob it may not exceed, and every
+# completion is checked against that blob before it can air. A completion that
+# fails the check is discarded and the template fires in its place. A dropped
+# completion is a normal outcome, not an error -- counted, not worked around.
+#
+# The seam is Writer.write_line(request) -> LineResult. TemplateWriter is the
+# current words-file path moved behind it, byte-identical (acceptance item 1).
+# ModelWriter (Part N) and HybridWriter route per config. Nothing downstream can
+# tell which writer wrote a line: script.txt, the SRT and the audio kit are
+# identical in FORMAT whichever writer produced the line.
+
+
+# --- Part M: the duration model (calibration, not improvement) ---------------
+def _duration_model(cfg):
+    dm = {}
+    if cfg is not None:
+        dm = cfg.get("v3", "speech", "duration_model", default={}) or {}
+    return (dm.get("overhead_s", 0.590),
+            dm.get("seconds_per_word", 0.246),
+            dm.get("fallback_wps", 2.92))
+
+
+def words_for_duration(budget_s, cfg):
+    """The word budget is a DURATION budget: convert a slot in seconds to an
+    integer word count through the two-term model, floored (Part M)."""
+    overhead, spw, fallback = _duration_model(cfg)
+    if spw <= 0:
+        return max(1, int(budget_s * fallback))
+    return max(1, int((budget_s - overhead) / spw))
+
+
+def duration_two_term(words, cfg):
+    """The honest per-line duration estimate: 0.590 s of fixed overhead plus
+    ~0.246 s per word (Part M). Available for reporting and, when the config's
+    apply_to_est_duration is set, for est_duration_s itself."""
+    overhead, spw, _ = _duration_model(cfg)
+    return overhead + spw * max(0, words)
+
+
+# --- Part M: the number-word vocabulary (for allowed_words and the checker) ---
+def _build_number_vocab():
+    toks = set()
+    for n in range(0, 1000):
+        for w in re.split(r"[ \-]", _num2words(n)):
+            if w:
+                toks.add(w)
+    for n in range(1, 100):
+        for w in re.split(r"[ \-]", _ordinal_word(n)):
+            if w:
+                toks.add(w)
+    toks.discard("and")     # structural: appears in ordinary English too
+    return toks
+
+
+NUMBER_WORDS = _build_number_vocab()
+
+
+# --- Part M: the state blob (the only source of names and numbers) -----------
+_ROLES = {
+    "PASS": ["overtaker", "overtaken"],
+    "LEAD_CHANGE": ["new_leader", "former_leader"],
+    "CONTESTED": ["ahead", "behind"],
+    "BATTLE": ["ahead", "behind"],
+    "WARNING": ["ahead", "behind"],
+    "LULL_GAP": ["ahead", "behind"],
+}
+
+# Fact keys carrying a number we may speak. Everything else on facts stays out
+# of the blob's numbers (and so out of allowed_words), which the checker treats
+# as un-sayable -- the safe direction.
+_NUMERIC_FACT_KEYS = ("lap", "total_laps", "laps", "remaining",
+                      "laps_remaining", "gap", "gap_s", "swaps", "places",
+                      "seconds", "speed")
+
+
+def _role_for(kind, i):
+    r = _ROLES.get(kind)
+    if r and i < len(r):
+        return r[i]
+    return "subject" if i == 0 else "other"
+
+
+def _round_number(key, v):
+    if key in ("gap", "gap_s"):
+        return round(float(v), 1)
+    if key == "speed":
+        return int(round(float(v)))
+    if key in ("lap", "total_laps", "laps", "remaining", "laps_remaining",
+               "swaps", "places", "seconds"):
+        return int(round(float(v)))
+    return round(float(v), 1)
+
+
+def _fmt_number(v):
+    if isinstance(v, float) and abs(v - round(v)) > 1e-9:
+        return "%.1f" % v
+    return str(int(round(v)))
+
+
+def _blob_allowed_words(subs, numbers):
+    """The spoken forms of every proper noun and every number in the blob,
+    generated by the SAME speech-normalisation code the speech path uses (A41),
+    so the checker and the synthesiser agree on 'fourteen' versus '14'."""
+    words = []
+    for s in subs:
+        if s.get("say"):
+            words.append(s["say"])
+        if s.get("position"):
+            words.append(_ordinal_word(int(s["position"])))
+    for _k, v in numbers.items():
+        try:
+            words.append(speech_normalise(_fmt_number(v)))
+        except Exception:
+            pass
+    seen, out = set(), []
+    for w in words:
+        if w and w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+def build_state_blob(claim, model):
+    """The contract (Part M). A model may use ONLY what is in here, and the
+    checker enforces it. Built by ONE function, used by both writers, so there is
+    exactly one place where facts leave the race model. Every `say` is a resolved
+    spoken name (never a raw driver name or a car index); numbers appear once,
+    already rounded to the precision we speak."""
+    names = claim.names or []
+    subs = []
+    for i, idx in enumerate(claim.subjects):
+        say = names[i] if i < len(names) else None
+        pos = None
+        try:
+            pos = model.classified_pos(idx)
+        except Exception:
+            pos = None
+        if pos is None:
+            lp = getattr(model, "last_pos", None)
+            if lp is not None:
+                pos = lp.get(idx)
+        subs.append({"role": _role_for(claim.kind, i), "say": say,
+                     "position": pos, "car_index": idx})
+    numbers = {}
+    for k, v in (claim.facts or {}).items():
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)) and k in _NUMERIC_FACT_KEYS:
+            numbers[k] = _round_number(k, v)
+    world = getattr(model, "w", None)
+    track = (getattr(world, "track_name", None)
+             or getattr(world, "track", None)) if world is not None else None
+    laps_rem = numbers.get("remaining", numbers.get("laps_remaining"))
+    session = {"track": track, "phase": getattr(model, "state", None),
+               "laps_remaining": laps_rem}
+    return {
+        "claim_kind": claim.kind,
+        "outcome": claim.outcome or "CONFIRMED",
+        "subjects": subs,
+        "numbers": numbers,
+        "session": session,
+        "allowed_words": _blob_allowed_words(subs, numbers),
+    }
+
+
+# --- Part M: the checker (a rejected completion is a normal outcome) ----------
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+
+
+def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
+    """(ok, reason). A completion is rejected on any failing rule below. NEVER
+    repair a completion -- a patched hallucination is still a hallucination with
+    better grammar; return (False, reason) and let the template fire."""
+    if not text or not text.strip():
+        return (False, "empty")
+    # a digit means a number we did not give, or a bypass of normalisation
+    if any(ch.isdigit() for ch in text):
+        return (False, "digit")
+
+    allowed = set()
+    for w in (blob or {}).get("allowed_words", []):
+        for part in str(w).split(" "):
+            if part:
+                allowed.add(part.lower())
+
+    caps_ok, banned, slack = {"i", "ok"}, [], 2
+    if cfg is not None:
+        wr = cfg.get("v3", "writer", default={}) or {}
+        caps_ok = {c.lower() for c in
+                   wr.get("sentence_initial_caps_ok", ["I", "OK"])}
+        banned = wr.get("banned_constructions", []) or []
+        slack = wr.get("budget_slack_words", 2)
+
+    stripped = text.strip()
+    # a whole line wrapped in quotation marks, or an em-dash-led aside
+    if len(stripped) >= 2 and stripped[0] in "\"'" and stripped[-1] in "\"'":
+        return (False, "wrapped_quotes")
+    if "—" in text or "–" in text or " -- " in text:
+        return (False, "em_dash_aside")
+    low_all = stripped.lower()
+    for b in banned:
+        if b and b.lower() in low_all:
+            return (False, "banned:%s" % (b.strip() or b))
+
+    tokens = _WORD_RE.findall(text)
+    for i, tok in enumerate(tokens):
+        low = tok.lower()
+        parts = low.split("-")
+        # number-word check (no sentence-initial exemption: every number must
+        # have been given). Composed forms ("twenty-five") split on the hyphen.
+        if any(p in NUMBER_WORDS for p in parts):
+            if low not in allowed and not all(p in allowed for p in parts):
+                return (False, "number_word:%s" % tok)
+            continue
+        # name / capitalised-token check -- the one that matters
+        if tok[:1].isupper():
+            if i == 0:
+                continue                       # sentence-initial exemption
+            base = low[:-2] if low.endswith("'s") else low.rstrip("'")
+            if base in caps_ok or low in caps_ok:
+                continue
+            if base not in allowed and low not in allowed:
+                return (False, "unknown_name:%s" % tok)
+
+    if word_budget:
+        wc = len(text.split())
+        if wc > word_budget + slack:
+            return (False, "over_budget:%d>%d" % (wc, word_budget + slack))
+
+    for (_sp, rtext) in recent:
+        if rtext and rtext.strip() == stripped:
+            return (False, "repeat_exact")
+
+    return (True, None)
+
+
+class LineRequest:
+    """Everything a writer may see, and nothing else (Part L)."""
+    __slots__ = ("claim", "past", "avoid_templates", "blob", "speaker",
+                 "register", "word_budget", "recent", "deadline", "t")
+
+    def __init__(self, claim, past, avoid_templates, blob=None, speaker=None,
+                 register=None, word_budget=0, recent=(), deadline=None, t=None):
+        self.claim = claim
+        self.past = past
+        self.avoid_templates = avoid_templates
+        self.blob = blob                # the state blob (Part M); None if unused
+        self.speaker = speaker          # LEAD / ANALYST, decided upstream
+        self.register = register
+        self.word_budget = word_budget  # integer; the governor's slot allowance
+        self.recent = tuple(recent)     # ((speaker, text), ...) last N aired
+        self.deadline = deadline        # model-clock time after which useless
+        self.t = t                      # model-clock time this request was built
+
+    @property
+    def claim_id(self):
+        return self.claim.claim_id
+
+    @property
+    def kind(self):
+        return self.claim.kind
+
+    @property
+    def outcome(self):
+        return self.claim.outcome
+
+
+class LineResult:
+    """What a writer returns (Part L). `writer` is template / model / fallback."""
+    __slots__ = ("text", "speaker", "writer", "template_id", "latency_ms",
+                 "dropped_reason", "prompt_version", "model_id", "cache_hit",
+                 "stamps")
+
+    def __init__(self, text, speaker, writer, template_id=None, latency_ms=None,
+                 dropped_reason=None, prompt_version=None, model_id=None,
+                 cache_hit=None, stamps=None):
+        self.text = text
+        self.speaker = speaker
+        self.writer = writer
+        self.template_id = template_id
+        self.latency_ms = latency_ms
+        self.dropped_reason = dropped_reason
+        self.prompt_version = prompt_version
+        self.model_id = model_id
+        self.cache_hit = cache_hit
+        self.stamps = stamps or {}     # Part P: t_request/t_response/t_checked...
+
+
+class Writer:
+    """The seam base. write_line(request) -> LineResult."""
+    needs_blob = False
+
+    def submit(self, request):
+        """Optional pre-warm hook, called when a claim ENTERS the queue so an
+        async writer's round trip happens inside the queue wait that already
+        exists (Part N). The default writer does nothing here."""
+        return None
+
+    def write_line(self, request):        # -> LineResult
+        raise NotImplementedError
+
+    def stats(self):
+        """Return a run summary dict (Part O). Empty for the template writer."""
+        return {}
+
+    def close(self):
+        return None
+
+
+class TemplateWriter(Writer):
+    """The current words-file path, moved behind the seam and NOT otherwise
+    changed. Its output is byte-identical to the pre-seam booth: it makes the
+    exact same _text() call, in the same order, against the same rotation
+    state (acceptance item 1)."""
+    needs_blob = False
+
+    def __init__(self, booth):
+        self.booth = booth
+
+    def write_line(self, request):
+        speaker, text = self.booth._text(
+            request.claim, request.past,
+            avoid_templates=request.avoid_templates)
+        return LineResult(text=text, speaker=speaker, writer="template",
+                          template_id=self.booth._last_template)
+
+
+V3_PROMPTS_NAME = "hoover_prompts_v3.json"
+
+
+def _find_prompts_file(config):
+    """The prompt file lives beside the tool, like the config and words file."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(here, V3_PROMPTS_NAME)
+
+
+def _claim_wire_t(claim):
+    """t_wire: when the packet carrying the event arrived (the min provenance
+    t_unix). On the model clock, same frame as the air time, so t_wire -> t_air
+    is the queue wait -- the budget the round trip hides inside."""
+    ts = [p.get("t_unix") for p in (claim.provenance or [])
+          if isinstance(p, dict) and p.get("t_unix") is not None]
+    return round(min(ts), 6) if ts else None
+
+
+class CompletionCache:
+    """Part Q. Keyed on sha256(prompt_version + model_id + canonical_json(blob)
+    + recent). A hit means no request is made, so a warm cache makes the model
+    path byte-deterministic (and lets CI gate model output with no key). Writes
+    are atomic (temp file, rename). The cache is an artefact, not a repo file --
+    nothing here is committed."""
+
+    def __init__(self, path):
+        self.path = path
+        self.data = {}
+        self.dirty = False
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    self.data = json.load(f)
+            except Exception:
+                self.data = {}
+
+    @staticmethod
+    def key(prompt_version, model_id, blob, recent):
+        payload = json.dumps(
+            {"prompt_version": prompt_version, "model_id": model_id,
+             "blob": blob, "recent": [list(r) for r in recent]},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def get(self, key):
+        return self.data.get(key)
+
+    def put(self, key, value):
+        if self.data.get(key) != value:
+            self.data[key] = value
+            self.dirty = True
+
+    def flush(self):
+        if not (self.path and self.dirty):
+            return
+        d = os.path.dirname(self.path)
+        if d and not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, sort_keys=True, indent=0)
+        os.replace(tmp, self.path)
+        self.dirty = False
+
+
+class ModelWriter(Writer):
+    """Part N. Writes a line with a small, fast language model, standard library
+    only (http.client/urllib -- no SDK, no requests). The request is issued when
+    the claim ENTERS the queue, so the round trip happens inside the queue wait
+    that already exists; at air time the future is resolved against the deadline.
+    Every completion is checked (Part M) before it can air; a rejected or late
+    completion falls back to the template it would have aired anyway. The decide
+    loop never blocks unbounded: the socket timeout is the deadline."""
+    needs_blob = True
+
+    def __init__(self, booth, config, args, log=None, transport=None):
+        self.booth = booth
+        self.cfg = config
+        self.log = log or (lambda m: None)
+        mc = config.get("v3", "model", default={}) or {}
+        self.model_id = getattr(args, "model", None) or mc.get(
+            "model", "claude-haiku-4-5-20251001")
+        self.endpoint = mc.get("endpoint",
+                               "https://api.anthropic.com/v1/messages")
+        self.api_version = mc.get("anthropic_version", "2023-06-01")
+        self.max_tokens = mc.get("max_tokens", 60)
+        self.temperature = mc.get("temperature", 0.4)
+        self.stop = mc.get("stop_sequences", ["\n"])
+        self.max_workers = mc.get("max_workers", 2)
+        self.min_timeout = mc.get("min_socket_timeout_s", 0.2)
+        self.fast_timeout = mc.get("fast_mode_timeout_s", 5.0)
+        self.cache_only = bool(getattr(args, "cache_only", False))
+        self.limit = int(getattr(args, "limit_model_lines", 0) or 0)
+        self.pace = getattr(args, "pace", "fast")
+        self.pace_scale = getattr(args, "pace_scale", 1.0) or 1.0
+        # the prompt -- versioned, held in a file, iterated on without a code change
+        with open(_find_prompts_file(config), encoding="utf-8") as f:
+            pd = json.load(f)
+        self.prompt_version = pd.get("prompt_version", "unversioned")
+        self.system = pd.get("system", "")
+        self.user_preamble = pd.get("user_preamble", "")
+        # the API key: read once from --key-var, never stored where it could be
+        # written out, never logged, never in an error message.
+        self.key_var = getattr(args, "key_var", "ANTHROPIC_API_KEY")
+        self._api_key = os.environ.get(self.key_var)
+        self._transport = transport         # tests inject a stub; else real http
+        if (self._transport is None and not self.cache_only
+                and not self._api_key):
+            raise SystemExit(
+                "STOP: --writer model/hybrid needs the API key in $%s, which is "
+                "unset. Set it, or use --cache-only to run from the cache with "
+                "no network." % self.key_var)
+        cache_path = os.path.join(os.path.abspath(args.out),
+                                  "completion_cache.json")
+        self.cache = CompletionCache(cache_path)
+        self.executor = (None if self.cache_only else
+                         concurrent.futures.ThreadPoolExecutor(
+                             max_workers=self.max_workers))
+        self._local = threading.local()
+        self._pending = {}                  # claim_id -> submission record
+        self._submitted = 0
+        self.counter = collections.Counter()
+
+    # -- submission, at enqueue ---------------------------------------------
+    def submit(self, request):
+        if request.blob is None or request.claim_id in self._pending:
+            return
+        key = CompletionCache.key(self.prompt_version, self.model_id,
+                                  request.blob, request.recent)
+        p = {"key": key, "cache_hit": self.cache.get(key) is not None,
+             "future": None, "over_limit": False}
+        if p["cache_hit"] or self.cache_only:
+            self._pending[request.claim_id] = p          # no network now
+            return
+        if self.limit and self._submitted >= self.limit:
+            p["over_limit"] = True
+            self._pending[request.claim_id] = p
+            return
+        p["future"] = self.executor.submit(self._call, self._user_message(request))
+        self._submitted += 1
+        self._pending[request.claim_id] = p
+
+    # -- resolution, at air --------------------------------------------------
+    def write_line(self, request):
+        return self._resolve(request, self._pending.pop(request.claim_id, None))
+
+    def _resolve(self, request, p):
+        stamps = {"t_wire": _claim_wire_t(request.claim),
+                  "t_claim": round(request.claim.t_create, 6)}
+        if p is None:
+            return self._fallback(request, "not_submitted", stamps=stamps)
+        if p.get("over_limit"):
+            return self._fallback(request, "over_limit", stamps=stamps)
+        if p["cache_hit"] or self.cache_only:
+            text = self.cache.get(p["key"])
+            if text is None:                             # cache-only miss
+                return self._fallback(request, "cache_miss", cache_hit=False,
+                                      stamps=stamps)
+            return self._accept_or_fallback(request, text, cache_hit=True,
+                                            stamps=stamps, latency_ms=0.0)
+        fut = p.get("future")
+        if fut is None:
+            return self._fallback(request, "no_future", stamps=stamps)
+        timeout = max(self.min_timeout, self._timeout_s(request))
+        try:
+            out = fut.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            fut.cancel()
+            self.counter["timeout"] += 1
+            return self._fallback(request, "timeout", cache_hit=False,
+                                  stamps=stamps)
+        except Exception:
+            self.counter["error"] += 1
+            # never surface the key or endpoint detail in the reason
+            return self._fallback(request, "error", cache_hit=False,
+                                  stamps=stamps)
+        stamps["t_request"] = round(out["t_request"], 6)
+        stamps["t_response"] = round(out["t_response"], 6)
+        self.cache.put(p["key"], out["text"])
+        latency = (out["t_response"] - out["t_request"]) * 1000.0
+        return self._accept_or_fallback(request, out["text"], cache_hit=False,
+                                        stamps=stamps, latency_ms=latency)
+
+    def _accept_or_fallback(self, request, text, cache_hit, stamps, latency_ms):
+        text = (text or "").strip()
+        ok, reason = check_completion(text, request.blob,
+                                      word_budget=request.word_budget,
+                                      recent=request.recent, cfg=self.cfg)
+        # wall-clock stamps only on a real network run; cache-only stays
+        # byte-deterministic (acceptance item 5), so it carries model-frame
+        # stamps only.
+        if not self.cache_only:
+            stamps["t_checked"] = round(time.time(), 6)
+        if not ok:
+            self.counter["dropped"] += 1
+            self.counter["drop:%s" % (reason or "?").split(":", 1)[0]] += 1
+            return self._fallback(request, reason, cache_hit=cache_hit,
+                                  stamps=stamps, latency_ms=latency_ms)
+        self.counter["model"] += 1
+        return LineResult(text=text, speaker=request.speaker, writer="model",
+                          template_id=None, latency_ms=latency_ms,
+                          dropped_reason=None, prompt_version=self.prompt_version,
+                          model_id=self.model_id, cache_hit=cache_hit,
+                          stamps=stamps)
+
+    def _fallback(self, request, reason, cache_hit=None, stamps=None,
+                  latency_ms=None):
+        speaker, text = self.booth._text(request.claim, request.past,
+                                         avoid_templates=request.avoid_templates)
+        self.counter["fallback"] += 1
+        return LineResult(text=text, speaker=speaker, writer="fallback",
+                          template_id=self.booth._last_template,
+                          latency_ms=latency_ms, dropped_reason=reason,
+                          prompt_version=self.prompt_version,
+                          model_id=self.model_id, cache_hit=cache_hit,
+                          stamps=stamps or {})
+
+    def _timeout_s(self, request):
+        """The socket timeout in WALL seconds, from the MODEL-clock deadline via
+        the replay rate. Real pace: 1 model second is ~1 wall second, so the
+        remaining model time is the budget. Fast replay: the model clock races
+        ahead and the deadline is meaningless (Part N), so use a fixed wall
+        budget for a throughput measurement -- never trust a fast run's drops."""
+        if self.pace == "real":
+            remaining = ((request.deadline - request.t)
+                         if (request.deadline is not None
+                             and request.t is not None) else 0.0)
+            return max(self.min_timeout, remaining * self.pace_scale)
+        return self.fast_timeout
+
+    # -- the call ------------------------------------------------------------
+    def _call(self, user_message):
+        t_req = time.time()
+        text = (self._transport(user_message) if self._transport is not None
+                else self._http_post(user_message))
+        return {"text": text, "t_request": t_req, "t_response": time.time()}
+
+    def _user_message(self, request):
+        blob_json = json.dumps(request.blob, sort_keys=True, ensure_ascii=False,
+                               separators=(",", ": "))
+        recent = "\n".join("%s: %s" % (sp, tx)
+                           for sp, tx in request.recent) or "(none)"
+        return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
+                "(most recent last):\n%s\n\nWrite the single next line for the "
+                "%s voice, at most %d words." %
+                (self.user_preamble, blob_json, recent,
+                 request.speaker or "LEAD", request.word_budget or 24))
+
+    def _http_post(self, user_message):
+        import http.client
+        import urllib.parse
+        u = urllib.parse.urlsplit(self.endpoint)
+        body = json.dumps({
+            "model": self.model_id, "max_tokens": self.max_tokens,
+            "temperature": self.temperature, "stop_sequences": self.stop,
+            "system": self.system,
+            "messages": [{"role": "user", "content": user_message}],
+        }).encode("utf-8")
+        headers = {"x-api-key": self._api_key,
+                   "anthropic-version": self.api_version,
+                   "content-type": "application/json"}
+        conn = getattr(self._local, "conn", None)
+        try:
+            if conn is None:
+                conn = http.client.HTTPSConnection(
+                    u.hostname, u.port or 443, timeout=self.fast_timeout)
+                self._local.conn = conn
+            conn.request("POST", u.path or "/v1/messages", body=body,
+                         headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+            if resp.status != 200:
+                self._drop_conn()
+                raise RuntimeError("api status %d" % resp.status)
+            return self._extract(data)
+        except Exception:
+            self._drop_conn()               # reconnect on the next line
+            raise
+
+    def _drop_conn(self):
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+
+    @staticmethod
+    def _extract(data):
+        doc = json.loads(data.decode("utf-8"))
+        parts = doc.get("content") or []
+        for part in parts:
+            if part.get("type") == "text":
+                return (part.get("text") or "").strip()
+        return ""
+
+    def stats(self):
+        c = self.counter
+        return {
+            "writer": "model",
+            "model_id": self.model_id,
+            "prompt_version": self.prompt_version,
+            "submitted": self._submitted,
+            "model_lines": c.get("model", 0),
+            "fallback_lines": c.get("fallback", 0),
+            "dropped": c.get("dropped", 0),
+            "timeout": c.get("timeout", 0),
+            "error": c.get("error", 0),
+            "dropped_by_reason": {k.split(":", 1)[1]: v
+                                  for k, v in c.items()
+                                  if k.startswith("drop:")},
+        }
+
+    def close(self):
+        try:
+            self.cache.flush()
+        finally:
+            if self.executor is not None:
+                self.executor.shutdown(wait=False, cancel_futures=True)
+
+
+class HybridWriter(Writer):
+    """Part L. Routes per line on a rule read from config. Ships with ONE rule:
+    model_kinds routes those kinds to the model; everything else takes the
+    template. Deadline-aware routing comes later, from this pass's numbers -- do
+    not invent the routing policy now."""
+    needs_blob = True
+
+    def __init__(self, booth, config, model_writer):
+        self.booth = booth
+        self.model = model_writer
+        hy = config.get("v3", "hybrid", default={}) or {}
+        self.model_kinds = set(hy.get("model_kinds", []) or [])
+        self.fall_back = hy.get("fall_back_to_template", True)
+        self.template = TemplateWriter(booth)
+
+    def _use_model(self, kind):
+        return kind in self.model_kinds
+
+    def submit(self, request):
+        if self._use_model(request.kind):
+            self.model.submit(request)
+
+    def write_line(self, request):
+        if self._use_model(request.kind):
+            return self.model.write_line(request)
+        return self.template.write_line(request)
+
+    def stats(self):
+        s = self.model.stats()
+        s["writer"] = "hybrid"
+        s["model_kinds"] = sorted(self.model_kinds)
+        return s
+
+    def close(self):
+        self.model.close()
+
+
+# --- Part P: the latency report ----------------------------------------------
+# Six stamps per line: t_wire (packet in), t_claim (raised), t_request (sent),
+# t_response (back), t_checked (checked), t_air (released). t_wire/t_claim/t_air
+# are on the MODEL clock; t_request/t_response/t_checked (and t_air_wall) on the
+# WALL clock. A leg is coherent only within one frame -- so t_wire->t_air is the
+# queue wait (model), t_request->t_response the round trip (wall). At REAL pace
+# the frames run 1:1 so every leg is meaningful; at fast pace only the
+# within-frame legs are (see Part N), which the report states.
+_LEG_DEFS = [
+    ("t_wire_to_t_air", "t_wire", "t_air"),
+    ("t_claim_to_t_request", "t_claim", "t_request"),
+    ("t_request_to_t_response", "t_request", "t_response"),
+    ("t_checked_to_t_air", "t_checked", "t_air_wall"),
+]
+
+
+def _pctl(sorted_vals, q):
+    if not sorted_vals:
+        return None
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+    idx = int(round(q * (len(sorted_vals) - 1)))
+    return sorted_vals[min(len(sorted_vals) - 1, idx)]
+
+
+def _leg_stats(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    return {"n": n,
+            "median_s": round(_pctl(vals, 0.5), 4),
+            "mean_s": round(sum(vals) / n, 4),
+            "p90_s": round(_pctl(vals, 0.9), 4),
+            "max_s": round(max(vals), 4),
+            "over_2s": sum(1 for v in vals if v > 2.0)}
+
+
+def latency_report(emitted):
+    def legs_for(recs):
+        out = {}
+        for name, a, b in _LEG_DEFS:
+            vals = []
+            for r in recs:
+                st = r.get("stamps") or {}
+                if st.get(a) is not None and st.get(b) is not None:
+                    vals.append(st[b] - st[a])
+            out[name] = _leg_stats(vals)
+        return out
+
+    by_kind = {}
+    for k in sorted({r.get("kind") for r in emitted}):
+        by_kind[k] = legs_for([r for r in emitted if r.get("kind") == k])
+    by_writer = {}
+    for w in ("template", "model", "fallback"):
+        rr = [r for r in emitted if r.get("writer") == w]
+        if rr:
+            by_writer[w] = legs_for(rr)
+    return {
+        "_frames": {
+            "t_wire_to_t_air": "model clock -- the queue wait (the budget)",
+            "t_request_to_t_response": "wall clock -- the round trip (the cost)",
+            "t_checked_to_t_air": "wall clock -- the slack it is spent out of",
+            "t_claim_to_t_request": "mixed frame; coherent only at real pace",
+        },
+        "overall": legs_for(emitted),
+        "by_kind": by_kind,
+        "by_writer": by_writer,
+    }
 
 
 # =============================================================================
@@ -6140,6 +6999,9 @@ class BabyHooverV3:
         else:
             self.actuation_state = "advisory" if args.no_camera else "live"
         self.booth = V3Booth(self.model, self.config)
+        # Part L: select the writer. template is inert and the default; model /
+        # hybrid replace the seam's writer so no other call site changes.
+        self.booth.writer = self._make_writer()
         self.gallery = V3Gallery(self.model, self.config, self.actuation_state,
                                  self.source)
         self.rec_start = None
@@ -6153,6 +7015,17 @@ class BabyHooverV3:
         self._fallback_order = self.config.get(
             "v3", "naming", "fallback_order",
             default=["team", "number", "generic"])
+
+    def _make_writer(self):
+        """Part L: build the writer for --writer. template is the current path;
+        model/hybrid add the language-model writer behind the same seam."""
+        choice = getattr(self.args, "writer", "template")
+        if choice == "template":
+            return TemplateWriter(self.booth)
+        model_writer = ModelWriter(self.booth, self.config, self.args, self._log)
+        if choice == "model":
+            return model_writer
+        return HybridWriter(self.booth, self.config, model_writer)
 
     def _log(self, msg):
         line = "[v3] %s" % msg
@@ -6424,6 +7297,9 @@ class BabyHooverV3:
                             for k, v in st_counts.items()},
             "ignored_events": self.ignore_events,
             "line_count": len(self.booth.emitted),
+            "writer": getattr(self.args, "writer", "template"),
+            "writer_summary": self.booth.writer.stats(),
+            "latency": latency_report(self.booth.emitted),
             "dropped_claim_count": dict(dropped),
             "humans": sum(1 for c in self.world.cars
                           if c.seen and c.is_human),
@@ -6484,11 +7360,46 @@ class BabyHooverV3:
         except Exception:
             pass
 
+        # Part O: the run summary, printed at the end and in the manifest.
+        self._log_run_summary(manifest)
+
         with open(os.path.join(outdir, "baby_hoover_v3.log"), "w",
                   encoding="utf-8") as f:
             f.write("\n".join(self.log_lines) + "\n")
         self._log("=== V3 wrote %d lines to %s ==="
                   % (len(self.booth.emitted), outdir))
+        # flush the completion cache and release the thread pool (Part N/Q)
+        try:
+            self.booth.writer.close()
+        except Exception as e:
+            self._log("writer close warning: %s" % e)
+
+    def _log_run_summary(self, manifest):
+        ws = manifest.get("writer_summary") or {}
+        lat = (manifest.get("latency") or {}).get("overall") or {}
+        qw = lat.get("t_wire_to_t_air") or {}
+        rt = lat.get("t_request_to_t_response") or {}
+        self._log("--- writer summary (--writer %s) ---"
+                  % manifest.get("writer"))
+        if ws:
+            self._log("  model lines: %d | fallback: %d | dropped: %d | "
+                      "timeout: %d | error: %d"
+                      % (ws.get("model_lines", 0), ws.get("fallback_lines", 0),
+                         ws.get("dropped", 0), ws.get("timeout", 0),
+                         ws.get("error", 0)))
+            if ws.get("dropped_by_reason"):
+                self._log("  dropped by reason: %s"
+                          % json.dumps(ws["dropped_by_reason"], sort_keys=True))
+        if qw:
+            self._log("  queue wait t_wire->t_air (model): median %.3fs "
+                      "p90 %.3fs max %.3fs (n=%d)"
+                      % (qw.get("median_s", 0.0), qw.get("p90_s", 0.0),
+                         qw.get("max_s", 0.0), qw.get("n", 0)))
+        if rt:
+            self._log("  round trip t_request->t_response (wall): median %.3fs "
+                      "p90 %.3fs max %.3fs (n=%d)"
+                      % (rt.get("median_s", 0.0), rt.get("p90_s", 0.0),
+                         rt.get("max_s", 0.0), rt.get("n", 0)))
 
     def _srt_ts(self, secs):
         if secs < 0:
@@ -6554,6 +7465,13 @@ class BabyHooverV3:
         inferred = how.startswith("fallback")
         kit = os.path.join(outdir, "audio_kit")
         os.makedirs(kit, exist_ok=True)
+        def _cell(v):
+            if v is None:
+                return ""
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            return v
+
         lines = []
         for rec in self.booth.emitted:
             lines.append({
@@ -6561,7 +7479,15 @@ class BabyHooverV3:
                 "t_race": rec["t_race"],
                 "t_video": round(rec["t_unix"] - base, 3),
                 "speaker": rec["speaker"], "speech_text": rec["speech_text"],
-                "est_duration_s": rec["est_duration_s"]})
+                "est_duration_s": rec["est_duration_s"],
+                # Pass 3 Part O: new TRAILING columns. hoover_voice.py reads this
+                # file by name; the harness reads some columns by position, so
+                # these are appended and the existing order is never touched.
+                "writer": rec.get("writer", "template"),
+                "model_id": rec.get("model_id"),
+                "prompt_version": rec.get("prompt_version"),
+                "cache_hit": rec.get("cache_hit"),
+                "dropped_reason": rec.get("dropped_reason")})
         with open(os.path.join(kit, "audio_manifest.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"anchor": {"mode": self.args.video_anchor, "how": how,
@@ -6572,11 +7498,16 @@ class BabyHooverV3:
                   newline="") as f:
             w = csv.writer(f)
             w.writerow(["line_id", "t_unix", "t_race", "t_video", "speaker",
-                        "speech_text", "est_duration_s"])
+                        "speech_text", "est_duration_s",
+                        "writer", "model_id", "prompt_version", "cache_hit",
+                        "dropped_reason"])
             for l in lines:
                 w.writerow([l["line_id"], l["t_unix"], l["t_race"],
                             l["t_video"], l["speaker"], l["speech_text"],
-                            l["est_duration_s"]])
+                            l["est_duration_s"],
+                            _cell(l["writer"]), _cell(l["model_id"]),
+                            _cell(l["prompt_version"]), _cell(l["cache_hit"]),
+                            _cell(l["dropped_reason"])])
         with open(os.path.join(kit, stem + "_video.srt"), "w",
                   encoding="utf-8") as f:
             for i, l in enumerate(lines, 1):
@@ -6643,6 +7574,22 @@ def main():
     ap.add_argument("--idle-close", type=float, default=None,
                     help="close a live session after this many seconds without "
                          "lap data (default: the idle watchdog from config)")
+    # Pass 3 -- the writer seam (Parts L-Q)
+    ap.add_argument("--writer", choices=["template", "model", "hybrid"],
+                    default="template",
+                    help="who writes the lines (default template; a run with no "
+                         "flag behaves exactly as today)")
+    ap.add_argument("--model", default=None,
+                    help="model id for --writer model/hybrid "
+                         "(default from config, else claude-haiku-4-5-20251001)")
+    ap.add_argument("--key-var", default="ANTHROPIC_API_KEY",
+                    help="environment variable holding the API key (never logged)")
+    ap.add_argument("--cache-only", action="store_true",
+                    help="never call the network: a cache miss falls straight to "
+                         "the template. Makes --writer model byte-deterministic")
+    ap.add_argument("--limit-model-lines", type=int, default=0,
+                    help="cap how many lines the model may write (0 = unlimited); "
+                         "the rest fall back to the template")
     args = ap.parse_args()
     if args.pace is None:
         args.pace = "fast"

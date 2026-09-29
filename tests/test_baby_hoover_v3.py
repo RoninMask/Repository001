@@ -1636,5 +1636,243 @@ class TestP2FixRound5Text(unittest.TestCase):
                              "K4 audit (this gap is now closed)" % (kind, slot))
 
 
+class TestPass3Writer(unittest.TestCase):
+    """Pass 3: the writer seam (Parts L-Q). The checker (one reject + one
+    near-miss per reason), the state blob, the model-time deadline against a
+    stubbed transport, the cache key's stability, and the non-blocking
+    guarantee."""
+
+    def _cfg(self):
+        return make_config()
+
+    def _booth_and_writer(self, transport=None, cache_only=False, pace="fast",
+                          limit=0):
+        import argparse
+        import tempfile
+        m = make_model()
+        m.total_laps = 25
+        world = m.w
+        for i, nm in enumerate(["Verstappen", "Norris"]):
+            c = world.cars[i]
+            c.seen = True
+            c.position = i + 3
+            c.name = nm
+            c.spoken_short = nm
+            c.name_resolved = True
+            c.result_status = 2
+            c.ai = 1
+        booth = v3.V3Booth(m, m.cfg)
+        args = argparse.Namespace(
+            writer="model", cache_only=cache_only, out=tempfile.mkdtemp(),
+            model=None, key_var="ANTHROPIC_API_KEY", limit_model_lines=limit,
+            pace=pace, pace_scale=1.0)
+        mw = v3.ModelWriter(booth, m.cfg, args, transport=transport)
+        booth.writer = mw
+        return booth, mw
+
+    def _claim(self, t=1200.0, facts=None):
+        return v3.Claim("PASS", v3.CLASS_ACTION, [0, 1],
+                        ["Verstappen", "Norris"], t,
+                        facts=facts or {"lap": 14, "total_laps": 25,
+                                        "gap_s": 1.4},
+                        provenance=[{"code": "OVTK", "t_unix": t - 1.0}])
+
+    # ---- the checker: one reject + one near-miss pass per reason ------------
+    BLOB = {"allowed_words": ["Verstappen", "Norris", "fourteen",
+                              "twenty-five", "third", "fourth",
+                              "one point four"]}
+
+    def _chk(self, text, **kw):
+        return v3.check_completion(text, self.BLOB, cfg=make_config(), **kw)
+
+    def test_checker_digit(self):
+        self.assertFalse(self._chk("Verstappen leads by 3 seconds.")[0])
+        self.assertTrue(self._chk("Verstappen leads Norris.")[0])
+
+    def test_checker_unknown_name(self):
+        ok, reason = self._chk("Verstappen passes Hamilton.")
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("unknown_name"))
+        self.assertTrue(self._chk("Verstappen passes Norris.")[0])
+
+    def test_checker_number_word(self):
+        ok, reason = self._chk("It took fifteen laps.")
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("number_word"))
+        # 'fourteen' IS in allowed_words -> the near-miss passes
+        self.assertTrue(self._chk("That is lap fourteen for Norris.")[0])
+
+    def test_checker_over_budget(self):
+        long = "Verstappen " + "and Norris go " * 8 + "on."
+        self.assertFalse(self._chk(long, word_budget=6)[0])
+        self.assertTrue(self._chk("Verstappen leads Norris.", word_budget=6)[0])
+
+    def test_checker_empty(self):
+        self.assertFalse(self._chk("")[0])
+        self.assertFalse(self._chk("   ")[0])
+        self.assertTrue(self._chk("Norris holds on.")[0])
+
+    def test_checker_exact_repeat(self):
+        recent = (("LEAD", "Verstappen leads Norris."),)
+        self.assertFalse(self._chk("Verstappen leads Norris.", recent=recent)[0])
+        self.assertTrue(self._chk("Norris fights back.", recent=recent)[0])
+
+    def test_checker_banned_construction(self):
+        ok, reason = self._chk("Ladies and gentlemen, Verstappen leads.")
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("banned"))
+        self.assertTrue(self._chk("Verstappen leads Norris.")[0])
+
+    def test_checker_wrapped_quotes_and_em_dash(self):
+        self.assertEqual(self._chk('"Verstappen leads."')[1], "wrapped_quotes")
+        self.assertEqual(self._chk("Verstappen — brave — leads.")[1],
+                         "em_dash_aside")
+        self.assertTrue(self._chk("Verstappen leads Norris.")[0])
+
+    def test_checker_sentence_initial_cap_exempt(self):
+        # a sentence-initial ordinary capital is exempt; the same word mid-line,
+        # if it is a name not supplied, is rejected.
+        self.assertTrue(self._chk("The gap to Norris grows.")[0])
+        self.assertFalse(self._chk("The gap to Hamilton grows.")[0])
+
+    def test_checker_possessive_name_ok(self):
+        self.assertTrue(self._chk("Norris's move sticks.")[0])
+
+    # ---- the state blob ----------------------------------------------------
+    def test_blob_no_raw_names_or_floats(self):
+        booth, mw = self._booth_and_writer(transport=lambda u: "x")
+        claim = self._claim(facts={"lap": 14, "total_laps": 25, "gap_s": 1.4})
+        blob = v3.build_state_blob(claim, booth.model)
+        # says come from claim.names (resolved spoken forms), never raw indices
+        says = [s["say"] for s in blob["subjects"]]
+        self.assertEqual(says, ["Verstappen", "Norris"])
+        # numbers are rounded to the precision we speak -- no long floats
+        self.assertEqual(blob["numbers"]["gap_s"], 1.4)
+        self.assertEqual(blob["numbers"]["lap"], 14)
+        for v in blob["numbers"].values():
+            self.assertNotIsInstance(v, bool)
+
+    def test_blob_allowed_words_agree_with_a41(self):
+        booth, mw = self._booth_and_writer(transport=lambda u: "x")
+        claim = self._claim(facts={"lap": 14, "total_laps": 25, "gap_s": 1.4})
+        blob = v3.build_state_blob(claim, booth.model)
+        aw = blob["allowed_words"]
+        # the spoken forms are exactly what the A41 normaliser produces
+        self.assertIn(v3.speech_normalise("14"), aw)          # fourteen
+        self.assertIn(v3.speech_normalise("25"), aw)          # twenty-five
+        self.assertIn(v3.speech_normalise("1.4"), aw)         # one point four
+        self.assertIn("Verstappen", aw)
+        self.assertIn("Norris", aw)
+
+    # ---- the model path end to end -----------------------------------------
+    def test_model_good_completion_airs(self):
+        booth, mw = self._booth_and_writer(
+            transport=lambda u: "Verstappen goes through on Norris.")
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "model")
+        self.assertEqual(res.text, "Verstappen goes through on Norris.")
+        self.assertIsNotNone(res.latency_ms)
+
+    def test_model_hallucination_falls_back(self):
+        booth, mw = self._booth_and_writer(
+            transport=lambda u: "Hamilton sweeps past Leclerc.")
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "fallback")
+        self.assertTrue(res.dropped_reason.startswith("unknown_name"))
+        self.assertTrue(res.text)          # a real template line took its place
+
+    # ---- the deadline against a stubbed slow transport (acceptance 3+4) -----
+    def test_deadline_slow_transport_falls_back_without_blocking(self):
+        import time as _t
+
+        def slow(user):
+            _t.sleep(3.0)
+            return "Verstappen goes through on Norris."
+
+        booth, mw = self._booth_and_writer(transport=slow, pace="real")
+        claim = self._claim()
+        mw.submit(booth._line_request(claim, False, claim.t_create))
+        deadline = claim.t_create + booth._max_age_for(claim)
+        air_req = booth._line_request(claim, False, deadline - 0.3)
+        t0 = _t.time()
+        res = mw.write_line(air_req)
+        elapsed = _t.time() - t0
+        self.assertEqual(res.writer, "fallback")
+        self.assertEqual(res.dropped_reason, "timeout")
+        # bounded by the deadline budget (~0.3 s), never the 3 s sleep
+        self.assertLess(elapsed, 1.5)
+        mw.close()
+
+    # ---- the completion cache (Part Q) -------------------------------------
+    def test_cache_key_stable_under_dict_ordering(self):
+        b1 = {"claim_kind": "PASS", "numbers": {"lap": 14, "gap_s": 1.4},
+              "subjects": [{"say": "Verstappen", "position": 3}],
+              "allowed_words": ["Verstappen", "fourteen"]}
+        b2 = {"allowed_words": ["Verstappen", "fourteen"],
+              "subjects": [{"position": 3, "say": "Verstappen"}],
+              "numbers": {"gap_s": 1.4, "lap": 14}, "claim_kind": "PASS"}
+        recent = (("LEAD", "a"), ("ANALYST", "b"))
+        k1 = v3.CompletionCache.key("pv", "m", b1, recent)
+        k2 = v3.CompletionCache.key("pv", "m", b2, recent)
+        self.assertEqual(k1, k2)
+        # a real difference changes the key
+        k3 = v3.CompletionCache.key("pv", "m",
+                                    dict(b1, numbers={"lap": 15}), recent)
+        self.assertNotEqual(k1, k3)
+
+    def test_cache_round_trip_atomic(self):
+        import tempfile
+        p = os.path.join(tempfile.mkdtemp(), "completion_cache.json")
+        c = v3.CompletionCache(p)
+        c.put("k", "a line")
+        c.flush()
+        self.assertTrue(os.path.exists(p))
+        self.assertEqual(v3.CompletionCache(p).get("k"), "a line")
+
+    def test_cache_only_no_network_falls_back(self):
+        # cache-only with an empty cache makes no call and falls back
+        called = []
+        booth, mw = self._booth_and_writer(
+            transport=lambda u: called.append(1) or "x", cache_only=True)
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "fallback")
+        self.assertEqual(res.dropped_reason, "cache_miss")
+        self.assertEqual(called, [])          # never touched the transport
+
+    # ---- the two-term duration model (Part M) ------------------------------
+    def test_words_for_duration_two_term(self):
+        cfg = make_config()
+        # floor((8.0 - 0.590) / 0.246) = floor(30.12) = 30
+        self.assertEqual(v3.words_for_duration(8.0, cfg), 30)
+        # monotonic and floored at >=1
+        self.assertGreaterEqual(v3.words_for_duration(0.1, cfg), 1)
+
+    def test_est_duration_unchanged_by_default(self):
+        # apply_to_est_duration is false, so the default template run keeps the
+        # existing wc/rate estimate (acceptance item 1). Confirm the flag is off.
+        cfg = make_config()
+        dm = cfg.get("v3", "speech", "duration_model", default={})
+        self.assertFalse(dm.get("apply_to_est_duration", False))
+
+    # ---- the limit cap -----------------------------------------------------
+    def test_limit_model_lines_caps_submissions(self):
+        booth, mw = self._booth_and_writer(
+            transport=lambda u: "Verstappen goes through on Norris.", limit=1)
+        r1 = booth._line_request(self._claim(t=1200.0), False, 1200.0)
+        r2 = booth._line_request(self._claim(t=1300.0), False, 1300.0)
+        mw.submit(r1)
+        mw.submit(r2)
+        self.assertEqual(mw._submitted, 1)          # second is over the cap
+
+
 if __name__ == "__main__":
     unittest.main()

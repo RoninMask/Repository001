@@ -530,7 +530,50 @@
         "KERS",
         "VSC",
         "SC"
+      ],
+      "_duration_model_about": "Pass 3 Part M. A least-squares fit over the 25 Sep render (r2=0.75): about 0.590 s of fixed per-line overhead (onset, breath, decay) plus ~0.246 s per word. Used for the word-budget conversion. VOICE-SPECIFIC: any change of ElevenLabs voice invalidates these constants. per_speaker keeps one shared pair on purpose -- the sample (LEAD 3.13 wps / ANALYST 2.84 wps over 17/18 lines) is too thin to fit two intercepts. apply_to_est_duration is false so the default template run stays byte-identical to the pre-Pass-3 output (acceptance item 1); est_duration_s keeps fallback_wps until a new byte-identity baseline is taken.",
+      "duration_model": {
+        "overhead_s": 0.590,
+        "seconds_per_word": 0.246,
+        "fallback_wps": 2.92,
+        "apply_to_est_duration": false,
+        "per_speaker": {}
+      }
+    },
+    "writer": {
+      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain.",
+      "recent_lines": 4,
+      "slot_budget_s": 8.0,
+      "slot_budget_by_kind": {},
+      "budget_slack_words": 2,
+      "sentence_initial_caps_ok": ["I", "OK"],
+      "banned_constructions": [
+        "ladies and gentlemen",
+        "[",
+        "]",
+        "LEAD:",
+        "ANALYST:",
+        "stage direction",
+        "(",
+        ")"
       ]
+    },
+    "model": {
+      "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",
+      "model": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "anthropic_version": "2023-06-01",
+      "max_tokens": 60,
+      "temperature": 0.4,
+      "stop_sequences": ["\n"],
+      "max_workers": 2,
+      "min_socket_timeout_s": 0.2,
+      "fast_mode_timeout_s": 5.0
+    },
+    "hybrid": {
+      "_about": "Pass 3 Part L. Ship with one rule: model_kinds (empty by default) routes those kinds to the model; everything else takes the template. Deadline-aware routing comes later, from this pass's measurements.",
+      "model_kinds": [],
+      "fall_back_to_template": true
     },
     "parity": {
       "max_line_delta_s": 0.25
