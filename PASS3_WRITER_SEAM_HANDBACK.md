@@ -122,6 +122,17 @@ Resolved the way the brief's own ordering demands:
 
 No `.bin` committed. The completion cache is not a repo file.
 
+**A24 paced twin — regenerated and graded, not assumed.** The corpus regeneration
+was first run with `--skip-paced` (the ~9-min real-time twin carried over from the
+Pass 2 round-5 artifact), and the gate above graded that inherited twin. That was
+then closed out: the bin1 paced twin was **regenerated at true real pace with the
+Pass 3 code**, the gate re-run graded the fresh artifact (`silverstone_bin1: 40
+assertions, 0 unexpected` — A24 parity **PASS**), and its commentary/scheduling
+content is byte-identical to the carried-over twin (`_lines.jsonl` core fields and
+`audio_kit/lines.csv` minus the five new columns both match); the only differences
+are the intended Pass-3 additive schema (new columns/keys, manifest writer/latency
++ `config_hash`, the run-summary log line).
+
 ## Item 7 — what I can say now, and what only the live-fire can settle
 
 I cannot answer "does the round trip fit inside the queue wait under race load
