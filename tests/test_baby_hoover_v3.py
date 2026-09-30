@@ -1888,6 +1888,18 @@ class TestPass3Writer(unittest.TestCase):
         self.assertEqual(mw.stats()["call_failure_types"], {"ValueError": 1})
         self.assertEqual(mw.stats()["error"], 1)
 
+    def test_model_multiline_completion_kept_to_first_line(self):
+        # "one line, always" is enforced in code (the API rejects a "\n" stop
+        # sequence). A multi-line completion airs only its first line.
+        booth, mw = self._booth_and_writer(
+            transport=lambda u: "Verstappen leads Norris.\nAnd Piastri is third.")
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "model")
+        self.assertEqual(res.text, "Verstappen leads Norris.")
+
     def test_model_socket_timeout_reclassified_as_timeout(self):
         import socket as _socket
 

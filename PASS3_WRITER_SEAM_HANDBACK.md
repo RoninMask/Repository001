@@ -141,9 +141,21 @@ there — verified zero leakage). The root-cause fix itself is pending one more
 keyed run to read that body and correct the field. Per the skill's rule, I am not
 guessing the field before the body names it.
 
+**Root cause found and fixed — the `stop_sequences` field.** The captured 400 body
+named it exactly: `stop_sequences: each stop sequence must contain non-whitespace`.
+The words-file stop of `["\n"]` (there to force "one line") is whitespace-only,
+which the Messages API rejects, so every model call 400'd and fell back. Fix, three
+parts: `v3.model.stop_sequences` is now `[]`; the request builder filters
+whitespace-only entries and omits the field when none remain (defensive against a
+bad config); and "one line, always" is enforced in code by taking the first line of
+the completion (a unit test covers a multi-line completion airing only its first
+line). Not guessed — the API's own error body named the field, per the claude-api
+skill's rule. 227 unit tests green; cache-only determinism holds; template output
+byte-identical.
+
 Caveat, stated honestly: this session has no API key (verified — cloud container,
-not Oklahoma), so I confirm the capture path against a dummy-key 401 body, not the
-real 400. The run is self-diagnosing; the next keyed run names the field. Note fast pace still caps the air-time wait at
+not Oklahoma), so the fix is proven against the unit suite and the captured error
+body, not yet against a live 200. The next keyed run should produce model lines. Note fast pace still caps the air-time wait at
 `fast_mode_timeout_s`; the definitive live-fire is at ORIGINAL pace (TASK A), where
 the deadline budget is the real queue wait. 226 unit tests green (2 new: a raising
 transport → `error:<Type>` with detail; a socket-timeout transport → reclassified

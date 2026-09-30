@@ -6128,6 +6128,11 @@ class ModelWriter(Writer):
         try:
             text = (self._transport(user_message) if self._transport is not None
                     else self._http_post(user_message))
+            # One line, always. The words-file stop sequence used "\n", which the
+            # API rejects as whitespace-only, so single-line is enforced here
+            # instead: keep the first line so a stray newline can't corrupt the
+            # SRT/CSV or air two sentences as one.
+            text = (text or "").split("\n", 1)[0].strip()
             return {"text": text, "t_request": t_req, "t_response": time.time()}
         except BaseException as e:               # noqa: BLE001 -- reported, not swallowed
             import traceback as _tb
@@ -6151,12 +6156,18 @@ class ModelWriter(Writer):
         import http.client
         import urllib.parse
         u = urllib.parse.urlsplit(self.endpoint)
-        body = json.dumps({
+        payload = {
             "model": self.model_id, "max_tokens": self.max_tokens,
-            "temperature": self.temperature, "stop_sequences": self.stop,
+            "temperature": self.temperature,
             "system": self.system,
             "messages": [{"role": "user", "content": user_message}],
-        }).encode("utf-8")
+        }
+        # The API rejects a whitespace-only stop sequence; send only real ones,
+        # and omit the field entirely when none remain.
+        stops = [s for s in (self.stop or []) if s and s.strip()]
+        if stops:
+            payload["stop_sequences"] = stops
+        body = json.dumps(payload).encode("utf-8")
         headers = {"x-api-key": self._api_key,
                    "anthropic-version": self.api_version,
                    "content-type": "application/json"}
