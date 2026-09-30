@@ -1873,6 +1873,37 @@ class TestPass3Writer(unittest.TestCase):
         mw.submit(r2)
         self.assertEqual(mw._submitted, 1)          # second is over the cap
 
+    # ---- instrumentation: a failed call is captured, not swallowed ----------
+    def test_model_call_exception_is_captured(self):
+        def boom(user):
+            raise ValueError("kaboom detail")
+        booth, mw = self._booth_and_writer(transport=boom)
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "fallback")
+        self.assertEqual(res.dropped_reason, "error:ValueError")
+        self.assertEqual(res.error_detail, "ValueError: kaboom detail")
+        self.assertEqual(mw.stats()["call_failure_types"], {"ValueError": 1})
+        self.assertEqual(mw.stats()["error"], 1)
+
+    def test_model_socket_timeout_reclassified_as_timeout(self):
+        import socket as _socket
+
+        def slow(user):
+            raise _socket.timeout("timed out")
+        booth, mw = self._booth_and_writer(transport=slow)
+        claim = self._claim()
+        req = booth._line_request(claim, False, 1200.5)
+        mw.submit(req)
+        res = mw.write_line(req)
+        self.assertEqual(res.writer, "fallback")
+        # (b) a socket timeout is a timeout, not a generic error
+        self.assertTrue(res.dropped_reason.startswith("timeout"))
+        self.assertEqual(mw.stats()["timeout"], 1)
+        self.assertEqual(mw.stats()["error"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

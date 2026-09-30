@@ -568,7 +568,8 @@
       "stop_sequences": ["\n"],
       "max_workers": 2,
       "min_socket_timeout_s": 0.2,
-      "fast_mode_timeout_s": 5.0
+      "fast_mode_timeout_s": 5.0,
+      "socket_timeout_s": 30.0
     },
     "hybrid": {
       "_about": "Pass 3 Part L. Ship with one rule: model_kinds (empty by default) routes those kinds to the model; everything else takes the template. Deadline-aware routing comes later, from this pass's measurements.",

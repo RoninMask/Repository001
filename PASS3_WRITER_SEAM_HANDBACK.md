@@ -93,6 +93,53 @@ race with `--writer template` to read the twins side by side). Leave the model
 output directory in place for `hoover_voice.py`. The key stays in the environment —
 never printed, never written to an artefact.
 
+## Pass 3 continuation (30 Sep, 2nd pass) — live-fire bug: instrumentation + socket timeout
+
+The Oklahoma live-fire (`--writer model --pace fast --limit-model-lines 5` on
+`bin2_baku_live_s01`) reported `model lines: 0 | error: 4`, with `dropped_reason`
+the bare string `"error"` — undiagnosable — even though a standalone
+`http.client` probe on the same machine with the same key got 200. Two fixes.
+
+**1. Instrumentation defect (fixed first, so the next run is self-diagnosing).**
+The worker's exception was swallowed by a bare `except Exception`. Now the failure
+is captured IN the worker with full detail and surfaced three ways: per line,
+`dropped_reason` is `error:<ExcType>` (or `timeout:<ExcType>`) and a new
+`error_detail` field carries `"<ExcType>: <message>"`; the run summary and manifest
+carry `call_failure_types` (a histogram of exception types); and the full traceback
+is written to the run log once (they are almost always the same fault). The API key
+lives only in the request headers — never in an exception message or a traceback
+(which shows code lines, not local values) — verified: a dummy-key run leaks the
+key into zero artefacts. Reproduced with a REAL 401 round trip (not a stub): the old
+bare `"error"` is now `error:RuntimeError: api status 401` with a logged traceback.
+
+**2. The bug: socket timeout, mis-bucketed (hypothesis b), now fixed.**
+- Hypothesis (a), thread-safety, was **ruled out empirically**: five concurrent
+  calls across two workers against the real endpoint each completed their round
+  trip cleanly (per-worker `threading.local` connections; no `CannotSendRequest`/
+  `ResponseNotReady`). The threaded connection path is sound.
+- Hypothesis (b) held. A `socket.timeout` raised in the worker (a call cut off by
+  the socket timeout) propagated to the generic `except Exception` and was counted
+  as `error`, never `timeout` — exactly the `error: 4, timeout: 0` shape observed.
+  Fixed: socket-level timeouts are reclassified as timeouts (`timeout:<ExcType>`,
+  counted in `timeout`). Proven with a REAL network timeout (tiny `socket_timeout_s`):
+  `timeout: 3, error: 0`, `{"TimeoutError": 3}` — previously `error: 3`.
+- Root cause of the cut-off: the socket timeout was tied to `fast_mode_timeout_s`
+  (5 s), which severs a real generation call mid-flight. The socket timeout is now
+  a separate, generous `v3.model.socket_timeout_s` (default 30 s) — how long the
+  SOCKET waits for the server — decoupled from the air-time deadline (`fut.result`),
+  which remains the real-time budget that governs when the decide loop gives up.
+  A real call is no longer severed at 5 s.
+
+Caveat, stated honestly: this session has no API key (verified — cloud container,
+not Oklahoma), so I could not confirm the fix against a 200 on Dustin's network.
+The most probable cause (the 5 s socket cut-off) is fixed, and the run is now
+self-diagnosing, so the next real-pace run will either succeed or name the true
+exception in the log and records. Note fast pace still caps the air-time wait at
+`fast_mode_timeout_s`; the definitive live-fire is at ORIGINAL pace (TASK A), where
+the deadline budget is the real queue wait. 226 unit tests green (2 new: a raising
+transport → `error:<Type>` with detail; a socket-timeout transport → reclassified
+as timeout). Template output byte-identical.
+
 ## What Pass 3 built (Parts L–Q)
 
 The seam is `Writer.write_line(request) -> LineResult`, with the request issued

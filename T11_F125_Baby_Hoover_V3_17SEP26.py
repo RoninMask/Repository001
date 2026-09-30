@@ -5480,6 +5480,7 @@ class V3Booth:
                 "prompt_version": result.prompt_version,
                 "cache_hit": result.cache_hit,
                 "dropped_reason": result.dropped_reason,
+                "error_detail": result.error_detail,
                 "latency_ms": (round(result.latency_ms, 3)
                                if result.latency_ms is not None else None),
                 "stamps": stamps,
@@ -5489,6 +5490,7 @@ class V3Booth:
             rec["prompt_version"] = result.prompt_version
             rec["cache_hit"] = result.cache_hit
             rec["dropped_reason"] = result.dropped_reason
+            rec["error_detail"] = result.error_detail
             rec["stamps"] = stamps
             # the claim record carries the stamps only when the model was
             # involved (writer != template), so a template line's claim record
@@ -5798,11 +5800,11 @@ class LineResult:
     """What a writer returns (Part L). `writer` is template / model / fallback."""
     __slots__ = ("text", "speaker", "writer", "template_id", "latency_ms",
                  "dropped_reason", "prompt_version", "model_id", "cache_hit",
-                 "stamps")
+                 "stamps", "error_detail")
 
     def __init__(self, text, speaker, writer, template_id=None, latency_ms=None,
                  dropped_reason=None, prompt_version=None, model_id=None,
-                 cache_hit=None, stamps=None):
+                 cache_hit=None, stamps=None, error_detail=None):
         self.text = text
         self.speaker = speaker
         self.writer = writer
@@ -5813,6 +5815,7 @@ class LineResult:
         self.model_id = model_id
         self.cache_hit = cache_hit
         self.stamps = stamps or {}     # Part P: t_request/t_response/t_checked...
+        self.error_detail = error_detail   # exc type+message when a call failed
 
 
 class Writer:
@@ -5945,6 +5948,13 @@ class ModelWriter(Writer):
         self.max_workers = mc.get("max_workers", 2)
         self.min_timeout = mc.get("min_socket_timeout_s", 0.2)
         self.fast_timeout = mc.get("fast_mode_timeout_s", 5.0)
+        # The socket timeout is how long the SOCKET waits for the server, kept
+        # generous so a real generation call is never severed mid-flight (a 5 s
+        # cut-off raised socket.timeout, which the old code mis-bucketed as a
+        # generic "error"). The air-time deadline (fut.result) governs when the
+        # decide loop stops waiting -- that is the real-time budget, separate from
+        # this transport cap.
+        self.socket_timeout = mc.get("socket_timeout_s", 30.0)
         self.cache_only = bool(getattr(args, "cache_only", False))
         self.limit = int(getattr(args, "limit_model_lines", 0) or 0)
         self.pace = getattr(args, "pace", "fast")
@@ -6022,21 +6032,43 @@ class ModelWriter(Writer):
         try:
             out = fut.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
+            # the future did not finish within the deadline budget (the call is
+            # still running); don't wait on it.
             fut.cancel()
             self.counter["timeout"] += 1
             return self._fallback(request, "timeout", cache_hit=False,
                                   stamps=stamps)
-        except Exception:
-            self.counter["error"] += 1
-            # never surface the key or endpoint detail in the reason
-            return self._fallback(request, "error", cache_hit=False,
-                                  stamps=stamps)
         stamps["t_request"] = round(out["t_request"], 6)
         stamps["t_response"] = round(out["t_response"], 6)
+        if out.get("error"):
+            detail = "%s: %s" % (out["etype"], out["emsg"])
+            # (b) a socket-level timeout is a TIMEOUT, not a generic error.
+            if out.get("is_timeout"):
+                self.counter["timeout"] += 1
+                reason = "timeout:%s" % out["etype"]
+            else:
+                self.counter["error"] += 1
+                reason = "error:%s" % out["etype"]
+            self.counter["etype:%s" % out["etype"]] += 1
+            self._log_call_failure(request, detail, out.get("traceback"))
+            return self._fallback(request, reason, cache_hit=False,
+                                  stamps=stamps, error_detail=detail)
         self.cache.put(p["key"], out["text"])
         latency = (out["t_response"] - out["t_request"]) * 1000.0
         return self._accept_or_fallback(request, out["text"], cache_hit=False,
                                         stamps=stamps, latency_ms=latency)
+
+    def _log_call_failure(self, request, detail, tb):
+        """Record a failed model call so the run is self-diagnosing. The exception
+        type+message go on every failed line (dropped_reason + error_detail); the
+        full traceback goes to the run log ONCE (they are almost always the same
+        fault) so the log stays readable. No key can appear here -- it lives only
+        in the request headers, never in an exception or traceback."""
+        self.log("[model] call failed for %s (%s): %s"
+                 % (request.claim_id, request.kind, detail))
+        if tb and not getattr(self, "_logged_tb", False):
+            self._logged_tb = True
+            self.log("[model] first failure traceback:\n%s" % tb.rstrip())
 
     def _accept_or_fallback(self, request, text, cache_hit, stamps, latency_ms):
         text = (text or "").strip()
@@ -6061,7 +6093,7 @@ class ModelWriter(Writer):
                           stamps=stamps)
 
     def _fallback(self, request, reason, cache_hit=None, stamps=None,
-                  latency_ms=None):
+                  latency_ms=None, error_detail=None):
         speaker, text = self.booth._text(request.claim, request.past,
                                          avoid_templates=request.avoid_templates)
         self.counter["fallback"] += 1
@@ -6070,7 +6102,7 @@ class ModelWriter(Writer):
                           latency_ms=latency_ms, dropped_reason=reason,
                           prompt_version=self.prompt_version,
                           model_id=self.model_id, cache_hit=cache_hit,
-                          stamps=stamps or {})
+                          stamps=stamps or {}, error_detail=error_detail)
 
     def _timeout_s(self, request):
         """The socket timeout in WALL seconds, from the MODEL-clock deadline via
@@ -6087,10 +6119,22 @@ class ModelWriter(Writer):
 
     # -- the call ------------------------------------------------------------
     def _call(self, user_message):
+        # Capture any failure IN the worker with full detail, so it can never be
+        # lost to a bare "error" bucket (the instrumentation defect). The key
+        # lives only in the request headers -- never in an exception message or a
+        # traceback (which shows code lines, not local values) -- so this is safe
+        # to record and log.
         t_req = time.time()
-        text = (self._transport(user_message) if self._transport is not None
-                else self._http_post(user_message))
-        return {"text": text, "t_request": t_req, "t_response": time.time()}
+        try:
+            text = (self._transport(user_message) if self._transport is not None
+                    else self._http_post(user_message))
+            return {"text": text, "t_request": t_req, "t_response": time.time()}
+        except BaseException as e:               # noqa: BLE001 -- reported, not swallowed
+            import traceback as _tb
+            return {"error": True, "t_request": t_req, "t_response": time.time(),
+                    "etype": type(e).__name__, "emsg": str(e)[:200],
+                    "is_timeout": isinstance(e, (socket.timeout, TimeoutError)),
+                    "traceback": _tb.format_exc()}
 
     def _user_message(self, request):
         blob_json = json.dumps(request.blob, sort_keys=True, ensure_ascii=False,
@@ -6120,7 +6164,7 @@ class ModelWriter(Writer):
         try:
             if conn is None:
                 conn = http.client.HTTPSConnection(
-                    u.hostname, u.port or 443, timeout=self.fast_timeout)
+                    u.hostname, u.port or 443, timeout=self.socket_timeout)
                 self._local.conn = conn
             conn.request("POST", u.path or "/v1/messages", body=body,
                          headers=headers)
@@ -6167,6 +6211,9 @@ class ModelWriter(Writer):
             "dropped_by_reason": {k.split(":", 1)[1]: v
                                   for k, v in c.items()
                                   if k.startswith("drop:")},
+            "call_failure_types": {k.split(":", 1)[1]: v
+                                   for k, v in c.items()
+                                   if k.startswith("etype:")},
         }
 
     def close(self):
@@ -7391,6 +7438,9 @@ class BabyHooverV3:
             if ws.get("dropped_by_reason"):
                 self._log("  dropped by reason: %s"
                           % json.dumps(ws["dropped_by_reason"], sort_keys=True))
+            if ws.get("call_failure_types"):
+                self._log("  call failures by exception: %s"
+                          % json.dumps(ws["call_failure_types"], sort_keys=True))
         if qw:
             self._log("  queue wait t_wire->t_air (model): median %.3fs "
                       "p90 %.3fs max %.3fs (n=%d)"
