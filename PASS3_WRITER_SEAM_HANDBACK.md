@@ -29,6 +29,70 @@ it"):
 
 The code is standard-library and 3.11-safe, so it runs unchanged on 3.14.7.
 
+## Pass 3 continuation (30 Sep) — prompt revised (p3-2); live-fire still blocked
+
+A continuation session was pointed at "the Oklahoma machine" with the key
+"verified present (108 chars)". **It was not.** Verified in the running
+environment: `ANTHROPIC_API_KEY` is **unset** (no Anthropic-style value under any
+env var name, no `.env`), the working directory is the Linux cloud container
+(`/home/user/Repository001`, Python 3.11.15), not `C:\Users\dustin\...`. The
+network path is open — a direct call to `api.anthropic.com` returns 401
+(reachable, unauthenticated) — so the only thing missing is the credential. It is
+not reaching this session's process environment, whatever the host UI reports.
+
+Consequence, stated plainly rather than papered over: **TASK A (the live-fire) and
+the model-output half of TASK C cannot run here, and I did not fabricate them.**
+What was done, because it needs no key:
+
+- **TASK B — the system prompt is revised to `hoover-v3-p3-2`** from the real
+  broadcaster_prompt.md material (Dustin, 13 Aug), recovered in the continuation
+  brief. Transferred: the Crofty/Brundle voice (quick and warm, excited when
+  something happens, dry when nothing does), talk-like-a-person with contractions,
+  react to the moment, no stat-sheet recitation, gamertags are real people, and
+  the hard **never manufacture drama to fill space**. Adapted: "vary sentence
+  length aggressively" now applies *across* lines (each call is one sentence), so
+  the model is told to read the rhythm of the recent lines and break it. Left out:
+  the five-part structure, the 400–600-word target, the skim preamble (post-race
+  package, not per-line). Deliberately **not** reimplemented: the overtake
+  pit-cycling caution (obsolete — the pit wall resolves it before a claim is
+  raised). p3-1 stays in git at `328302c` for the comparison.
+- **Cache-only determinism re-checked at p3-2** (prompt_version is in the cache
+  key): two runs byte-identical. Full unit suite still 224 green.
+- **New `--prompts PATH` flag** so TASK C is a clean two-run comparison without
+  swapping the bundled file (verified: `--prompts <p3-1.json>` makes the run
+  record `prompt_version=hoover-v3-p3-1`).
+
+### For whoever runs it with the key (TASK A + TASK C)
+
+```
+# recover the old prompt for the comparison
+git show 328302c:hoover_prompts_v3.json > p3-1.json
+
+# TASK A -- baseline live-fire, short capture first, ORIGINAL pace
+python T11_F125_Baby_Hoover_V3_17SEP26.py --source replay --pace real ^
+    --replay <corpus>\bin1_test\bin1_test_s01.bin ^
+    --out <out>\v3_out_p3b_short --writer model --limit-model-lines 40
+
+# then one longer race if the short one is clean (drop --limit-model-lines)
+python T11_F125_Baby_Hoover_V3_17SEP26.py --source replay --pace real ^
+    --replay <corpus>\<one_full_race>.bin --out <out>\v3_out_p3b --writer model
+
+# TASK C -- same capture, both prompts (new is default = p3-2)
+python T11_F125_Baby_Hoover_V3_17SEP26.py --source replay --pace real ^
+    --replay <corpus>\bin1_test\bin1_test_s01.bin ^
+    --out <out>\v3_out_p3c_new --writer model
+python T11_F125_Baby_Hoover_V3_17SEP26.py --source replay --pace real ^
+    --replay <corpus>\bin1_test\bin1_test_s01.bin --prompts p3-1.json ^
+    --out <out>\v3_out_p3c_old --writer model
+```
+
+Report is in each run's manifest (`writer_summary`, `latency`) and printed at the
+end; model lines are the `writer=model` rows in `_lines.jsonl`/`audio_kit/lines.csv`,
+and each one's template twin is that claim's `template` selection (regenerate the
+race with `--writer template` to read the twins side by side). Leave the model
+output directory in place for `hoover_voice.py`. The key stays in the environment —
+never printed, never written to an artefact.
+
 ## What Pass 3 built (Parts L–Q)
 
 The seam is `Writer.write_line(request) -> LineResult`, with the request issued

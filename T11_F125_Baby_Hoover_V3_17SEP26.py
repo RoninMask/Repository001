@@ -5950,7 +5950,8 @@ class ModelWriter(Writer):
         self.pace = getattr(args, "pace", "fast")
         self.pace_scale = getattr(args, "pace_scale", 1.0) or 1.0
         # the prompt -- versioned, held in a file, iterated on without a code change
-        with open(_find_prompts_file(config), encoding="utf-8") as f:
+        prompts_path = getattr(args, "prompts", None) or _find_prompts_file(config)
+        with open(prompts_path, encoding="utf-8") as f:
             pd = json.load(f)
         self.prompt_version = pd.get("prompt_version", "unversioned")
         self.system = pd.get("system", "")
@@ -7582,6 +7583,10 @@ def main():
     ap.add_argument("--model", default=None,
                     help="model id for --writer model/hybrid "
                          "(default from config, else claude-haiku-4-5-20251001)")
+    ap.add_argument("--prompts", default=None,
+                    help="path to a prompt file (default hoover_prompts_v3.json "
+                         "beside the tool); use it to run an old vs new prompt "
+                         "comparison without swapping the bundled file")
     ap.add_argument("--key-var", default="ANTHROPIC_API_KEY",
                     help="environment variable holding the API key (never logged)")
     ap.add_argument("--cache-only", action="store_true",
