@@ -130,11 +130,20 @@ bare `"error"` is now `error:RuntimeError: api status 401` with a logged traceba
   which remains the real-time budget that governs when the decide loop gives up.
   A real call is no longer severed at 5 s.
 
+**Update after the next Oklahoma run — the real failure is a 400, not a timeout.**
+With the instrumentation in place, the live-fire named the actual exception:
+`RuntimeError: api status 400` (round trips completed in ~340 ms, so not a timeout
+and not auth — the server rejects a field in the request body). The socket-timeout
+work above was a sound defensive fix but is NOT this bug's cause. Next fix: the
+non-200 path now captures the API's **error body** (which for a 400 names the exact
+offending field; the key lives only in the request headers and is never echoed
+there — verified zero leakage). The root-cause fix itself is pending one more
+keyed run to read that body and correct the field. Per the skill's rule, I am not
+guessing the field before the body names it.
+
 Caveat, stated honestly: this session has no API key (verified — cloud container,
-not Oklahoma), so I could not confirm the fix against a 200 on Dustin's network.
-The most probable cause (the 5 s socket cut-off) is fixed, and the run is now
-self-diagnosing, so the next real-pace run will either succeed or name the true
-exception in the log and records. Note fast pace still caps the air-time wait at
+not Oklahoma), so I confirm the capture path against a dummy-key 401 body, not the
+real 400. The run is self-diagnosing; the next keyed run names the field. Note fast pace still caps the air-time wait at
 `fast_mode_timeout_s`; the definitive live-fire is at ORIGINAL pace (TASK A), where
 the deadline budget is the real queue wait. 226 unit tests green (2 new: a raising
 transport → `error:<Type>` with detail; a socket-timeout transport → reclassified

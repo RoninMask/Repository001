@@ -6132,7 +6132,7 @@ class ModelWriter(Writer):
         except BaseException as e:               # noqa: BLE001 -- reported, not swallowed
             import traceback as _tb
             return {"error": True, "t_request": t_req, "t_response": time.time(),
-                    "etype": type(e).__name__, "emsg": str(e)[:200],
+                    "etype": type(e).__name__, "emsg": str(e)[:400],
                     "is_timeout": isinstance(e, (socket.timeout, TimeoutError)),
                     "traceback": _tb.format_exc()}
 
@@ -6172,7 +6172,15 @@ class ModelWriter(Writer):
             data = resp.read()
             if resp.status != 200:
                 self._drop_conn()
-                raise RuntimeError("api status %d" % resp.status)
+                # Include the API's error body -- for a 400 it names the exact
+                # offending field. The body is the API's own error JSON; the key
+                # lives only in the request headers, never echoed here.
+                try:
+                    body = data.decode("utf-8", "replace")
+                except Exception:
+                    body = ""
+                body = " ".join(body.split())[:400]
+                raise RuntimeError("api status %d: %s" % (resp.status, body))
             return self._extract(data)
         except Exception:
             self._drop_conn()               # reconnect on the next line
