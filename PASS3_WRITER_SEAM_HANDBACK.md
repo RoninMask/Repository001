@@ -161,6 +161,61 @@ the deadline budget is the real queue wait. 226 unit tests green (2 new: a raisi
 transport → `error:<Type>` with detail; a socket-timeout transport → reclassified
 as timeout). Template output byte-identical.
 
+## Live-fire results (Oklahoma, 30 Sep) — items 6 & 7 answered
+
+The writer seam ran live against the real Anthropic API on the Oklahoma machine
+(`claude-haiku-4-5-20251001`), `--writer model` at **original replay pace** on
+`bin2_baku_live_s01`, after the fixes above. Prompt `hoover-v3-p3-2.1`.
+
+**Run summary.** 35 lines aired: **9 model-written, 26 fallback** — every fallback
+a checker rejection (`banned: 22`, `number_word: 3`, `unknown_name: 1`), **0 errors,
+0 timeouts** across 35 real API calls. A dropped completion is a normal outcome
+(the brief): each fell back cleanly to the template it would have aired anyway.
+
+**Item 7 — does the round trip fit inside the existing queue wait, under race load,
+at the configured worker count? YES.** Two real-pace runs agree, and 0 of 35 calls
+missed a deadline:
+
+| leg (real pace, 2 workers) | median | p90 | max |
+|---|---|---|---|
+| round trip `t_request→t_response` (wall) | **0.97 s** | 1.15 s | 1.46 s |
+| queue wait `t_wire→t_air` (model clock) | 2.73 s | 11.84 s | 15.61 s |
+
+The round trip (~1 s median) sits well inside the queue wait (~2.7 s median) with
+**0 timeouts**, so the deadline path almost never fires — as the brief predicted.
+Against the 800 ms single-worker baseline, the median is ~1.2× (expected: 60 output
+tokens vs 32, two workers, a longer prompt) — **no material regression**. An earlier
+real-pace run showed a fat tail (round-trip p90 4.3 s); a second run came back tight
+(p90 1.15 s), so that was transient network jitter, not systematic. The full chain
+(round trip + checker + the measured 226 ms speech first-byte) lands near ~1.2 s,
+inside the 2 s target.
+
+**The model's actual commentary (a sample of the 9 aired lines), every name and
+number traceable to the state blob:**
+
+- START — "We're underway, and the lights are out!"
+- PASS — "Piastri's through into second, and he's made that look absolutely effortless around the outside!"
+- PASS — "Albon's through into thirteenth, he's picked off Lawson and he's moving up the order now."
+- LEAD_CHANGE — "Leclerc's got him, Leclerc's got first place now, and Piastri's down to second."
+- PASS — "Ocon's through on Albon, up into eleventh place, and he's still hunting for more."
+
+**The drop rate is a quality note for a later pass, not a Pass-3 defect.** The
+checker rejects more than half the completions, and the reasons move as the prompt
+tightens: `hoover-v3-p3-2` produced 11 `em_dash_aside` drops because that prompt's
+own prose used dashes; `p3-2.1` removed them and the em-dash drops went to 0, but
+the model then reached for parenthetical asides instead (`banned: 22`, the config
+bans `(`/`)`). The model wants to add asides; the checker keeps catching the form.
+Chasing this further is prompt-quality work, which Pass 3 explicitly excludes ("it
+does not try to make the commentary good") and assigns to Toddler Hoover. The
+fallback covers every drop, so the script is always safe. Flagged as the headline
+follow-up for the quality pass.
+
+**Still open (optional): TASK C, the formal old-vs-new prompt comparison.** The
+same capture run under `--prompts p3-1.json` (the second-hand prompt) beside the
+`p3-2.1` default, with five claims quoted both ways. Not run yet; one keyed
+real-pace run each, using the `--prompts` flag shipped this round. The plumbing and
+latency proof — what Pass 3 is actually for — is complete without it.
+
 ## What Pass 3 built (Parts L–Q)
 
 The seam is `Writer.write_line(request) -> LineResult`, with the request issued
