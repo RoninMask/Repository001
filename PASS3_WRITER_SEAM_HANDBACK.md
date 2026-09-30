@@ -190,14 +190,19 @@ real-pace run showed a fat tail (round-trip p90 4.3 s); a second run came back t
 (round trip + checker + the measured 226 ms speech first-byte) lands near ~1.2 s,
 inside the 2 s target.
 
-**The model's actual commentary (a sample of the 9 aired lines), every name and
-number traceable to the state blob:**
+**The model's actual commentary — all 9 aired lines. Every name and number traces
+to the state blob (positions as ordinals, "twice" from swaps=2); nothing invented
+got past the checker:**
 
 - START — "We're underway, and the lights are out!"
 - PASS — "Piastri's through into second, and he's made that look absolutely effortless around the outside!"
 - PASS — "Albon's through into thirteenth, he's picked off Lawson and he's moving up the order now."
+- CONTESTED — "Gasly's holding ninth but Antonelli's right there in tenth, these two have swapped positions twice now and it's still very much on."
+- CONTESTED — "Colapinto's eighth now, he's got Gasly ninth and there's real pace in that car, these two have already traded places twice today."
 - LEAD_CHANGE — "Leclerc's got him, Leclerc's got first place now, and Piastri's down to second."
+- LEAD_CHANGE — "Piastri's back through, he's got first place now, and Leclerc drops to second."
 - PASS — "Ocon's through on Albon, up into eleventh place, and he's still hunting for more."
+- PIT — "Antonelli's in the pits now, seventeenth place, and he'll be hoping that stop gives him something to work with on the way back out."
 
 **The drop rate is a quality note for a later pass, not a Pass-3 defect.** The
 checker rejects more than half the completions, and the reasons move as the prompt
