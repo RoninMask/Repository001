@@ -81,6 +81,22 @@ import unicodedata
 from collections import defaultdict
 from datetime import datetime, timezone
 
+# Pass 4 (Part R): real-time playback to a NAMED device cannot be done with the
+# standard library, so this pass adds sounddevice (PortAudio) and soundfile under
+# a try/except -- a deliberate, scoped exception to the standard-library rule,
+# recorded in the hand-back. With `--speech none` (the default) the tool imports
+# and runs with neither package installed, behaving identically to a stdlib build.
+# `except Exception` (not just ImportError) because sounddevice loads the native
+# PortAudio library at import and raises OSError when it is absent.
+try:
+    import sounddevice as _sounddevice
+except Exception:
+    _sounddevice = None
+try:
+    import soundfile as _soundfile          # noqa: F401 -- offline path only
+except Exception:
+    _soundfile = None
+
 TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V2"
@@ -5022,6 +5038,10 @@ class V3Booth:
         self._recent_n = wr.get("recent_lines", 4)
         self.writer = TemplateWriter(self)
         self._last_line_result = None
+        # Part R: the speech channel. None (default --speech none) means the
+        # booth behaves exactly as Pass 3; BabyHooverV3 sets it after construction
+        # when --speech is on.
+        self.speech = None
 
     # ---- intake -------------------------------------------------------------
     def take(self, claim):
@@ -5497,6 +5517,32 @@ class V3Booth:
             # stays byte-identical to the pre-Pass-3 output.
             if result.writer != "template":
                 claim.writer_meta = writer_meta
+        # Part R/S/T: speak the finalised line (gated: with --speech none the
+        # channel is None and nothing below runs, so the record stays Pass-3).
+        if self.speech is not None:
+            sr = self.speech.speak(line_id, speaker, speech_text, air_t)
+            rec["spoken"] = sr.spoken
+            rec["duration_actual_s"] = sr.duration_actual_s
+            rec["speech_fail_reason"] = sr.fail_reason
+            # Part S: how long the line was ready (validated at t) before the
+            # pacing window let it air. The number the next pass turns on.
+            rec["held_by_window_ms"] = round(max(0.0, air_t - t) * 1000.0, 1)
+            if sr.stamps:
+                st = rec.get("stamps")
+                if isinstance(st, dict):
+                    st.update(sr.stamps)
+                else:
+                    rec["stamps"] = dict(sr.stamps)
+            # Part T: a spoken line's MEASURED end governs the next line in LIVE
+            # mode; in replay the estimate stands (no audio at scheduling time by
+            # construction). The source is recorded so the fallback is countable.
+            rec["duration_source"] = "estimate"
+            if (self.speech.live and sr.spoken
+                    and sr.duration_actual_s is not None):
+                measured_end = air_t + sr.duration_actual_s
+                self.channel_busy_until = measured_end
+                self._last_air_end = measured_end
+                rec["duration_source"] = "measured"
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -6352,6 +6398,382 @@ def latency_report(emitted):
 
 
 # =============================================================================
+# SECTION 18 -- THE SPEECH CHANNEL (Pass 4, Parts R-V)
+# =============================================================================
+# Owns everything between a finalised line and sound: synthesis (ElevenLabs
+# streaming PCM over one held HTTPS connection), per-clip loudness/trim, playback
+# to a named device, a single speaking lock, a character budget, and the Part S
+# measurements. With --speech none the booth never constructs one, so the tool
+# runs with neither audio package installed and is byte-identical to Pass 3.
+
+
+def list_audio_devices_text(lister=None):
+    """Part R: the output-device list. The virtual cable's exact name is not
+    guessable (e.g. 'CABLE Input (VB-Audio Virtual Cable)'), so this is how the
+    operator finds it."""
+    if lister is None:
+        if _sounddevice is None:
+            return ("No audio backend: sounddevice / PortAudio is not installed.\n"
+                    "Install with: pip install sounddevice soundfile")
+        def lister():
+            return [d["name"] for d in _sounddevice.query_devices()
+                    if d.get("max_output_channels", 0) > 0]
+    try:
+        names = lister()
+    except Exception as e:
+        return "Could not query audio devices: %s" % e
+    out = ["Output devices:"]
+    out += ["  %s" % n for n in names] or ["  (none)"]
+    return "\n".join(out)
+
+
+class SpeechResult:
+    __slots__ = ("line_id", "spoken", "duration_actual_s", "fail_reason",
+                 "stamps", "pre_norm_dbfs", "trimmed_ms", "chars")
+
+    def __init__(self, line_id, spoken=False, duration_actual_s=None,
+                 fail_reason=None, stamps=None, pre_norm_dbfs=None,
+                 trimmed_ms=None, chars=0):
+        self.line_id = line_id
+        self.spoken = spoken
+        self.duration_actual_s = duration_actual_s
+        self.fail_reason = fail_reason
+        self.stamps = stamps or {}
+        self.pre_norm_dbfs = pre_norm_dbfs
+        self.trimmed_ms = trimmed_ms
+        self.chars = chars
+
+
+class SpeechChannel:
+    """Part R. speak() takes a finalised line to sound; busy_until() reports the
+    real end of the real line (live only); stats() and close() round it off. A
+    dropped synthesis has nothing to fall back to, so a failure means the line
+    simply does not air, recorded with its reason (Part failure-handling)."""
+
+    def __init__(self, config, args, live=False, log=None,
+                 transport=None, player=None, device_lister=None, now=None):
+        rc = config.get("v3", "speech", "realtime", default={}) or {}
+        self.cfg = config
+        self.rc = rc
+        self.live = live
+        self.log = log or (lambda m: None)
+        self.dry_run = bool(getattr(args, "speech_dry_run", False))
+        self.model = rc.get("model", "eleven_flash_v2_5")
+        self.endpoint = rc.get("endpoint",
+                               "https://api.elevenlabs.io/v1/text-to-speech")
+        self.output_format = rc.get("output_format", "pcm_24000")
+        self.sample_rate = rc.get("sample_rate_hz", 24000)
+        self.voices = rc.get("voices", {}) or {}
+        self.char_budget = rc.get("character_budget", 25000)
+        self.degraded_threshold = rc.get("degraded_threshold", 5)
+        self.req_timeout = rc.get("request_timeout_s", 10.0)
+        self.loud_target = rc.get("loudness_target_dbfs", -16.0)
+        self.trim = rc.get("trim_silence", True)
+        self.trim_thresh = rc.get("trim_threshold_dbfs", -40.0)
+        self.voice_settings = rc.get("voice_settings", {}) or {}
+        self.key_var = getattr(args, "speech_key_var", "ELEVENLABS_API_KEY")
+        self._api_key = os.environ.get(self.key_var)
+        self.device = getattr(args, "speech_device", None)
+        self._transport = transport     # test stub: callable(text, voice) -> pcm
+        self._player = player           # test stub: callable(pcm, rate, device)
+        self._device_lister = device_lister
+        self._now = now or time.time
+        self._local = threading.local()
+        self._busy_until = None
+        self.chars_used = 0
+        self._budget_logged = False
+        self._fail_count = 0
+        self.degraded = False
+        self.counter = collections.Counter()
+        self._pre_norm = []
+        self._trimmed_ms = []
+        # a real run with a named device must fail LOUD at start-up if it is
+        # missing -- the operator is recording and would not notice a silent
+        # fall-back to the speakers until afterwards.
+        if (not self.dry_run and self.device is not None
+                and self._player is None):
+            self._validate_device()
+
+    # -- start-up device check ----------------------------------------------
+    def _device_names(self):
+        if self._device_lister is not None:
+            return self._device_lister()
+        if _sounddevice is None:
+            return []
+        return [d["name"] for d in _sounddevice.query_devices()
+                if d.get("max_output_channels", 0) > 0]
+
+    def _validate_device(self):
+        names = []
+        try:
+            names = self._device_names()
+        except Exception:
+            names = []
+        if self.device not in names:
+            raise SystemExit(
+                "STOP: audio output device %r not found.\n%s"
+                % (self.device, list_audio_devices_text(self._device_lister
+                                                        or (lambda: names))))
+
+    # -- the one speaking lock -----------------------------------------------
+    def busy_until(self):
+        """Live only. In replay no audio drives scheduling by construction
+        (Part T), so the estimate answers and the window applies as a fallback."""
+        if not self.live:
+            return None
+        if self._busy_until is not None and self._busy_until <= self._now():
+            return None
+        return self._busy_until
+
+    # -- finalised line -> sound ---------------------------------------------
+    def speak(self, line_id, speaker, text, t_air):
+        chars = len(text or "")
+        if self.chars_used + chars > self.char_budget:
+            if not self._budget_logged:
+                self.log("[speech] character budget %d reached at %d chars; "
+                         "synthesis stopped, script and audio kit continue"
+                         % (self.char_budget, self.chars_used))
+                self._budget_logged = True
+            self.counter["budget_skipped"] += 1
+            return SpeechResult(line_id, spoken=False, fail_reason="budget", chars=0)
+        if self.degraded:
+            self.counter["degraded_skipped"] += 1
+            return SpeechResult(line_id, spoken=False, fail_reason="degraded",
+                                chars=0)
+        voice = self.voices.get(speaker) or self.voices.get("LEAD") or ""
+
+        # dry-run: everything except the API call and audio.
+        if self.dry_run:
+            self.chars_used += chars
+            dur = duration_two_term(max(1, len(text.split())), self.cfg)
+            now = self._now()
+            self.counter["spoken"] += 1
+            return SpeechResult(
+                line_id, spoken=True, duration_actual_s=round(dur, 3),
+                stamps={"t_speech_request": round(now, 6),
+                        "t_speech_first_byte": round(now, 6),
+                        "t_playback_start": round(now, 6),
+                        "t_playback_end": round(now + dur, 6)},
+                chars=chars)
+
+        # real synthesis
+        t_req = self._now()
+        stamps = {"t_speech_request": round(t_req, 6)}
+        try:
+            pcm, t_first = self._synth(text, voice)
+        except Exception as e:
+            self._register_fail()
+            return SpeechResult(line_id, spoken=False,
+                                fail_reason="synth:%s" % type(e).__name__,
+                                stamps=stamps, chars=chars)
+        self.chars_used += chars
+        stamps["t_speech_first_byte"] = round(t_first, 6)
+        pcm, pre_db, trimmed_ms = self._process(pcm)
+        dur = (len(pcm) // 2) / float(self.sample_rate)
+        t_play = self._now()
+        stamps["t_playback_start"] = round(t_play, 6)
+        try:
+            self._play(pcm)                 # non-blocking: playback runs in bg
+        except Exception as e:
+            self._register_fail()
+            return SpeechResult(line_id, spoken=False,
+                                fail_reason="playback:%s" % type(e).__name__,
+                                stamps=stamps, chars=chars)
+        t_end = t_play + dur
+        stamps["t_playback_end"] = round(t_end, 6)
+        if self.live:
+            self._busy_until = t_end
+        self.counter["spoken"] += 1
+        if pre_db is not None:
+            self._pre_norm.append(pre_db)
+        if trimmed_ms is not None:
+            self._trimmed_ms.append(trimmed_ms)
+        return SpeechResult(line_id, spoken=True, duration_actual_s=round(dur, 3),
+                            stamps=stamps, pre_norm_dbfs=pre_db,
+                            trimmed_ms=trimmed_ms, chars=chars)
+
+    # -- synthesis (held HTTPS connection, streaming PCM) --------------------
+    def _synth(self, text, voice):
+        if self._transport is not None:
+            t0 = self._now()
+            return self._transport(text, voice), t0
+        import http.client
+        import urllib.parse
+        url = "%s/%s/stream?output_format=%s" % (self.endpoint, voice,
+                                                 self.output_format)
+        u = urllib.parse.urlsplit(url)
+        body = json.dumps({"text": text, "model_id": self.model,
+                           "voice_settings": self.voice_settings}).encode("utf-8")
+        headers = {"xi-api-key": self._api_key or "",
+                   "content-type": "application/json", "accept": "audio/pcm"}
+        conn = getattr(self._local, "conn", None)
+        try:
+            if conn is None:
+                conn = http.client.HTTPSConnection(
+                    u.hostname, u.port or 443, timeout=self.req_timeout)
+                self._local.conn = conn
+            path = u.path + ("?" + u.query if u.query else "")
+            conn.request("POST", path, body=body, headers=headers)
+            resp = conn.getresponse()
+            first = None
+            chunks = []
+            while True:
+                chunk = resp.read(4096)
+                if not chunk:
+                    break
+                if first is None:
+                    first = self._now()
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            if resp.status != 200:
+                self._drop_conn()
+                raise RuntimeError("tts status %d: %s"
+                                   % (resp.status,
+                                      data.decode("utf-8", "replace")[:200]))
+            return data, (first if first is not None else self._now())
+        except Exception:
+            self._drop_conn()
+            raise
+
+    def _drop_conn(self):
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+
+    # -- Part U: trim + loudness (numpy, present whenever sounddevice is) -----
+    def _process(self, pcm):
+        try:
+            import numpy as np
+        except Exception:
+            return pcm, None, None          # no numpy: play raw, no measurement
+        a = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+        if a.size == 0:
+            return pcm, None, None
+        full = 32768.0
+        rms = float(np.sqrt(np.mean(a * a)))
+        pre_db = 20.0 * math.log10(max(rms, 1.0) / full)
+        trimmed_ms = 0.0
+        if self.trim:
+            thr = full * (10.0 ** (self.trim_thresh / 20.0))
+            loud = np.abs(a) > thr
+            if loud.any():
+                s = int(np.argmax(loud))
+                e = int(len(a) - np.argmax(loud[::-1]))
+                trimmed_ms = (len(a) - (e - s)) / self.sample_rate * 1000.0
+                a = a[s:e]
+        rms2 = float(np.sqrt(np.mean(a * a))) if a.size else 1.0
+        if rms2 > 0:
+            gain = (full * (10.0 ** (self.loud_target / 20.0))) / rms2
+            a = np.clip(a * gain, -full, full - 1)
+        return a.astype(np.int16).tobytes(), round(pre_db, 2), round(trimmed_ms, 1)
+
+    def _play(self, pcm):
+        if self._player is not None:
+            self._player(pcm, self.sample_rate, self.device)
+            return
+        import numpy as np
+        a = np.frombuffer(pcm, dtype=np.int16)
+        kw = {"blocking": False}
+        if self.device is not None:
+            kw["device"] = self.device
+        _sounddevice.play(a, self.sample_rate, **kw)
+
+    def _register_fail(self):
+        self.counter["fail"] += 1
+        self._fail_count += 1
+        if self._fail_count >= self.degraded_threshold and not self.degraded:
+            self.degraded = True
+            self.log("[speech] DEGRADED: %d synthesis failures; continuing to "
+                     "write the script without audio" % self._fail_count)
+
+    def stats(self):
+        def dist(xs):
+            xs = sorted(x for x in xs if x is not None)
+            if not xs:
+                return None
+            n = len(xs)
+            return {"n": n, "median": round(xs[n // 2], 2),
+                    "min": round(xs[0], 2), "max": round(xs[-1], 2)}
+        return {
+            "mode": "dry-run" if self.dry_run else "elevenlabs",
+            "model": self.model,
+            "chars_used": self.chars_used,
+            "character_budget": self.char_budget,
+            "spoken": self.counter.get("spoken", 0),
+            "failed": self.counter.get("fail", 0),
+            "budget_skipped": self.counter.get("budget_skipped", 0),
+            "degraded": self.degraded,
+            "pre_norm_dbfs": dist(self._pre_norm),
+            "trimmed_ms": dist(self._trimmed_ms),
+            "voice_settings": self.voice_settings,
+        }
+
+    def close(self):
+        self._drop_conn()
+        if self._player is None and _sounddevice is not None and not self.dry_run:
+            try:
+                _sounddevice.stop()
+            except Exception:
+                pass
+
+
+# --- Part S: the speech-timing report ----------------------------------------
+def speech_report(emitted, claim_records):
+    """The measurements that make the NEXT pass designable, not this one. Nothing
+    acts on them here. t_air -> t_playback_start (how long after a line was
+    released did sound start), duration_actual - duration_estimated, total time
+    the pacing window held lines back, and claims that expired while waiting."""
+    def dist(xs):
+        xs = sorted(x for x in xs if x is not None)
+        if not xs:
+            return None
+        n = len(xs)
+        p90 = xs[min(n - 1, int(round(0.9 * (n - 1))))]
+        return {"n": n, "median_s": round(xs[n // 2], 4),
+                "p90_s": round(p90, 4), "max_s": round(xs[-1], 4),
+                "over_2s": sum(1 for x in xs if x > 2.0)}
+
+    def legs(recs):
+        air_to_play, dur_delta = [], []
+        held = 0.0
+        for r in recs:
+            st = r.get("stamps") or {}
+            ps, ta = st.get("t_playback_start"), st.get("t_air")
+            if ps is not None and ta is not None:
+                air_to_play.append(ps - ta)
+            da, de = r.get("duration_actual_s"), r.get("est_duration_s")
+            if da is not None and de is not None:
+                dur_delta.append(da - de)
+            held += (r.get("held_by_window_ms") or 0.0)
+        return {"t_air_to_playback_start": dist(air_to_play),
+                "duration_actual_minus_estimated": dist(dur_delta),
+                "held_by_window_ms_total": round(held, 1)}
+
+    spoken = [r for r in emitted if r.get("spoken")]
+    expired = sum(1 for c in claim_records
+                  if c.get("outcome") == "dropped"
+                  and (c.get("outcome_reason") or "") == "expired")
+    out = {"_frames": "t_air/t_playback_start are wall-clock at live pace; at "
+                      "replay/dry-run they are synthetic (equal). Meaningful live.",
+           "overall": legs(emitted),
+           "expired_while_waiting": expired,
+           "by_speaker": {}, "by_writer": {}}
+    for sp in sorted({r.get("speaker") for r in emitted}):
+        out["by_speaker"][sp] = legs([r for r in emitted if r.get("speaker") == sp])
+    for w in ("template", "model", "fallback"):
+        rr = [r for r in emitted if r.get("writer") == w]
+        if rr:
+            out["by_writer"][w] = legs(rr)
+    out["counts"] = {"written": len(emitted), "spoken": len(spoken),
+                     "failed": len(emitted) - len(spoken)}
+    return out
+
+
+# =============================================================================
 # SECTION 15 -- V3 GALLERY (advisory director; reads the model only)
 # =============================================================================
 # === GALLERY BEGIN ===
@@ -7069,6 +7491,9 @@ class BabyHooverV3:
         # Part L: select the writer. template is inert and the default; model /
         # hybrid replace the seam's writer so no other call site changes.
         self.booth.writer = self._make_writer()
+        # Part R: the speech channel. None unless --speech on.
+        self.speech_enabled = getattr(args, "speech", "none") != "none"
+        self.booth.speech = self._make_speech() if self.speech_enabled else None
         self.gallery = V3Gallery(self.model, self.config, self.actuation_state,
                                  self.source)
         self.rec_start = None
@@ -7093,6 +7518,26 @@ class BabyHooverV3:
         if choice == "model":
             return model_writer
         return HybridWriter(self.booth, self.config, model_writer)
+
+    def _make_speech(self):
+        """Part R: build the speech channel for --speech elevenlabs. A real run
+        with the audio package missing, or the key unset, exits at start-up with
+        the fix, before the session opens. --speech-dry-run needs neither."""
+        dry = bool(getattr(self.args, "speech_dry_run", False))
+        live = self.source == "live"
+        if not dry:
+            if _sounddevice is None:
+                raise SystemExit(
+                    "STOP: --speech elevenlabs needs the audio packages, which "
+                    "are not installed. Install with: pip install sounddevice "
+                    "soundfile  (or use --speech-dry-run to exercise the path "
+                    "with no audio and no API calls).")
+            key_var = getattr(self.args, "speech_key_var", "ELEVENLABS_API_KEY")
+            if not os.environ.get(key_var):
+                raise SystemExit(
+                    "STOP: --speech elevenlabs needs the ElevenLabs key in $%s, "
+                    "which is unset. Set it, or use --speech-dry-run." % key_var)
+        return SpeechChannel(self.config, self.args, live=live, log=self._log)
 
     def _log(self, msg):
         line = "[v3] %s" % msg
@@ -7379,6 +7824,13 @@ class BabyHooverV3:
                                     for k, v in self.world.packet_counts.items()},
             "record_count": int(sum(self.world.packet_counts.values())),
         }
+        # Part S: the speech summary + timing report (only when speech is on, so
+        # --speech none keeps the Pass-3 manifest).
+        if self.speech_enabled and self.booth.speech is not None:
+            manifest["speech"] = getattr(self.args, "speech", "none")
+            manifest["speech_summary"] = self.booth.speech.stats()
+            manifest["speech_timing"] = speech_report(
+                self.booth.emitted, self.booth.claim_records)
         with open(p + "_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
 
@@ -7440,6 +7892,11 @@ class BabyHooverV3:
             self.booth.writer.close()
         except Exception as e:
             self._log("writer close warning: %s" % e)
+        if self.booth.speech is not None:
+            try:
+                self.booth.speech.close()
+            except Exception as e:
+                self._log("speech close warning: %s" % e)
 
     def _log_run_summary(self, manifest):
         ws = manifest.get("writer_summary") or {}
@@ -7656,6 +8113,21 @@ def main():
                     help="path to a prompt file (default hoover_prompts_v3.json "
                          "beside the tool); use it to run an old vs new prompt "
                          "comparison without swapping the bundled file")
+    # Pass 4 -- the speech channel (Parts R-V)
+    ap.add_argument("--speech", choices=["none", "elevenlabs"], default="none",
+                    help="speak lines in real time via ElevenLabs (default none; "
+                         "none behaves exactly as Pass 3 and needs no audio deps)")
+    ap.add_argument("--speech-dry-run", action="store_true",
+                    help="exercise the whole speech path but make NO API call and "
+                         "play NO audio -- for cost-free integration tests")
+    ap.add_argument("--speech-device", default=None,
+                    help="output device name (default the system default); a name "
+                         "that does not exist fails loudly at start-up")
+    ap.add_argument("--list-audio-devices", action="store_true",
+                    help="print every output device and exit")
+    ap.add_argument("--speech-key-var", default="ELEVENLABS_API_KEY",
+                    help="environment variable holding the ElevenLabs key "
+                         "(never logged)")
     ap.add_argument("--key-var", default="ANTHROPIC_API_KEY",
                     help="environment variable holding the API key (never logged)")
     ap.add_argument("--cache-only", action="store_true",
@@ -7665,6 +8137,9 @@ def main():
                     help="cap how many lines the model may write (0 = unlimited); "
                          "the rest fall back to the template")
     args = ap.parse_args()
+    if args.list_audio_devices:          # Part R: print devices and exit
+        print(list_audio_devices_text())
+        return 0
     if args.pace is None:
         args.pace = "fast"
     if args.source in ("replay", "fast"):

@@ -538,6 +538,28 @@
         "fallback_wps": 2.92,
         "apply_to_est_duration": false,
         "per_speaker": {}
+      },
+      "realtime": {
+        "_about": "Pass 4 Parts R-V. The real-time speech channel. Flash is the low-latency model the 226 ms first-byte figure was measured on; eleven_multilingual_v2 is higher quality but does not fit real time and stays for offline re-renders. Voices measured at the same latency floor. character_budget caps one run's spend (account allowance is ~70 races/month, shared); on reaching it the channel stops synthesising but the script and audio kit keep being written. loudness_target_dbfs normalises each clip; trim_silence removes ElevenLabs' leading/trailing silence. voice_settings are iterated in config, never code, and recorded in the manifest. degraded_threshold: once this many synths fail, log that speech is degraded and carry on writing.",
+        "model": "eleven_flash_v2_5",
+        "endpoint": "https://api.elevenlabs.io/v1/text-to-speech",
+        "output_format": "pcm_24000",
+        "sample_rate_hz": 24000,
+        "voices": {
+          "LEAD": "vSSoxe4a93eFSPtJHjAA",
+          "ANALYST": "prJYBPOxu8LDMrZfACbo"
+        },
+        "character_budget": 25000,
+        "degraded_threshold": 5,
+        "request_timeout_s": 10.0,
+        "loudness_target_dbfs": -16.0,
+        "trim_silence": true,
+        "trim_threshold_dbfs": -40.0,
+        "voice_settings": {
+          "stability": 0.5,
+          "similarity_boost": 0.75,
+          "speed": 1.0
+        }
       }
     },
     "writer": {
