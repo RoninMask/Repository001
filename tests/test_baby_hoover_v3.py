@@ -2093,6 +2093,40 @@ class TestPass4Speech(unittest.TestCase):
         self.assertEqual(ch.device_audible,
                          "ED270 Z (NVIDIA High Definition Audio)")
 
+    # ---- dual output: cable (-> OBS) AND the operator's monitor -------------
+    def test_dual_output_plays_cable_then_monitor(self):
+        routed = []
+
+        def transport(text, voice):
+            return b"\x01\x01" * 24000
+        ch = v3.SpeechChannel(
+            make_config(), self._args(), live=True, transport=transport,
+            player=lambda pcm, rate, dev: routed.append(dev),
+            device_lister=lambda: list(self.REAL_DEVICES))
+        sr = ch.speak("L1", "LEAD", "line", 1000.0)
+        self.assertTrue(sr.spoken)
+        # the call is played to the cable FIRST (authoritative OBS track), then
+        # to the operator's monitor.
+        self.assertEqual(routed, ["Speakers (VB-Audio Virtual Cable)",
+                                  "ED270 Z (NVIDIA High Definition Audio)"])
+
+    def test_no_double_play_when_cable_equals_audible(self):
+        routed = []
+
+        def transport(text, voice):
+            return b"\x01\x01" * 24000
+        # pin the cable to the SAME device as the monitor: the monitor must not
+        # be a second, duplicate target.
+        ch = v3.SpeechChannel(
+            make_config(),
+            self._args(speech_device="ED270 Z (NVIDIA High Definition Audio)"),
+            live=True, transport=transport,
+            player=lambda pcm, rate, dev: routed.append(dev),
+            device_lister=lambda: list(self.REAL_DEVICES))
+        self.assertIsNone(ch._audible)
+        ch.speak("L1", "LEAD", "line", 1000.0)
+        self.assertEqual(routed, ["ED270 Z (NVIDIA High Definition Audio)"])
+
     # ---- Part S: written-versus-spoken is visible in the three artefacts ----
     def _orchestrator_with_records(self, speech_enabled, recs):
         import types

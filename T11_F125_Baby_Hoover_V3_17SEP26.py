@@ -6484,11 +6484,20 @@ class SpeechChannel:
         # Exact configured string only (ENUMERATED on the target machine, used
         # verbatim); CLI overrides the config pin; a name is NEVER inferred from
         # a device's label, and NEVER guessed from what a standard VB-CABLE
-        # install would be called. device_cable is the playback endpoint we send
-        # commentary to (so OBS captures it off the cable); device_audible is the
-        # operator's real monitor, recorded for the audit, not a speech target.
+        # install would be called. device_cable is the endpoint OBS captures off
+        # the cable (the authoritative track). device_audible is the operator's
+        # real monitor: the call is ALSO played there, in parallel, so they hear
+        # it live -- best-effort, and never allowed to disturb the cable feed.
         self.device = getattr(args, "speech_device", None) or rc.get("device_cable")
         self.device_audible = rc.get("device_audible")
+        # the monitor is a second playback target only when it is a DISTINCT
+        # device (no point playing the same stream twice).
+        self._audible = (self.device_audible
+                         if (self.device_audible
+                             and self.device_audible != self.device)
+                         else None)
+        self._audible_stream = None     # persistent monitor OutputStream (live)
+        self._audible_lock = threading.Lock()
         self._transport = transport     # test stub: callable(text, voice) -> pcm
         self._player = player           # test stub: callable(pcm, rate, device)
         self._device_lister = device_lister
@@ -6504,10 +6513,11 @@ class SpeechChannel:
         self._trimmed_ms = []
         # a real run with a named device must fail LOUD at start-up if it is
         # missing -- the operator is recording and would not notice a silent
-        # fall-back to the speakers until afterwards.
-        if (not self.dry_run and self.device is not None
-                and self._player is None):
-            self._validate_device()
+        # fall-back to the speakers until afterwards. Both the cable and the
+        # monitor are checked, so a mistyped endpoint is caught before the race.
+        if (not self.dry_run and self._player is None
+                and self._playback_targets()):
+            self._validate_devices()
 
     # -- start-up device check ----------------------------------------------
     def _device_names(self):
@@ -6518,17 +6528,29 @@ class SpeechChannel:
         return [d["name"] for d in _sounddevice.query_devices()
                 if d.get("max_output_channels", 0) > 0]
 
-    def _validate_device(self):
+    def _playback_targets(self):
+        """The devices a line is played to: the cable, plus the operator's
+        monitor when it is a distinct, configured device."""
+        t = []
+        if self.device is not None:
+            t.append(self.device)
+        if self._audible is not None:
+            t.append(self._audible)
+        return t
+
+    def _validate_devices(self):
         names = []
         try:
             names = self._device_names()
         except Exception:
             names = []
-        if self.device not in names:
+        missing = [d for d in self._playback_targets() if d not in names]
+        if missing:
             raise SystemExit(
-                "STOP: audio output device %r not found.\n%s"
-                % (self.device, list_audio_devices_text(self._device_lister
-                                                        or (lambda: names))))
+                "STOP: audio output device(s) %s not found.\n%s"
+                % (", ".join(repr(d) for d in missing),
+                   list_audio_devices_text(self._device_lister
+                                           or (lambda: names))))
 
     # -- the one speaking lock -----------------------------------------------
     def busy_until(self):
@@ -6688,14 +6710,52 @@ class SpeechChannel:
 
     def _play(self, pcm):
         if self._player is not None:
-            self._player(pcm, self.sample_rate, self.device)
+            # test stub: record every routed device (cable, then monitor).
+            for dev in self._playback_targets():
+                self._player(pcm, self.sample_rate, dev)
             return
         import numpy as np
         a = np.frombuffer(pcm, dtype=np.int16)
+        # cable first: the authoritative track OBS captures. Unchanged
+        # non-blocking sd.play, so the playback-start path is exactly as before.
         kw = {"blocking": False}
         if self.device is not None:
             kw["device"] = self.device
         _sounddevice.play(a, self.sample_rate, **kw)
+        # monitor: the same clip to the operator's real speakers, on its own
+        # persistent stream, written on a daemon thread so the booth never
+        # blocks. Best-effort -- a monitor failure disables only the monitor.
+        if self._audible is not None:
+            threading.Thread(target=self._play_monitor, args=(a,),
+                             daemon=True).start()
+
+    def _play_monitor(self, samples):
+        try:
+            with self._audible_lock:
+                stream = self._audible_stream
+                if stream is None:
+                    stream = _sounddevice.OutputStream(
+                        samplerate=self.sample_rate, channels=1,
+                        dtype="int16", device=self._audible)
+                    stream.start()
+                    self._audible_stream = stream
+                stream.write(samples)
+        except Exception as e:
+            # drop the monitor for the rest of the run; the cable is untouched.
+            self.log("[speech] operator monitor %r disabled after error: %s"
+                     % (self._audible, type(e).__name__))
+            self._drop_audible()
+            self._audible = None
+
+    def _drop_audible(self):
+        s = self._audible_stream
+        self._audible_stream = None
+        if s is not None:
+            try:
+                s.stop()
+                s.close()
+            except Exception:
+                pass
 
     def _register_fail(self):
         self.counter["fail"] += 1
@@ -6716,8 +6776,9 @@ class SpeechChannel:
         return {
             "mode": "dry-run" if self.dry_run else "elevenlabs",
             "model": self.model,
-            "device_cable": self.device,          # the playback endpoint (-> OBS)
-            "device_audible": self.device_audible,  # operator monitor, for record
+            "device_cable": self.device,          # cable endpoint (-> OBS)
+            "device_audible": self.device_audible,  # operator monitor (live too)
+            "monitor_active": self._audible is not None,  # played to both?
             "chars_used": self.chars_used,
             "character_budget": self.char_budget,
             "spoken": self.counter.get("spoken", 0),
@@ -6731,6 +6792,7 @@ class SpeechChannel:
 
     def close(self):
         self._drop_conn()
+        self._drop_audible()
         if self._player is None and _sounddevice is not None and not self.dry_run:
             try:
                 _sounddevice.stop()

@@ -51,14 +51,21 @@ endpoints enumerated on the target machine:
 |---|---|
 | `CABLE In 16 Ch (VB-Audio Virtual Cable)` | 16-channel — **do not use** |
 | `CABLE Output (VB-Audio Virtual Cable)` | the capture side **OBS** reads — not us |
-| `Speakers (VB-Audio Virtual Cable)` | **the playback endpoint = `device_cable`** (we send commentary here so OBS captures it off the cable) |
-| `ED270 Z (NVIDIA High Definition Audio)` | the operator's real monitor = `device_audible` |
+| `Speakers (VB-Audio Virtual Cable)` | **the cable endpoint = `device_cable`** — OBS captures the call off the cable (the authoritative track) |
+| `ED270 Z (NVIDIA High Definition Audio)` | the operator's real monitor = `device_audible` — the call is **also** played here so the operator hears it live |
 
-So the config now carries two keys: `device_cable` =
-`"Speakers (VB-Audio Virtual Cable)"` (the playback target) and `device_audible`
-= `"ED270 Z (NVIDIA High Definition Audio)"` (recorded for the audit — it is
-**not** a speech target; commentary goes only to `device_cable`). The channel
-selects the output device by *exact string equality*; it never does a
+So the config carries two keys: `device_cable` =
+`"Speakers (VB-Audio Virtual Cable)"` and `device_audible` =
+`"ED270 Z (NVIDIA High Definition Audio)"`. **Each line is played to both** — to
+the cable (for OBS) and to the monitor (for the operator) — in parallel on
+separate streams. The cable keeps its exact original playback path
+(non-blocking `sd.play`), so the item-6 latency path is unchanged; the monitor
+runs on its own persistent `OutputStream` written on a daemon thread, so it
+never blocks the booth, and it is **best-effort**: if the monitor stream errors
+it is disabled for the rest of the run (logged) and the cable feed is untouched.
+Set `device_audible` to the same string as `device_cable` (or remove it) to play
+to the cable only; both endpoints are validated at start-up. The channel selects
+each device by *exact string equality*; it never does a
 substring/case/"prefer Speakers" heuristic. This matters precisely because this
 machine **renamed** its playback endpoint: the generic VB-CABLE install calls it
 `"CABLE Input (VB-Audio Virtual Cable)"`, which does **not** exist here — pinning
