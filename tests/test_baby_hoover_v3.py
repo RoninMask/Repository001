@@ -34,6 +34,11 @@ v3 = _load_v3()
 CFG_PATH = os.path.join(REPO, "hoover_config_v3.json")
 
 
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 class FakeRoster:
     hash = "test"
 
@@ -1915,6 +1920,243 @@ class TestPass3Writer(unittest.TestCase):
         self.assertTrue(res.dropped_reason.startswith("timeout"))
         self.assertEqual(mw.stats()["timeout"], 1)
         self.assertEqual(mw.stats()["error"], 0)
+
+
+class TestPass4Speech(unittest.TestCase):
+    """Pass 4: the real-time speech channel (Parts R-V). The four behaviours the
+    brief names -- a character budget that stops synthesis without crashing, a
+    failed synthesis that leaves the schedule intact, busy_until() measured in
+    live and None in replay, a device that is not found failing LOUD at start-up
+    -- plus exact-string (never inferred) device selection, and the
+    written-versus-spoken rendering in the three artefacts. Everything is driven
+    through injected transport/player/device_lister stubs, so no audio package
+    and no API key are needed (this sandbox has none of numpy, sounddevice,
+    soundfile, or a key -- the same posture Dustin's machine inverts for the
+    live-fire)."""
+
+    def _args(self, **kw):
+        import argparse
+        base = dict(speech="elevenlabs", speech_dry_run=False,
+                    speech_device=None, speech_key_var="ELEVENLABS_API_KEY")
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def _clock(self, start=1000.0):
+        box = {"t": start}
+        return box, (lambda: box["t"])
+
+    # ---- Part V: the character budget stops synthesis, never crashes --------
+    def test_budget_stops_synthesis_without_crashing(self):
+        calls = []
+
+        def transport(text, voice):
+            calls.append(text)
+            return b"\x00\x00" * 2400        # 0.1 s of silence at 24 kHz
+        ch = v3.SpeechChannel(make_config(), self._args(), live=True,
+                              transport=transport, player=lambda *a: None)
+        ch.char_budget = 20                  # pin a tiny budget for the test
+        r1 = ch.speak("L1", "LEAD", "x" * 15, 1000.0)   # 15 <= 20: synthesised
+        self.assertTrue(r1.spoken)
+        r2 = ch.speak("L2", "LEAD", "y" * 15, 1001.0)   # 15+15 > 20: skipped
+        self.assertFalse(r2.spoken)
+        self.assertEqual(r2.fail_reason, "budget")
+        r3 = ch.speak("L3", "LEAD", "z" * 15, 1002.0)   # still skipped, no crash
+        self.assertFalse(r3.spoken)
+        self.assertEqual(r3.fail_reason, "budget")
+        # synthesis ran exactly once; the two over-budget lines never hit the wire
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(ch.chars_used, 15)
+        self.assertEqual(ch.stats()["budget_skipped"], 2)
+
+    # ---- failure handling: a dropped synthesis leaves the schedule intact ---
+    def test_failed_synthesis_leaves_schedule_intact(self):
+        def transport(text, voice):
+            raise RuntimeError("boom")
+        box, now = self._clock()
+        ch = v3.SpeechChannel(make_config(), self._args(), live=True,
+                              transport=transport, player=lambda *a: None,
+                              now=now)
+        before = ch.busy_until()
+        self.assertIsNone(before)
+        sr = ch.speak("L1", "LEAD", "Verstappen leads Norris.", 1000.0)
+        # the SpeechResult _air keys on: not spoken, no measured duration, so the
+        # booth's `if live and spoken and duration is not None` branch is skipped
+        # and channel_busy_until / _last_air_end are never advanced.
+        self.assertFalse(sr.spoken)
+        self.assertIsNone(sr.duration_actual_s)
+        self.assertTrue(sr.fail_reason.startswith("synth:"))
+        self.assertIsNone(ch.busy_until())          # scheduler clock untouched
+        self.assertEqual(ch.chars_used, 0)          # a failure costs no budget
+        self.assertEqual(ch.stats()["failed"], 1)
+
+    def test_degraded_after_threshold_failures(self):
+        def transport(text, voice):
+            raise RuntimeError("boom")
+        ch = v3.SpeechChannel(make_config(), self._args(), live=True,
+                              transport=transport, player=lambda *a: None)
+        ch.degraded_threshold = 3
+        for i in range(3):
+            ch.speak("L%d" % i, "LEAD", "line", 1000.0 + i)
+        self.assertTrue(ch.degraded)
+        # once degraded, later lines are skipped with the degraded reason and
+        # never reach the transport again.
+        r = ch.speak("Lx", "LEAD", "line", 2000.0)
+        self.assertFalse(r.spoken)
+        self.assertEqual(r.fail_reason, "degraded")
+
+    # ---- Part T: busy_until() measured in live, None in replay --------------
+    def test_busy_until_measured_in_live(self):
+        # 48000 bytes = 24000 int16 samples = exactly 1.0 s at 24 kHz.
+        def transport(text, voice):
+            return b"\x01\x01" * 24000
+        box, now = self._clock(start=1000.0)
+        ch = v3.SpeechChannel(make_config(), self._args(), live=True,
+                              transport=transport, player=lambda *a: None,
+                              now=now)
+        sr = ch.speak("L1", "LEAD", "line", 1000.0)
+        self.assertTrue(sr.spoken)
+        self.assertAlmostEqual(sr.duration_actual_s, 1.0, places=3)
+        # playback started at now()=1000.0; end = 1001.0; busy_until reports it
+        # while the clock is before the end.
+        self.assertAlmostEqual(ch.busy_until(), 1001.0, places=3)
+        box["t"] = 1001.5                           # clock passes the end
+        self.assertIsNone(ch.busy_until())          # no longer busy
+
+    def test_busy_until_none_in_replay(self):
+        def transport(text, voice):
+            return b"\x01\x01" * 24000
+        ch = v3.SpeechChannel(make_config(), self._args(), live=False,
+                              transport=transport, player=lambda *a: None)
+        sr = ch.speak("L1", "LEAD", "line", 1000.0)
+        self.assertTrue(sr.spoken)                   # it still synthesises
+        self.assertIsNone(ch.busy_until())           # but never drives scheduling
+
+    # ---- Part R: a missing device fails LOUD; selection is exact-string -----
+    def test_device_not_found_fails_at_startup(self):
+        # the real output on Dustin's machine is the monitor "ED270 Z (NVIDIA
+        # High Definition Audio)"; there is NO "Speakers". A configured device
+        # that is not present must stop the run at construction, not fall back.
+        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)",
+                          "CABLE Input (VB-Audio Virtual Cable)"]
+        with self.assertRaises(SystemExit):
+            v3.SpeechChannel(make_config(),
+                             self._args(speech_device="Speakers"),
+                             live=True, device_lister=lister)
+
+    def test_device_selection_is_exact_not_heuristic(self):
+        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)",
+                          "CABLE Input (VB-Audio Virtual Cable)"]
+        # exact configured string: constructs cleanly, no fall-back, no inference.
+        ch = v3.SpeechChannel(
+            make_config(),
+            self._args(speech_device="CABLE Input (VB-Audio Virtual Cable)"),
+            live=True, device_lister=lister)
+        self.assertEqual(ch.device, "CABLE Input (VB-Audio Virtual Cable)")
+        # a near-miss (case / substring) is NOT accepted -- exact match only.
+        with self.assertRaises(SystemExit):
+            v3.SpeechChannel(make_config(),
+                             self._args(speech_device="cable input"),
+                             live=True, device_lister=lister)
+
+    def test_cli_device_overrides_config_pin(self):
+        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)"]
+        ch = v3.SpeechChannel(
+            make_config(),
+            self._args(speech_device="ED270 Z (NVIDIA High Definition Audio)"),
+            live=True, device_lister=lister)
+        self.assertEqual(ch.device, "ED270 Z (NVIDIA High Definition Audio)")
+
+    # ---- Part S: written-versus-spoken is visible in the three artefacts ----
+    def _orchestrator_with_records(self, speech_enabled, recs):
+        import types
+        booth = types.SimpleNamespace(emitted=recs)
+        m = types.SimpleNamespace(anchor_t=None, anchor_source=None,
+                                  restarts=[], leader_finish_t=None)
+        fake = types.SimpleNamespace(
+            booth=booth, speech_enabled=speech_enabled, source="replay",
+            pace="fast", actuation_state="advisory_replay", rec_start=0.0,
+            args=types.SimpleNamespace(video_anchor="first_record"))
+        fake._srt_ts = v3.BabyHooverV3._srt_ts.__get__(fake)
+        fake._resolve_video_anchor = \
+            v3.BabyHooverV3._resolve_video_anchor.__get__(fake)
+        return fake, m
+
+    def _rec(self, line_id, text, spoken, reason=None, dur=None, t_rec=10.0):
+        return {"line_id": line_id, "t_unix": 1000.0 + t_rec, "t_rec": t_rec,
+                "t_race": t_rec, "est_duration_s": 1.5, "kind": "action",
+                "speaker": "LEAD", "text": text, "speech_text": text,
+                "race_state": "green", "writer": "template", "model_id": None,
+                "prompt_version": None, "cache_hit": None, "dropped_reason": None,
+                "spoken": spoken, "duration_actual_s": dur,
+                "speech_fail_reason": reason}
+
+    def test_written_vs_spoken_in_artefacts(self):
+        import tempfile
+        recs = [self._rec("L0001", "Verstappen leads Norris.", True, dur=1.2,
+                          t_rec=10.0),
+                self._rec("L0002", "Norris fights back.", False,
+                          reason="synth:RuntimeError", t_rec=12.0)]
+        fake, m = self._orchestrator_with_records(True, recs)
+        d = tempfile.mkdtemp()
+
+        # (a) the main SRT contains ONLY the spoken line, timed by its measured
+        #     duration.
+        srt = os.path.join(d, "out.srt")
+        v3.BabyHooverV3._write_srt(fake, srt, m)
+        srt_text = _read(srt)
+        self.assertIn("Verstappen leads Norris.", srt_text)
+        self.assertNotIn("Norris fights back.", srt_text)
+        # measured 1.2 s (not the 1.5 s estimate): 10.000 --> 11.200
+        self.assertIn("00:00:10,000 --> 00:00:11,200", srt_text)
+
+        # (b) lines.csv carries the three trailing columns and marks the failure.
+        v3.BabyHooverV3._write_audio_kit(fake, d, "out", m)
+        csv_text = _read(os.path.join(d, "audio_kit", "lines.csv"))
+        header = csv_text.splitlines()[0]
+        self.assertIn("spoken", header)
+        self.assertIn("duration_actual_s", header)
+        self.assertIn("speech_fail_reason", header)
+        self.assertIn("synth:RuntimeError", csv_text)
+        self.assertIn("false", csv_text)             # the unspoken row
+
+        # (c) the script marks the unspoken line inline and leaves the spoken
+        #     line clean.
+        script = os.path.join(d, "out_script.md")
+        v3.BabyHooverV3._write_script(fake, script, m, "out")
+        md = _read(script)
+        self.assertIn("`[not spoken: synth:RuntimeError]`", md)
+        spoken_line = [ln for ln in md.splitlines()
+                       if "Verstappen leads Norris." in ln][0]
+        self.assertNotIn("[not spoken", spoken_line)
+
+    def test_speech_none_artefacts_are_pass3_shape(self):
+        # the control: with speech OFF the SRT holds every written line and
+        # lines.csv has no trailing speech columns -- i.e. byte-for-byte Pass 3.
+        import tempfile
+        recs = [self._rec("L0001", "Verstappen leads Norris.", None,
+                          t_rec=10.0),
+                self._rec("L0002", "Norris fights back.", None, t_rec=12.0)]
+        fake, m = self._orchestrator_with_records(False, recs)
+        d = tempfile.mkdtemp()
+        srt = os.path.join(d, "out.srt")
+        v3.BabyHooverV3._write_srt(fake, srt, m)
+        srt_text = _read(srt)
+        self.assertIn("Verstappen leads Norris.", srt_text)
+        self.assertIn("Norris fights back.", srt_text)      # nothing filtered
+        v3.BabyHooverV3._write_audio_kit(fake, d, "out", m)
+        header = _read(os.path.join(d, "audio_kit", "lines.csv")).splitlines()[0]
+        self.assertNotIn("spoken", header)
+        self.assertNotIn("speech_fail_reason", header)
+        # and the audio_manifest.json line dicts must carry NO speech keys with
+        # speech off -- an extra null key here was a real byte-identity leak
+        # (audio_manifest.json is one of the files acceptance item 1 compares).
+        import json as _json
+        am = _json.loads(_read(os.path.join(d, "audio_kit",
+                                            "audio_manifest.json")))
+        for ln in am["lines"]:
+            self.assertNotIn("spoken", ln)
+            self.assertNotIn("duration_actual_s", ln)
+            self.assertNotIn("speech_fail_reason", ln)
 
 
 if __name__ == "__main__":

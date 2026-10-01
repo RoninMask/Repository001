@@ -5520,6 +5520,18 @@ class V3Booth:
         # Part R/S/T: speak the finalised line (gated: with --speech none the
         # channel is None and nothing below runs, so the record stays Pass-3).
         if self.speech is not None:
+            # a WALL-clock air time, captured BEFORE speak() so that
+            # t_air_wall -> t_playback_start is a single-clock, non-negative leg
+            # (t_air itself is the model clock; t_playback_start is recorded
+            # inside speak(), so stamping t_air_wall after speak() returns would
+            # make the leg negative). This overrides the provisional t_air_wall
+            # set above for model lines; it is the number item 6 turns on, and it
+            # is coherent in live, real-pace replay, and dry-run alike.
+            st = rec.get("stamps")
+            if not isinstance(st, dict):
+                st = {}
+                rec["stamps"] = st
+            st["t_air_wall"] = round(time.time(), 6)
             sr = self.speech.speak(line_id, speaker, speech_text, air_t)
             rec["spoken"] = sr.spoken
             rec["duration_actual_s"] = sr.duration_actual_s
@@ -5528,11 +5540,7 @@ class V3Booth:
             # pacing window let it air. The number the next pass turns on.
             rec["held_by_window_ms"] = round(max(0.0, air_t - t) * 1000.0, 1)
             if sr.stamps:
-                st = rec.get("stamps")
-                if isinstance(st, dict):
-                    st.update(sr.stamps)
-                else:
-                    rec["stamps"] = dict(sr.stamps)
+                st.update(sr.stamps)
             # Part T: a spoken line's MEASURED end governs the next line in LIVE
             # mode; in replay the estimate stands (no audio at scheduling time by
             # construction). The source is recorded so the fallback is countable.
@@ -6473,7 +6481,9 @@ class SpeechChannel:
         self.voice_settings = rc.get("voice_settings", {}) or {}
         self.key_var = getattr(args, "speech_key_var", "ELEVENLABS_API_KEY")
         self._api_key = os.environ.get(self.key_var)
-        self.device = getattr(args, "speech_device", None)
+        # Exact configured string only (verified, pinned). CLI overrides the
+        # config default; a name is NEVER inferred from a device's label.
+        self.device = getattr(args, "speech_device", None) or rc.get("device")
         self._transport = transport     # test stub: callable(text, voice) -> pcm
         self._player = player           # test stub: callable(pcm, rate, device)
         self._device_lister = device_lister
@@ -6742,7 +6752,12 @@ def speech_report(emitted, claim_records):
         held = 0.0
         for r in recs:
             st = r.get("stamps") or {}
-            ps, ta = st.get("t_playback_start"), st.get("t_air")
+            # t_air is the MODEL clock (capture-packet time); t_playback_start
+            # is wall-clock. Subtracting them across those two clocks produced a
+            # ~1.37M-second leg. t_air_wall is the wall-clock air time stamped on
+            # each spoken line, so this leg is single-clock. Fall back to t_air
+            # only when t_air_wall is absent (never on a real spoken line).
+            ps, ta = st.get("t_playback_start"), (st.get("t_air_wall") or st.get("t_air"))
             if ps is not None and ta is not None:
                 air_to_play.append(ps - ta)
             da, de = r.get("duration_actual_s"), r.get("est_duration_s")
@@ -7927,6 +7942,35 @@ class BabyHooverV3:
                       "p90 %.3fs max %.3fs (n=%d)"
                       % (rt.get("median_s", 0.0), rt.get("p90_s", 0.0),
                          rt.get("max_s", 0.0), rt.get("n", 0)))
+        # Part S: the speech summary (only when speech is on).
+        ss = manifest.get("speech_summary") or {}
+        stm = manifest.get("speech_timing") or {}
+        if ss:
+            cnt = stm.get("counts") or {}
+            self._log("--- speech summary (--speech %s) ---"
+                      % manifest.get("speech"))
+            self._log("  written: %d | spoken: %d | failed: %d | chars: %d/%d%s"
+                      % (cnt.get("written", 0), cnt.get("spoken", 0),
+                         cnt.get("failed", 0), ss.get("chars_used", 0),
+                         ss.get("character_budget", 0),
+                         " | DEGRADED" if ss.get("degraded") else ""))
+            ov = stm.get("overall") or {}
+            a2p = ov.get("t_air_to_playback_start") or {}
+            if a2p:
+                self._log("  t_air->t_playback_start: median %.3fs p90 %.3fs "
+                          "max %.3fs (n=%d)"
+                          % (a2p.get("median_s", 0.0), a2p.get("p90_s", 0.0),
+                             a2p.get("max_s", 0.0), a2p.get("n", 0)))
+            self._log("  held_by_window total: %.0f ms | expired_while_waiting: %d"
+                      % (ov.get("held_by_window_ms_total", 0.0),
+                         stm.get("expired_while_waiting", 0)))
+            pn, tr = ss.get("pre_norm_dbfs"), ss.get("trimmed_ms")
+            if pn:
+                self._log("  pre-norm loudness dBFS: median %.2f (min %.2f max "
+                          "%.2f) | trimmed ms median %s"
+                          % (pn.get("median", 0.0), pn.get("min", 0.0),
+                             pn.get("max", 0.0),
+                             (tr or {}).get("median", "n/a")))
 
     def _srt_ts(self, secs):
         if secs < 0:
@@ -7940,8 +7984,16 @@ class BabyHooverV3:
     def _write_srt(self, path, m):
         cues = []
         for rec in self.booth.emitted:
+            # Part S: with speech on, the SRT contains ONLY spoken lines, timed by
+            # their measured duration. A subtitle for something nobody said is an
+            # error. With --speech none this is exactly the Pass-3 behaviour.
+            if self.speech_enabled and not rec.get("spoken"):
+                continue
             start = rec["t_rec"] if rec["t_rec"] is not None else 0.0
-            end = start + rec["est_duration_s"]
+            dur = rec["est_duration_s"]
+            if self.speech_enabled and rec.get("duration_actual_s") is not None:
+                dur = rec["duration_actual_s"]
+            end = start + dur
             cues.append((start, end, "%s: %s" % (rec["speaker"], rec["text"])))
         if m.anchor_t is not None:
             a = m._t_rec(m.anchor_t)
@@ -8001,7 +8053,7 @@ class BabyHooverV3:
 
         lines = []
         for rec in self.booth.emitted:
-            lines.append({
+            line = {
                 "line_id": rec["line_id"], "t_unix": rec["t_unix"],
                 "t_race": rec["t_race"],
                 "t_video": round(rec["t_unix"] - base, 3),
@@ -8014,7 +8066,15 @@ class BabyHooverV3:
                 "model_id": rec.get("model_id"),
                 "prompt_version": rec.get("prompt_version"),
                 "cache_hit": rec.get("cache_hit"),
-                "dropped_reason": rec.get("dropped_reason")})
+                "dropped_reason": rec.get("dropped_reason")}
+            # Pass 4 Part S: written-vs-spoken. Trailing, speech-on ONLY -- with
+            # --speech none these keys are absent so audio_manifest.json stays
+            # byte-identical to Pass 3 (acceptance item 1).
+            if self.speech_enabled:
+                line["spoken"] = rec.get("spoken")
+                line["duration_actual_s"] = rec.get("duration_actual_s")
+                line["speech_fail_reason"] = rec.get("speech_fail_reason")
+            lines.append(line)
         with open(os.path.join(kit, "audio_manifest.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"anchor": {"mode": self.args.video_anchor, "how": how,
@@ -8024,17 +8084,24 @@ class BabyHooverV3:
         with open(os.path.join(kit, "lines.csv"), "w", encoding="utf-8",
                   newline="") as f:
             w = csv.writer(f)
-            w.writerow(["line_id", "t_unix", "t_race", "t_video", "speaker",
-                        "speech_text", "est_duration_s",
-                        "writer", "model_id", "prompt_version", "cache_hit",
-                        "dropped_reason"])
+            header = ["line_id", "t_unix", "t_race", "t_video", "speaker",
+                      "speech_text", "est_duration_s",
+                      "writer", "model_id", "prompt_version", "cache_hit",
+                      "dropped_reason"]
+            if self.speech_enabled:          # Pass 4 trailing columns, speech-on
+                header += ["spoken", "duration_actual_s", "speech_fail_reason"]
+            w.writerow(header)
             for l in lines:
-                w.writerow([l["line_id"], l["t_unix"], l["t_race"],
-                            l["t_video"], l["speaker"], l["speech_text"],
-                            l["est_duration_s"],
-                            _cell(l["writer"]), _cell(l["model_id"]),
-                            _cell(l["prompt_version"]), _cell(l["cache_hit"]),
-                            _cell(l["dropped_reason"])])
+                row = [l["line_id"], l["t_unix"], l["t_race"],
+                       l["t_video"], l["speaker"], l["speech_text"],
+                       l["est_duration_s"],
+                       _cell(l["writer"]), _cell(l["model_id"]),
+                       _cell(l["prompt_version"]), _cell(l["cache_hit"]),
+                       _cell(l["dropped_reason"])]
+                if self.speech_enabled:
+                    row += [_cell(l["spoken"]), _cell(l["duration_actual_s"]),
+                            _cell(l["speech_fail_reason"])]
+                w.writerow(row)
         with open(os.path.join(kit, stem + "_video.srt"), "w",
                   encoding="utf-8") as f:
             for i, l in enumerate(lines, 1):
@@ -8069,8 +8136,15 @@ class BabyHooverV3:
                 f.write("anchor: none\n")
             f.write("\n---\n\n")
             for rec in self.booth.emitted:
-                f.write("**[%s] %s:** %s\n\n"
-                        % (rec["race_state"], rec["speaker"], rec["text"]))
+                # Part S: with speech on, mark any line that was written but not
+                # heard, inline and unmissably. With --speech none there is no
+                # mark and the script is exactly the Pass-3 output.
+                mark = ""
+                if self.speech_enabled and not rec.get("spoken"):
+                    mark = "  `[not spoken: %s]`" % (rec.get("speech_fail_reason")
+                                                     or "not synthesised")
+                f.write("**[%s] %s:** %s%s\n\n"
+                        % (rec["race_state"], rec["speaker"], rec["text"], mark))
 
 
 def main():

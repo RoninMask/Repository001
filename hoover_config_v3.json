@@ -545,6 +545,8 @@
         "endpoint": "https://api.elevenlabs.io/v1/text-to-speech",
         "output_format": "pcm_24000",
         "sample_rate_hz": 24000,
+        "_device_about": "VERIFIED on the target machine and used EXACTLY -- never inferred from a name. Commentary goes to the virtual cable so OBS captures it on its own track; the operator's real monitor is 'ED270 Z (NVIDIA High Definition Audio)', which is NOT the speech device. There is no playback device called 'Speakers' except the cable, so any name heuristic preferring 'Speakers' would route everything into the cable and the operator would hear silence. --speech-device overrides this; --list-audio-devices prints the exact strings; a real run whose device does not match exactly fails loud at start-up. Change this string per machine.",
+        "device": "CABLE Input (VB-Audio Virtual Cable)",
         "voices": {
           "LEAD": "vSSoxe4a93eFSPtJHjAA",
           "ANALYST": "prJYBPOxu8LDMrZfACbo"
