@@ -6481,9 +6481,14 @@ class SpeechChannel:
         self.voice_settings = rc.get("voice_settings", {}) or {}
         self.key_var = getattr(args, "speech_key_var", "ELEVENLABS_API_KEY")
         self._api_key = os.environ.get(self.key_var)
-        # Exact configured string only (verified, pinned). CLI overrides the
-        # config default; a name is NEVER inferred from a device's label.
-        self.device = getattr(args, "speech_device", None) or rc.get("device")
+        # Exact configured string only (ENUMERATED on the target machine, used
+        # verbatim); CLI overrides the config pin; a name is NEVER inferred from
+        # a device's label, and NEVER guessed from what a standard VB-CABLE
+        # install would be called. device_cable is the playback endpoint we send
+        # commentary to (so OBS captures it off the cable); device_audible is the
+        # operator's real monitor, recorded for the audit, not a speech target.
+        self.device = getattr(args, "speech_device", None) or rc.get("device_cable")
+        self.device_audible = rc.get("device_audible")
         self._transport = transport     # test stub: callable(text, voice) -> pcm
         self._player = player           # test stub: callable(pcm, rate, device)
         self._device_lister = device_lister
@@ -6711,6 +6716,8 @@ class SpeechChannel:
         return {
             "mode": "dry-run" if self.dry_run else "elevenlabs",
             "model": self.model,
+            "device_cable": self.device,          # the playback endpoint (-> OBS)
+            "device_audible": self.device_audible,  # operator monitor, for record
             "chars_used": self.chars_used,
             "character_budget": self.char_budget,
             "spoken": self.counter.get("spoken", 0),
@@ -8195,8 +8202,10 @@ def main():
                     help="exercise the whole speech path but make NO API call and "
                          "play NO audio -- for cost-free integration tests")
     ap.add_argument("--speech-device", default=None,
-                    help="output device name (default the system default); a name "
-                         "that does not exist fails loudly at start-up")
+                    help="EXACT output device name; overrides the config "
+                         "device_cable pin. Use --list-audio-devices to copy the "
+                         "exact string; a name that does not match exactly fails "
+                         "loudly at start-up (never inferred, never guessed)")
     ap.add_argument("--list-audio-devices", action="store_true",
                     help="print every output device and exit")
     ap.add_argument("--speech-key-var", default="ELEVENLABS_API_KEY",

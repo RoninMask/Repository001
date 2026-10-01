@@ -2031,40 +2031,67 @@ class TestPass4Speech(unittest.TestCase):
         self.assertTrue(sr.spoken)                   # it still synthesises
         self.assertIsNone(ch.busy_until())           # but never drives scheduling
 
+    # the four endpoints ENUMERATED on the target machine. The generic
+    # VB-CABLE install name "CABLE Input (VB-Audio Virtual Cable)" deliberately
+    # does NOT appear here: this machine renamed the playback endpoint to
+    # "Speakers (VB-Audio Virtual Cable)", and guessing the generic name would
+    # fail. "Speakers (VB-Audio Virtual Cable)" is the cable we play to;
+    # "ED270 Z ..." is the operator's real monitor.
+    REAL_DEVICES = ["CABLE In 16 Ch (VB-Audio Virtual Cable)",
+                    "CABLE Output (VB-Audio Virtual Cable)",
+                    "Speakers (VB-Audio Virtual Cable)",
+                    "ED270 Z (NVIDIA High Definition Audio)"]
+
     # ---- Part R: a missing device fails LOUD; selection is exact-string -----
     def test_device_not_found_fails_at_startup(self):
-        # the real output on Dustin's machine is the monitor "ED270 Z (NVIDIA
-        # High Definition Audio)"; there is NO "Speakers". A configured device
-        # that is not present must stop the run at construction, not fall back.
-        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)",
-                          "CABLE Input (VB-Audio Virtual Cable)"]
+        # the generic install name is not present on this machine; a config
+        # pinned to it (the easy wrong guess) must stop the run at construction,
+        # not fall back to anything.
+        lister = lambda: list(self.REAL_DEVICES)
+        with self.assertRaises(SystemExit):
+            v3.SpeechChannel(
+                make_config(),
+                self._args(speech_device="CABLE Input (VB-Audio Virtual Cable)"),
+                live=True, device_lister=lister)
+
+    def test_device_selection_is_exact_not_heuristic(self):
+        lister = lambda: list(self.REAL_DEVICES)
+        # exact configured string: constructs cleanly, no fall-back, no inference.
+        ch = v3.SpeechChannel(
+            make_config(),
+            self._args(speech_device="Speakers (VB-Audio Virtual Cable)"),
+            live=True, device_lister=lister)
+        self.assertEqual(ch.device, "Speakers (VB-Audio Virtual Cable)")
+        # a bare "Speakers" is a PREFIX of the real name -- a substring/"prefer
+        # Speakers" heuristic would match it, exact match must reject it.
         with self.assertRaises(SystemExit):
             v3.SpeechChannel(make_config(),
                              self._args(speech_device="Speakers"),
                              live=True, device_lister=lister)
-
-    def test_device_selection_is_exact_not_heuristic(self):
-        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)",
-                          "CABLE Input (VB-Audio Virtual Cable)"]
-        # exact configured string: constructs cleanly, no fall-back, no inference.
-        ch = v3.SpeechChannel(
-            make_config(),
-            self._args(speech_device="CABLE Input (VB-Audio Virtual Cable)"),
-            live=True, device_lister=lister)
-        self.assertEqual(ch.device, "CABLE Input (VB-Audio Virtual Cable)")
-        # a near-miss (case / substring) is NOT accepted -- exact match only.
+        # and a case near-miss is rejected too.
         with self.assertRaises(SystemExit):
-            v3.SpeechChannel(make_config(),
-                             self._args(speech_device="cable input"),
-                             live=True, device_lister=lister)
+            v3.SpeechChannel(
+                make_config(),
+                self._args(speech_device="speakers (vb-audio virtual cable)"),
+                live=True, device_lister=lister)
 
     def test_cli_device_overrides_config_pin(self):
-        lister = lambda: ["ED270 Z (NVIDIA High Definition Audio)"]
+        lister = lambda: list(self.REAL_DEVICES)
         ch = v3.SpeechChannel(
             make_config(),
             self._args(speech_device="ED270 Z (NVIDIA High Definition Audio)"),
             live=True, device_lister=lister)
         self.assertEqual(ch.device, "ED270 Z (NVIDIA High Definition Audio)")
+
+    def test_config_pin_is_the_enumerated_cable(self):
+        # the config default (no --speech-device) resolves to the ENUMERATED
+        # cable endpoint, and names the operator monitor separately.
+        lister = lambda: list(self.REAL_DEVICES)
+        ch = v3.SpeechChannel(make_config(), self._args(speech_device=None),
+                              live=True, device_lister=lister)
+        self.assertEqual(ch.device, "Speakers (VB-Audio Virtual Cable)")
+        self.assertEqual(ch.device_audible,
+                         "ED270 Z (NVIDIA High Definition Audio)")
 
     # ---- Part S: written-versus-spoken is visible in the three artefacts ----
     def _orchestrator_with_records(self, speech_enabled, recs):

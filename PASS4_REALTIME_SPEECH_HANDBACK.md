@@ -43,18 +43,32 @@ unchanged on Dustin's 3.14.7.
 
 ## The two brief additions (pinned devices, written-vs-spoken)
 
-**1. Device strings are VERIFIED and PINNED — exact match only, never inferred
-from a name.** `v3.speech.realtime.device` is set to the virtual cable's exact
-string `"CABLE Input (VB-Audio Virtual Cable)"`. The channel selects the output
-device by *exact string equality* against the device list; it never does a
-substring/case/"prefer Speakers" heuristic. The operator's real monitor is
-`"ED270 Z (NVIDIA High Definition Audio)"`, and there is **no** playback device
-called "Speakers" except the cable — so a name heuristic would route everything
-into the cable and the operator would hear silence. A real run whose configured
-device is not present **fails loud at start-up** (`SystemExit`), printing the
-device list, rather than silently falling back. `--speech-device` overrides the
-config pin; `--list-audio-devices` prints the exact strings to copy. The
-`_device_about` note in the config spells this out for the next machine.
+**1. Device strings are ENUMERATED on the machine and PINNED — exact match only,
+never inferred from a name, never guessed from the generic install.** The four
+endpoints enumerated on the target machine:
+
+| enumerated string | role |
+|---|---|
+| `CABLE In 16 Ch (VB-Audio Virtual Cable)` | 16-channel — **do not use** |
+| `CABLE Output (VB-Audio Virtual Cable)` | the capture side **OBS** reads — not us |
+| `Speakers (VB-Audio Virtual Cable)` | **the playback endpoint = `device_cable`** (we send commentary here so OBS captures it off the cable) |
+| `ED270 Z (NVIDIA High Definition Audio)` | the operator's real monitor = `device_audible` |
+
+So the config now carries two keys: `device_cable` =
+`"Speakers (VB-Audio Virtual Cable)"` (the playback target) and `device_audible`
+= `"ED270 Z (NVIDIA High Definition Audio)"` (recorded for the audit — it is
+**not** a speech target; commentary goes only to `device_cable`). The channel
+selects the output device by *exact string equality*; it never does a
+substring/case/"prefer Speakers" heuristic. This matters precisely because this
+machine **renamed** its playback endpoint: the generic VB-CABLE install calls it
+`"CABLE Input (VB-Audio Virtual Cable)"`, which does **not** exist here — pinning
+to the generic name (the easy wrong guess, which I made in the first draft and
+corrected) would fail. A real run whose configured device is not present **fails
+loud at start-up** (`SystemExit`), printing the device list, rather than
+silently falling back. `--speech-device` overrides `device_cable`;
+`--list-audio-devices` prints the exact strings to copy. Both endpoints are
+recorded in the manifest's `speech_summary`. The `_device_about` note in the
+config spells all this out, including the re-enumerate-per-machine rule.
 
 **2. Written-versus-spoken is visible in the artefacts.** A line can be written,
 pass the checker, then fail synthesis — so each emitted line now records
@@ -198,7 +212,10 @@ Use `bin2_baku_live_s01` or `bin1_live_sim_s01`. After the run, the manifest's
 `speech_summary` and `speech_timing` carry the item-6/7 numbers:
 `t_air → t_playback_start` (compare to the 226 ms budget), `held_by_window_ms`
 total, `expired_while_waiting`, pre-norm dBFS vs the −16 dBFS target, and
-trimmed-ms. If a line's device does not match exactly, the run stops at start-up
-with the device list — copy the right string into `--speech-device` or the
-config `device` field. Paste the `speech_summary` block back and I'll fold the
-item-6/7 verdicts into this hand-back.
+trimmed-ms. If the configured device does not match exactly, the run stops at
+start-up with the device list — copy the right string into `--speech-device` or
+the config `device_cable` field. (The config is pinned to the enumerated
+`"Speakers (VB-Audio Virtual Cable)"`; if the machine re-enumerates differently,
+re-run `--list-audio-devices` and update `device_cable`/`device_audible`.) Paste
+the `speech_summary` block back and I'll fold the item-6/7 verdicts into this
+hand-back.
