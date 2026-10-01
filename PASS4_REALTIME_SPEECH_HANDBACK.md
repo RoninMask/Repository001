@@ -131,10 +131,11 @@ manifest carries no speech keys with speech off.
   (`7a8c9de`)** on the same capture with the *same* config/prompts/roster (so
   even `config_hash` matches), and diff every artefact (the human-readable
   `baby_hoover_v3.log` is excluded — it embeds the absolute out-path and
-  wall-clock time). **Confirmed byte-identical on
-  `HOOVER_20260916_061742_s04` — the largest capture in the corpus at 636 MB.**
-  A full sweep of all six real captures was running at hand-back time; each race
-  compared identical as it completed. The property is structural: with
+  wall-clock time). **Confirmed byte-identical on all six real captures**
+  (`HOOVER_20260916_061742_s04` 636 MB, `HOOVER_20260916_071539_s02` 612 MB,
+  `HOOVER_20260916_101841_s01` 140 MB, `bin1_live_sim_s01` 113 MB,
+  `bin1_test_s01`, `bin2_baku_live_s01` 51 MB) — every artefact IDENTICAL, log
+  excluded. The property is structural: with
   `--speech none` the booth never constructs a `SpeechChannel`, so no speech
   code path runs and the only artefact the speech work touches
   (`audio_manifest.json`) is gated on `speech_enabled` (regression-tested). When
