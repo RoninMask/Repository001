@@ -8602,9 +8602,16 @@ class StoryEngine:
                                 "car": rec.humans[0], "reason": "story:STR-01:rejoin",
                                 "hold": cam.get("rejoin_hold_s", 5.0),
                                 "hold_max": cam.get("rejoin_hold_s", 5.0) + 3.0})
+        humans_only = cam.get("humans_only", True)
         for rec in self.store.live.values():
             row = rec.row
             if row.get("camera") != "request":
+                continue
+            # a story moment takes the camera only when a human is in the
+            # story; an AI-only story is narrated and related, but the camera
+            # stays with the human-default layer (05 OCT live run: the lead
+            # battle between two AI cars held the camera off the humans)
+            if humans_only and not rec.humans:
                 continue
             tier = row.get("override", "Normal")
             if tier not in tier_prio or rec.score < floor:

@@ -9,6 +9,7 @@
     "4": 5.0,
     "5": 7.0
    },
+   "humans_only": true,
    "score_floor": 60.0,
    "tier_priority": {
     "Interrupt": 84,
