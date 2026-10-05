@@ -72,6 +72,13 @@ New artefacts beside the V3 set: `<stem>_stories.jsonl` (every open / beat / clo
 - **HUM-06 `cleared`** fires for a human passing AI; **BAT-01 `resolved: passed`** also fires for the same pass when a battle record existed. Expect a double on real captures; the fix is HUM-06 deferring when a BAT-01 record closed on the same pair in the same lap. Left for the corpus read rather than guessed.
 - **138 tests** on the V3 suite — the Pass 3 → Pass 4 count drop (224 → 138) noted in the state doc is untouched here.
 
+## Parked for Pass 2 (decided 05 OCT, 02:20)
+
+- **The pit shot.** Cut to a human's car at pit entry when no story above the camera floor is live anywhere, hold through the stop, release at pit exit or on any Priority story. The spectator camera follows the selected car, so no new camera control is needed.
+- **STR-01 `box` beat** (lull-only, analyst): stationary time and tyre compound. Needs two decoder additions: pit-lane timers from Lap Data (parsed but not stored) and compound from Car Status (packet currently skipped). Compound also unlocks TYR-03.
+- **STR-04 rejoin convergence**: predict before the rejoin that he comes out into action, so the camera is already there.
+- **STR-01 rules now in place**: entry is an off-camera analyst remark; rejoin carries the consequence and is a must-call for a human; camera only on a rejoin into action when nothing bigger is live.
+
 ## What to look at first on s11
 
 1. The timeline file: does it read as the race you watched?
