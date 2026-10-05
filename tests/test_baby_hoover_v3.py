@@ -23,7 +23,11 @@ sys.path.insert(0, HERE)
 
 
 def _load_v3():
-    cands = sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V3_*.py")))
+    # HOOVER_TOOL_FILE=<path> runs this suite against another tool file (V4 with
+    # the story layer off must pass it unchanged).
+    override = os.environ.get("HOOVER_TOOL_FILE")
+    cands = [override] if override else sorted(glob.glob(
+        os.path.join(REPO, "T11_F125_Baby_Hoover_V3_*.py")))
     spec = importlib.util.spec_from_file_location("babyhoover_v3", cands[-1])
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
