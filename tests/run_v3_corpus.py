@@ -65,6 +65,8 @@ def main(argv=None):
     ap.add_argument("--fixtures", action="store_true")
     ap.add_argument("--skip-paced", action="store_true")
     ap.add_argument("--config", default=None)
+    ap.add_argument("--tool-args", default="",
+                    help="extra flags passed to every run, e.g. \"--stories off\"")
     args = ap.parse_args(argv)
 
     tool_file = find_tool_file(args.tool_file)
@@ -84,6 +86,7 @@ def main(argv=None):
     v3_root = os.path.abspath(args.v3_root)
     os.makedirs(v3_root, exist_ok=True)
     cfg = (["--config", args.config] if args.config else [])
+    cfg += [x for x in args.tool_args.split() if x]   # e.g. --stories off
 
     for race_id, entry in corpus.items():
         folder, stem, err = resolve_race_folder(
