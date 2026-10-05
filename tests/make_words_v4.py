@@ -122,13 +122,16 @@ K["S_PACE_01"] = [
 ]
 
 K["S_STR_01"] = [
-    v(L, "{a} is in the pits, the {count} stop, from {pos}.", beat="in"),
+    v(A, "{a} is in the pits, the {count} stop, from {pos}.", beat="in"),
     v(A, "Box for {a}. He was running {pos}.", beat="in"),
     v(A, "{a} pits under the safety car. The cheap stop.", beat="in", under_sc=True),
-    v(L, "{a} rejoins in {pos}.", beat="rejoined"),
-    v(A, "{a} comes back out in {pos}.", beat="rejoined"),
+    v(A, "{a} rejoins in {pos}, {places} places down on where he was.", beat="rejoined", lost=True, action=False),
+    v(A, "{a} is back out in {pos}, {places} places lost in the stop, clear air ahead.", beat="rejoined", lost=True, action=False),
+    v(A, "{a} rejoins in {pos}.", beat="rejoined", action=False),
     v(L, "{a} rejoins in {pos}, right with {b}. That is a fight.", beat="rejoined", into_human=True),
-    v(A, "Out comes {a} in {pos}, and {b} is {gap} away. Game on.", beat="rejoined", into_human=True),
+    v(L, "Out comes {a} in {pos}, and {b} is {gap} away. Game on.", beat="rejoined", into_human=True),
+    v(L, "{a} comes out of the pits in {pos}, straight into {b}. {places} places down, and a battle on his hands.", beat="rejoined", action=True, lost=True),
+    v(L, "{a} rejoins in {pos}, {gap} behind {b}. He will want that place back.", beat="rejoined", action=True),
 ]
 
 K["S_INC_01"] = [

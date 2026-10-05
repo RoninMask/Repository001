@@ -1229,7 +1229,7 @@
   "S_STR_01": {
    "variants": [
     {
-     "speaker": "LEAD",
+     "speaker": "ANALYST",
      "when": {
       "beat": "in"
      },
@@ -1251,18 +1251,30 @@
      "present": "{a} pits under the safety car. The cheap stop."
     },
     {
-     "speaker": "LEAD",
+     "speaker": "ANALYST",
      "when": {
-      "beat": "rejoined"
+      "action": false,
+      "beat": "rejoined",
+      "lost": true
      },
-     "present": "{a} rejoins in {pos}."
+     "present": "{a} rejoins in {pos}, {places} places down on where he was."
     },
     {
      "speaker": "ANALYST",
      "when": {
+      "action": false,
+      "beat": "rejoined",
+      "lost": true
+     },
+     "present": "{a} is back out in {pos}, {places} places lost in the stop, clear air ahead."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "action": false,
       "beat": "rejoined"
      },
-     "present": "{a} comes back out in {pos}."
+     "present": "{a} rejoins in {pos}."
     },
     {
      "speaker": "LEAD",
@@ -1273,12 +1285,29 @@
      "present": "{a} rejoins in {pos}, right with {b}. That is a fight."
     },
     {
-     "speaker": "ANALYST",
+     "speaker": "LEAD",
      "when": {
       "beat": "rejoined",
       "into_human": true
      },
      "present": "Out comes {a} in {pos}, and {b} is {gap} away. Game on."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "action": true,
+      "beat": "rejoined",
+      "lost": true
+     },
+     "present": "{a} comes out of the pits in {pos}, straight into {b}. {places} places down, and a battle on his hands."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "action": true,
+      "beat": "rejoined"
+     },
+     "present": "{a} rejoins in {pos}, {gap} behind {b}. He will want that place back."
     }
    ]
   },

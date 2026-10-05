@@ -8589,6 +8589,19 @@ class StoryEngine:
         tier_prio = cam.get("tier_priority", {"Interrupt": 84, "Priority": 72})
         holds = cam.get("hold_by_stickiness", {"5": 7.0, "4": 5.0, "3": 4.0,
                                                "2": 3.0, "1": 2.5})
+        # a human rejoining the race into action asks for a short cut, but only
+        # when no story above the floor is live (low action on screen)
+        low_action = not any(r.score >= floor and r.row.get("camera") == "request"
+                             for r in self.store.live.values())
+        if low_action:
+            for rec in self.store.closed[-5:]:
+                if rec.row_id == "STR-01" and rec.fields.get("action") and rec.humans \
+                        and rec.closed_t is not None and t < rec.closed_t + cam.get("rejoin_hold_s", 5.0):
+                    out.append({"until": rec.closed_t + cam.get("rejoin_hold_s", 5.0),
+                                "priority": cam.get("rejoin_priority", 58),
+                                "car": rec.humans[0], "reason": "story:STR-01:rejoin",
+                                "hold": cam.get("rejoin_hold_s", 5.0),
+                                "hold_max": cam.get("rejoin_hold_s", 5.0) + 3.0})
         for rec in self.store.live.values():
             row = rec.row
             if row.get("camera") != "request":
@@ -9297,11 +9310,13 @@ class P_STR_01(StoryProcessor):
                                             "pos_at_open": _pos_map(eng, [c.idx])},
                                     phase="in")
                     if eng.is_human(c.idx) or (c.position <= self.p("ai_top_n", 3)):
+                        # an off-camera remark: analyst, never a cut
                         self.beat(t, rec, "transition", "in",
                                   ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position),
                                        "count": _ordinal(c.num_pit_stops + 1)},
                                   view={"under_sc": rec.fields["under_sc"],
-                                       "human": eng.is_human(c.idx)})
+                                       "human": eng.is_human(c.idx)},
+                                  speaker="ANALYST")
                 continue
             if c.pit_status == 2 and rec.phase == "in":
                 rec.phase = "stationary"
@@ -9320,14 +9335,26 @@ class P_STR_01(StoryProcessor):
                     if o is not None and eng.is_human(o):
                         into = o
                 g = eng.gap_ahead(c.idx)
+                gb = eng.gap_ahead(behind) if behind is not None else None
+                lost = max(0, pos_out - rec.fields.get("pos_in", pos_out))
+                near = min(x for x in (g, gb) if x is not None) if (g is not None or gb is not None) else None
+                action = into is not None or (near is not None and near <= self.p("action_gap_s", 1.5))
+                rec.fields.update({"places": lost, "action": action, "into": into,
+                                   "near_gap": near})
                 if eng.is_human(c.idx) or into is not None or pos_out <= self.p("ai_top_n", 3):
+                    nums = {"places": lost}
+                    if g is not None:
+                        nums["gap"] = g
                     self.beat(t, rec, "transition", "rejoined",
                               ctx={"a": eng.name(c.idx), "pos": _ordinal(pos_out),
-                                   "b": eng.name(into) if into is not None else None,
-                                   "gap": _fmt_gap(g)},
+                                   "b": eng.name(into) if into is not None else (
+                                       eng.name(ahead) if ahead is not None else None),
+                                   "gap": _fmt_gap(g), "places": _num_word(lost) if lost else None},
                               view={"into_human": into is not None,
-                                    "human": eng.is_human(c.idx)},
-                              numbers={"gap": g} if g is not None else {})
+                                    "human": eng.is_human(c.idx), "action": action,
+                                    "lost": lost > 0},
+                              numbers=nums, must=eng.is_human(c.idx),
+                              speaker="ANALYST" if not action else None)
                 self.close(t, rec, "rejoined")
 
 
