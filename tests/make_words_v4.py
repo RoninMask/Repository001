@@ -33,8 +33,12 @@ K["S_LEAD_01"] = [
 
 K["S_LEAD_02"] = [
     v(L, "{a} is on the leader, {gap} to {b} and closing.", beat="open"),
+    v(L, "{a} is all over the back of {b}. The lead is on.", beat="open"),
     v(A, "A fight for the lead. {a} has {b} within {gap}.", beat="open"),
     v(L, "{a} is right with {b} now, {gap} back. This is for the lead.", beat="attack_range"),
+    v(L, "{a} is right on the back of {b}. Nose to tail for the lead.", beat="attack_range"),
+    v(A, "Now it is {a} behind {b}, {c} has dropped away.", beat="new_chaser"),
+    v(A, "A new challenger. {a} is the car behind {b} now.", beat="new_chaser"),
     v(L, "Attack range for {a}. {b} has {gap} to defend.", beat="attack_range"),
     v(A, "DRS open for {a}. {b} will know it.", beat="drs"),
     v(L, "{a} has DRS on the leader.", beat="drs"),
@@ -54,11 +58,13 @@ K["S_LEAD_03"] = [
 
 K["S_BAT_01"] = [
     v(L, "{a} is closing on {b} for {pos}, {gap} back.", beat="open"),
+    v(L, "{a} is right with {b} for {pos}.", beat="open"),
     v(A, "Watch {a}. He is catching {b}, and the gap is {gap}.", beat="open"),
     v(A, "{a} is coming for {b}. At this rate he gets there.", beat="open", projects=True),
     v(L, "{a} is catching {b} hand over fist, {gap} now.", beat="big_catch"),
     v(A, "That is a big catch. {a} on {b}, {gap} and falling fast.", beat="big_catch"),
     v(L, "{a} is on the back of {b} for {pos}, {gap} back.", beat="attack_range"),
+    v(L, "{a} is right on {b} for {pos}. Nose to tail.", beat="attack_range"),
     v(L, "Here it comes. {a} within {gap} of {b}.", beat="attack_range"),
     v(A, "{a} is in range of {b}. {pos} is on the line.", beat="attack_range"),
     v(L, "DRS for {a} on {b}.", beat="drs"),
@@ -109,10 +115,9 @@ K["S_POS_05"] = [
     v(L, "{a} is into the points, {pos}.", beat="points", direction="up"),
     v(A, "{a} drops to {pos}. That is out of the top five.", beat="points", direction="down"),
     v(A, "{a} is out of the points, down in {pos}.", beat="outside", direction="down"),
-    v(A, "{a} has moved to {pos}.", beat="podium"),
-    v(A, "{a} has moved to {pos}.", beat="top5"),
-    v(A, "{a} has moved to {pos}.", beat="points"),
-    v(A, "{a} has moved to {pos}.", beat="outside"),
+    v(A, "{a} is back in the podium places, {pos}.", beat="podium", direction="up"),
+    v(A, "{a} slips out of the podium places to {pos}.", beat="top5", direction="down"),
+    v(A, "{a} is out of the podium places, {pos} now.", beat="points", direction="down"),
 ]
 
 K["S_PACE_01"] = [
@@ -155,7 +160,7 @@ K["S_INC_05"] = [
 ]
 
 K["S_INC_06"] = [
-    v(L, "Trouble at the start. {count} cars involved.", "There was trouble at the start.", beat="chaos"),
+    v(L, "Trouble at the start, {count} cars involved.", "There was trouble at the start.", beat="chaos"),
     v(A, "A first lap incident with {count} cars in it. Let us sort out the order.", beat="chaos"),
 ]
 
@@ -280,13 +285,13 @@ K["S_DEV_08"] = [
 K["S_RELATE"] = [
     v(A, "All of that is {gap} up the road from {a}.", beat="relate", ahead=False),
     v(A, "And {a} is {gap} back from that, in his own race.", beat="relate", ahead=False),
-    v(A, "{a} is {places} places behind that.", beat="relate", ahead=False),
-    v(A, "That is {places} places ahead of {a}.", beat="relate", ahead=False, input="places"),
-    v(A, "{a} is {places} places ahead of all that, and {gap} up the road.", beat="relate", ahead=True),
+    v(A, "{a} is {places} behind that.", beat="relate", ahead=False),
+    v(A, "That is {places} ahead of {a}.", beat="relate", ahead=False, input="places"),
+    v(A, "{a} is {places} ahead of all that, and {gap} up the road.", beat="relate", ahead=True),
     v(A, "That is behind {a}, by {gap}.", beat="relate", ahead=True),
-    v(A, "{a} is {places} places ahead of all that.", beat="relate", ahead=True),
-    v(A, "All of that is {places} places behind {a}.", beat="relate", ahead=True),
-    v(A, "{a} is {places} places back from that, and it changes what he can still reach tonight.", beat="relate", input="ceiling", ahead=False),
+    v(A, "{a} is {places} ahead of all that.", beat="relate", ahead=True),
+    v(A, "All of that is {places} behind {a}.", beat="relate", ahead=True),
+    v(A, "{a} is {places} back from that, and it changes what he can still reach tonight.", beat="relate", input="ceiling", ahead=False),
     v(A, "{a} is {gap} from that, close enough to be part of it.", beat="relate", input="chance", ahead=False),
 ]
 

@@ -701,6 +701,13 @@
      "present": "{a} is on the leader, {gap} to {b} and closing."
     },
     {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "open"
+     },
+     "present": "{a} is all over the back of {b}. The lead is on."
+    },
+    {
      "speaker": "ANALYST",
      "when": {
       "beat": "open"
@@ -713,6 +720,27 @@
       "beat": "attack_range"
      },
      "present": "{a} is right with {b} now, {gap} back. This is for the lead."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "attack_range"
+     },
+     "present": "{a} is right on the back of {b}. Nose to tail for the lead."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "new_chaser"
+     },
+     "present": "Now it is {a} behind {b}, {c} has dropped away."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "new_chaser"
+     },
+     "present": "A new challenger. {a} is the car behind {b} now."
     },
     {
      "speaker": "LEAD",
@@ -824,6 +852,13 @@
      "present": "{a} is closing on {b} for {pos}, {gap} back."
     },
     {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "open"
+     },
+     "present": "{a} is right with {b} for {pos}."
+    },
+    {
      "speaker": "ANALYST",
      "when": {
       "beat": "open"
@@ -858,6 +893,13 @@
       "beat": "attack_range"
      },
      "present": "{a} is on the back of {b} for {pos}, {gap} back."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "attack_range"
+     },
+     "present": "{a} is right on {b} for {pos}. Nose to tail."
     },
     {
      "speaker": "LEAD",
@@ -1173,30 +1215,26 @@
     {
      "speaker": "ANALYST",
      "when": {
-      "beat": "podium"
+      "beat": "podium",
+      "direction": "up"
      },
-     "present": "{a} has moved to {pos}."
+     "present": "{a} is back in the podium places, {pos}."
     },
     {
      "speaker": "ANALYST",
      "when": {
-      "beat": "top5"
+      "beat": "top5",
+      "direction": "down"
      },
-     "present": "{a} has moved to {pos}."
+     "present": "{a} slips out of the podium places to {pos}."
     },
     {
      "speaker": "ANALYST",
      "when": {
-      "beat": "points"
+      "beat": "points",
+      "direction": "down"
      },
-     "present": "{a} has moved to {pos}."
-    },
-    {
-     "speaker": "ANALYST",
-     "when": {
-      "beat": "outside"
-     },
-     "present": "{a} has moved to {pos}."
+     "present": "{a} is out of the podium places, {pos} now."
     }
    ]
   },
@@ -1415,7 +1453,7 @@
      "when": {
       "beat": "chaos"
      },
-     "present": "Trouble at the start. {count} cars involved.",
+     "present": "Trouble at the start, {count} cars involved.",
      "past": "There was trouble at the start."
     },
     {
@@ -2001,7 +2039,7 @@
       "ahead": false,
       "beat": "relate"
      },
-     "present": "{a} is {places} places behind that."
+     "present": "{a} is {places} behind that."
     },
     {
      "speaker": "ANALYST",
@@ -2010,7 +2048,7 @@
       "beat": "relate",
       "input": "places"
      },
-     "present": "That is {places} places ahead of {a}."
+     "present": "That is {places} ahead of {a}."
     },
     {
      "speaker": "ANALYST",
@@ -2018,7 +2056,7 @@
       "ahead": true,
       "beat": "relate"
      },
-     "present": "{a} is {places} places ahead of all that, and {gap} up the road."
+     "present": "{a} is {places} ahead of all that, and {gap} up the road."
     },
     {
      "speaker": "ANALYST",
@@ -2034,7 +2072,7 @@
       "ahead": true,
       "beat": "relate"
      },
-     "present": "{a} is {places} places ahead of all that."
+     "present": "{a} is {places} ahead of all that."
     },
     {
      "speaker": "ANALYST",
@@ -2042,7 +2080,7 @@
       "ahead": true,
       "beat": "relate"
      },
-     "present": "All of that is {places} places behind {a}."
+     "present": "All of that is {places} behind {a}."
     },
     {
      "speaker": "ANALYST",
@@ -2051,7 +2089,7 @@
       "beat": "relate",
       "input": "ceiling"
      },
-     "present": "{a} is {places} places back from that, and it changes what he can still reach tonight."
+     "present": "{a} is {places} back from that, and it changes what he can still reach tonight."
     },
     {
      "speaker": "ANALYST",

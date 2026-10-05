@@ -6489,11 +6489,20 @@ class HybridWriter(Writer):
         self.model = model_writer
         hy = config.get("v3", "hybrid", default={}) or {}
         self.model_kinds = set(hy.get("model_kinds", []) or [])
+        self.model_story_kinds = hy.get("model_story_kinds", True)
         self.fall_back = hy.get("fall_back_to_template", True)
         self.template = TemplateWriter(booth)
 
     def _use_model(self, kind):
-        return kind in self.model_kinds
+        if kind in self.model_kinds:
+            return True
+        # V4: a story beat carries the record in its blob, which is exactly
+        # the context the model lacked in V3; route story kinds to the model
+        # unless the config says otherwise (hybrid.model_story_kinds).
+        if kind.startswith(STORY_KIND_PREFIX) and self.model_story_kinds \
+                and getattr(self.booth, "stories", None) is not None:
+            return True
+        return False
 
     def submit(self, request):
         if self._use_model(request.kind):
@@ -6676,6 +6685,8 @@ class SpeechChannel:
                          if (self.device_audible
                              and self.device_audible != self.device)
                          else None)
+        self.device_name = self.device
+        self.device_audible_name = self._audible
         self._audible_stream = None     # persistent monitor OutputStream (live)
         self._audible_lock = threading.Lock()
         self._transport = transport     # test stub: callable(text, voice) -> pcm
@@ -6698,6 +6709,62 @@ class SpeechChannel:
         if (not self.dry_run and self._player is None
                 and self._playback_targets()):
             self._validate_devices()
+            self.device = self._resolve_device(self.device)
+            self._audible = self._resolve_device(self._audible)
+
+    # -- V4: device resolution (upstreams the 30 SEP / 03 OCT local patches) --
+    @staticmethod
+    def _norm(name):
+        return " ".join(str(name).split())
+
+    @staticmethod
+    def _name_matches(have, want):
+        """Exact, or the enumerated name is MME's 31-character truncation of
+        the configured full name. Never the other way round: a shorter
+        configured name must not match a longer device (the 'Speakers'
+        heuristic the device-string rule forbids), and case is exact."""
+        if have == want:
+            return True
+        return len(have) >= 31 and len(want) > len(have) and want.startswith(have)
+
+    def _resolve_device(self, target):
+        """A device NAME to a PortAudio INDEX. Windows enumerates every device
+        once per host API (MME, DirectSound, WASAPI, WDM-KS) under the same
+        name, and MME truncates names to 31 characters, so an exact-name match
+        is ambiguous at best and silently wrong at worst. Match exactly, or on
+        MME's truncation of the configured full name; prefer DirectSound (it resamples through the
+        Windows engine; WASAPI rejects ElevenLabs' 24 kHz on a 48 kHz device),
+        then WASAPI, then anything else. Returns the index, or the name
+        unchanged when sounddevice is absent or nothing matches (the start-up
+        validation then reports it)."""
+        if target is None or isinstance(target, int) or _sounddevice is None:
+            return target
+        try:
+            devs = _sounddevice.query_devices()
+            apis = _sounddevice.query_hostapis()
+        except Exception:
+            return target
+        want = self._norm(target)
+        cands = []
+        for i, d in enumerate(devs):
+            if d.get("max_output_channels", 0) <= 0:
+                continue
+            have = self._norm(d.get("name", ""))
+            if not self._name_matches(have, want):
+                continue
+            api = ""
+            try:
+                api = apis[d["hostapi"]]["name"].lower()
+            except Exception:
+                pass
+            rank = 0 if "directsound" in api else 1 if "wasapi" in api else 2
+            cands.append((rank, i, d.get("name"), api))
+        if not cands:
+            return target
+        cands.sort()
+        rank, idx, name, api = cands[0]
+        self.log("[speech] device %r -> index %d (%s via %s)" % (target, idx, name, api))
+        return idx
 
     # -- start-up device check ----------------------------------------------
     def _device_names(self):
@@ -6724,7 +6791,11 @@ class SpeechChannel:
             names = self._device_names()
         except Exception:
             names = []
-        missing = [d for d in self._playback_targets() if d not in names]
+        norm = [self._norm(n) for n in names]
+        def found(d):
+            w = self._norm(d)
+            return any(self._name_matches(h, w) for h in norm)
+        missing = [d for d in self._playback_targets() if not found(d)]
         if missing:
             raise SystemExit(
                 "STOP: audio output device(s) %s not found.\n%s"
@@ -6780,6 +6851,8 @@ class SpeechChannel:
             pcm, t_first = self._synth(text, voice)
         except Exception as e:
             self._register_fail()
+            if self._fail_count <= 5:
+                self.log("[speech] SYNTH ERROR %s: %s" % (type(e).__name__, e))
             return SpeechResult(line_id, spoken=False,
                                 fail_reason="synth:%s" % type(e).__name__,
                                 stamps=stamps, chars=chars)
@@ -6793,6 +6866,9 @@ class SpeechChannel:
             self._play(pcm)                 # non-blocking: playback runs in bg
         except Exception as e:
             self._register_fail()
+            if self._fail_count <= 5:
+                self.log("[speech] PLAYBACK ERROR %s: %s (cable=%r audible=%r)"
+                         % (type(e).__name__, e, self.device, self._audible))
             return SpeechResult(line_id, spoken=False,
                                 fail_reason="playback:%s" % type(e).__name__,
                                 stamps=stamps, chars=chars)
@@ -6956,8 +7032,10 @@ class SpeechChannel:
         return {
             "mode": "dry-run" if self.dry_run else "elevenlabs",
             "model": self.model,
-            "device_cable": self.device,          # cable endpoint (-> OBS)
+            "device_cable": self.device_name,      # cable endpoint (-> OBS)
             "device_audible": self.device_audible,  # operator monitor (live too)
+            "device_cable_index": self.device if isinstance(self.device, int) else None,
+            "device_audible_index": self._audible if isinstance(self._audible, int) else None,
             "monitor_active": self._audible is not None,  # played to both?
             "chars_used": self.chars_used,
             "character_budget": self.char_budget,
@@ -7814,12 +7892,20 @@ def story_kind(row_id):
     return STORY_KIND_PREFIX + row_id.replace("-", "_")
 
 
+def _places_word(n):
+    n = abs(int(n))
+    return "one place" if n == 1 else "%s places" % _num_word(n)
+
+
 def _fmt_gap(g):
     if g is None:
         return None
     g = float(g)
+    if g < 0.15:
+        return None                     # nose to tail: the variant says so
     if g < 0.95:
-        return "%.1f of a second" % g if g >= 0.15 else "nothing"
+        tenths = int(round(g * 10))
+        return "a tenth of a second" if tenths <= 1 else "%s tenths of a second" % _num_word(tenths)
     if abs(g - round(g)) < 0.05:
         return "%d seconds" % int(round(g)) if round(g) != 1 else "a second"
     return "%.1f seconds" % g
@@ -8179,15 +8265,37 @@ class RelatePass:
                           "both": both}
             self._maybe_relate(t, rec)
 
+    def _affects(self, val):
+        """A relation is worth a line only if the story can touch the human's
+        race: it is ahead of him (places < 0), or he is ahead of it by no more
+        than relate_ahead_places and relate_ahead_s."""
+        places = val.get("places")
+        gap = val.get("gap")
+        if places is None:
+            return False
+        if places < 0:
+            return True
+        if places <= self.eng.scfg.e("relate_ahead_places", 2) and (
+                gap is None or gap <= self.eng.scfg.e("relate_ahead_s", 5.0)):
+            return True
+        return False
+
     def _maybe_relate(self, t, rec):
         """First relate within one hold of opening; again when the relation
-        has moved; the close beat carries the final relation itself."""
+        has moved; the close beat carries the final relation itself. Never
+        more than one relate line across all stories inside relate_global_s."""
         if rec.anchor is None or rec.anchor.get("value") is None:
             return
         val = rec.anchor["value"]
+        if not self._affects(val):
+            return
+        last_any = getattr(self, "_last_relate_t", None)
+        if last_any is not None and (t - last_any) < self.eng.scfg.e("relate_global_s", 30.0):
+            return
         if rec.last_related is None:
             if (t - rec.opened_t) >= self.first_s:
                 self.eng.emit_relate(t, rec, "first")
+                self._last_relate_t = t
             return
         prev = rec.last_related
         if rec.last_related_t is not None and (t - rec.last_related_t) < self.min_interval_s:
@@ -8201,6 +8309,7 @@ class RelatePass:
             moved = True
         if moved:
             self.eng.emit_relate(t, rec, "moved")
+            self._last_relate_t = t
 
 
 class StoryScorer:
@@ -8551,7 +8660,7 @@ class StoryEngine:
         if not places and gap is None:
             return                            # a relation with no number is no line
         ctx = {"a": self.name(h), "b": self.name(other) if other is not None else None,
-               "gap": _fmt_gap(gap), "places": _num_word(abs(places)) if places else None,
+               "gap": _fmt_gap(gap), "places": _places_word(places) if places else None,
                "relation": a.get("input")}
         view = {"input": a.get("input"), "ahead": bool(places and places > 0),
                 "both": bool(a.get("both")), "why": why}
@@ -8786,15 +8895,39 @@ class P_LEAD_02(StoryProcessor):
                           ctx={"a": eng.name(chaser), "b": eng.name(leader),
                                "gap": _fmt_gap(gap)}, numbers={"gap": gap})
             return
-        if set(rec.participants) != {chaser, leader}:
-            # a lead change or a new chaser: resolve the old record
-            new_leader = eng.model.leader_idx
-            outcome = "passed" if new_leader == rec.participants[0] else "superseded"
+        if rec.participants[1] != leader:
+            # the lead changed hands: the chaser got through (LEAD-03 makes
+            # the call); resolve this battle as passed
             self.beat(t, rec, "transition", "resolved",
                       ctx={"a": eng.name(rec.participants[0]),
                            "b": eng.name(rec.participants[1])},
-                      view={"outcome": outcome}, must=bool(rec.humans))
-            self.close(t, rec, outcome)
+                      view={"outcome": "passed"}, must=bool(rec.humans))
+            self.close(t, rec, "passed")
+            return
+        if rec.participants[0] != chaser:
+            # a different car is now the one behind the leader: same story,
+            # new chaser. Hold the change for a few seconds first (two cars
+            # swapping P2 every few seconds is one scrap, not a new challenger)
+            since = rec.fields.get("chaser_since")
+            if since is None or rec.fields.get("chaser_cand") != chaser:
+                rec.fields["chaser_cand"] = chaser
+                rec.fields["chaser_since"] = t
+                return
+            if t - since < self.p("chaser_hold_s", 10.0):
+                return
+            rec.fields["chaser_since"] = None
+            old = rec.participants[0]
+            rec.participants[0] = chaser
+            rec.humans = [i for i in rec.participants if eng.is_human(i)]
+            rec.fields["chaser_changes"] = rec.fields.get("chaser_changes", 0) + 1
+            last_nc = rec.fields.get("last_new_chaser_t")
+            if gap is not None and gap <= open_gap and (
+                    last_nc is None or t - last_nc >= self.p("new_chaser_min_s", 30.0)):
+                rec.fields["last_new_chaser_t"] = t
+                self.beat(t, rec, "threshold", "new_chaser",
+                          ctx={"a": eng.name(chaser), "b": eng.name(leader),
+                               "c": eng.name(old), "gap": _fmt_gap(gap)},
+                          numbers={"gap": gap} if gap is not None else {})
             return
         rec.fields["gap"] = gap
         rec.fields["rate"] = rate
@@ -8996,9 +9129,13 @@ class P_BAT_03(StoryProcessor):
     def observe(self, t):
         eng = self.eng
         m = eng.model
+        top_n = self.p("ai_only_top_n", 3)
         for key, c in list(m._contest.items()):
             pair = list(key)
             rec = eng.store.find(self.ID, pair)
+            if not any(eng.is_human(i) for i in pair) and min(
+                    (eng.pos(i) or 99) for i in pair) > top_n:
+                continue                      # an AI-only scrap down the field
             if c.get("open") and rec is None and not c.get("settled"):
                 rec = self.open(t, pair, fields={"swaps": c["reversals"],
                                                  "pos_at_open": _pos_map(eng, pair)},
@@ -9141,7 +9278,8 @@ class P_POS_03(StoryProcessor):
                 marks.clear()
                 continue
             if rec is None:
-                if lost >= places and not c.pit_status:
+                if lost >= places and not c.pit_status and (
+                        eng.is_human(c.idx) or marks[0][1] <= self.p("ai_only_top_n", 3)):
                     cause = self._cause(t, c.idx)
                     rec = self.open(t, [c.idx],
                                     fields={"places": lost, "from": marks[0][1],
