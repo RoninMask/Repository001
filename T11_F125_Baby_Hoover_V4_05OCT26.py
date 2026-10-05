@@ -5174,11 +5174,14 @@ class V3Booth:
             if idx is not None and m.is_retired(idx):
                 return "drop:retired"
         if rec is not None and not rec.live and beat != "relate" \
-                and claim.t_create < (rec.closed_t or 0) - 1e-3:
+                and claim.t_create < (rec.closed_t or 0) - 1e-3 \
+                and not rec.row.get("speak_after_close", False):
             return "drop:story_closed"
         # a transition beat spoken after the story has moved on is stale
         if rec is not None and rec.live and f.get("beat_kind") == "transition" \
-                and rec.phase != f.get("phase") and beat not in ("open",):
+                and rec.phase != f.get("phase") and beat not in ("open",) \
+                and rec.phase in ("resolved", "settled", "arrested", "rejoined",
+                                  "dispersed", "cooling"):
             return "drop:story_moved_on"
         gate_kind = "RETIREMENT" if f.get("story_type") in ("REL-02", "INC-05") \
             else claim.kind
@@ -9047,10 +9050,11 @@ class P_POS_01(StoryProcessor):
             other_human = other is not None and eng.is_human(other.idx)
             # one record per swap: the pair, unordered, this lap
             pair = frozenset([idx] + ([other.idx] if other is not None else []))
-            key = (pair, eng.lap_now())
-            if key in self._reported:
+            lap_now = eng.lap_now()
+            if any((pair, l) in self._reported
+                   for l in range(lap_now - self.p("debounce_laps", 1), lap_now + 1)):
                 continue
-            self._reported.add(key)
+            self._reported.add((pair, lap_now))
             if not human and not other_human and to > top_n:
                 continue
             # cause: pit cycle, retirement ahead (gifted), or earned
@@ -9086,6 +9090,7 @@ class P_POS_03(StoryProcessor):
     def __init__(self, engine):
         StoryProcessor.__init__(self, engine)
         self._marks = defaultdict(list)
+        self._pitted = {}
 
     def observe(self, t):
         eng = self.eng
@@ -9095,7 +9100,15 @@ class P_POS_03(StoryProcessor):
         window = self.p("window_s", 20.0)
         big = self.p("magnitude_threshold", 10)
         for c in eng.w.cars:
-            if not c.seen or c.position <= 0 or not eng.running(c.idx):
+            if not c.seen or c.position <= 0:
+                continue
+            # a car in the pit cycle (the model's own lifecycle state) is noted
+            # and skipped: the position it loses is the stop, not a collapse
+            if c.pit_status or eng.model.car_state.get(c.idx) in ("pit_entry", "in_pit"):
+                self._pitted[c.idx] = t
+                self._marks[c.idx] = []
+                continue
+            if not eng.running(c.idx):
                 continue
             marks = self._marks[c.idx]
             marks.append((t, c.position))
@@ -9103,6 +9116,10 @@ class P_POS_03(StoryProcessor):
                 marks.pop(0)
             rec = eng.store.find(self.ID, [c.idx])
             lost = c.position - marks[0][1] if len(marks) >= 2 else 0
+            pitted = self._pitted.get(c.idx)
+            if pitted is not None and (t - pitted) <= self.p("pit_exclusion_s", 60.0):
+                marks.clear()
+                continue
             if rec is None:
                 if lost >= places and not c.pit_status:
                     cause = self._cause(t, c.idx)
@@ -9258,8 +9275,7 @@ class P_PACE_01(StoryProcessor):
 def _lap_time_words(ms):
     s = ms / 1000.0
     m = int(s // 60)
-    r = s - m * 60
-    return "%d %.1f" % (m, r) if m else "%.1f" % r
+    return "a %d:%06.3f" % (m, s - m * 60) if m else "%.3f seconds" % s
 
 
 @story_processor
