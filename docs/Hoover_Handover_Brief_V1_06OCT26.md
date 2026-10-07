@@ -2,7 +2,7 @@
 
 **From the 04–06 OCT 26 session · for the next chat · V1 · 06 OCT 26**
 
-Everything below is on the branch `claude/baby-hoover-v4-stories` (head `ae64cba`, off `50b2a05` = V3 Pass 4) and in the project docs. Nothing has been merged to `main`, which still predates Pass 1.
+Everything below is on the branch `claude/baby-hoover-v4-stories` (code head `ae64cba`, off `50b2a05` = V3 Pass 4; this brief is the commit after it) and in the project docs. Nothing has been merged to `main`, which still predates Pass 1.
 
 ---
 
