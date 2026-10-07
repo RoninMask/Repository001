@@ -99,12 +99,12 @@ K["S_POS_01"] = [
 ]
 
 K["S_POS_03"] = [
-    v(L, "{a} has lost {places} places {cause}.", "{a} lost {places} places {cause}.", beat="open", cause_known=True),
-    v(A, "{a} is going backwards, {places} places, {cause}.", beat="open", cause_known=True),
-    v(L, "{a} has dropped {places} places. No obvious reason yet.", "{a} dropped {places} places.", beat="open", cause_known=False),
-    v(A, "Something has happened to {a}. {places} places gone, and we do not know why yet.", beat="open", cause_known=False),
-    v(A, "That is {places} places now for {a}. A collapse.", beat="magnitude"),
-    v(A, "{a} has stopped the bleeding, {places} places lost, now in {pos}.", beat="arrested"),
+    v(L, "{a} has lost {places} {cause}.", "{a} lost {places} {cause}.", beat="open", cause_known=True),
+    v(A, "{a} is going backwards, {places}, {cause}.", beat="open", cause_known=True),
+    v(L, "{a} has dropped {places}. No obvious reason yet.", "{a} dropped {places}.", beat="open", cause_known=False),
+    v(A, "Something has happened to {a}. {places} gone, and we do not know why yet.", beat="open", cause_known=False),
+    v(A, "That is {places} now for {a}. A collapse.", beat="magnitude"),
+    v(A, "{a} has stopped the bleeding, {places} lost, now in {pos}.", beat="arrested"),
     v(L, "{a} steadies it in {pos}.", beat="arrested"),
 ]
 
@@ -130,12 +130,12 @@ K["S_STR_01"] = [
     v(A, "{a} is in the pits, the {count} stop, from {pos}.", beat="in"),
     v(A, "Box for {a}. He was running {pos}.", beat="in"),
     v(A, "{a} pits under the safety car. The cheap stop.", beat="in", under_sc=True),
-    v(A, "{a} rejoins in {pos}, {places} places down on where he was.", beat="rejoined", lost=True, action=False),
-    v(A, "{a} is back out in {pos}, {places} places lost in the stop, clear air ahead.", beat="rejoined", lost=True, action=False),
+    v(A, "{a} rejoins in {pos}, {places} down on where he was.", beat="rejoined", lost=True, action=False),
+    v(A, "{a} is back out in {pos}, {places} lost in the stop, clear air ahead.", beat="rejoined", lost=True, action=False),
     v(A, "{a} rejoins in {pos}.", beat="rejoined", action=False),
     v(L, "{a} rejoins in {pos}, right with {b}. That is a fight.", beat="rejoined", into_human=True),
     v(L, "Out comes {a} in {pos}, and {b} is {gap} away. Game on.", beat="rejoined", into_human=True),
-    v(L, "{a} comes out of the pits in {pos}, straight into {b}. {places} places down, and a battle on his hands.", beat="rejoined", action=True, lost=True),
+    v(L, "{a} comes out of the pits in {pos}, straight into {b}. {places} down, and a battle on his hands.", beat="rejoined", action=True, lost=True),
     v(L, "{a} rejoins in {pos}, {gap} behind {b}. He will want that place back.", beat="rejoined", action=True),
 ]
 
@@ -143,14 +143,14 @@ K["S_INC_01"] = [
     v(L, "Contact! {a} and {b}.", "Contact between {a} and {b}.", beat="contact"),
     v(L, "{a} and {b} have touched.", beat="contact"),
     v(L, "Contact between {a} and {b}! Two of our drivers together.", "Contact between {a} and {b}.", beat="contact", human_human=True),
-    v(A, "{a} has lost {places} places out of that, down to {pos}.", beat="consequence"),
-    v(A, "The cost of that is {places} places for {a}.", beat="consequence"),
+    v(A, "{a} has lost {places} out of that, down to {pos}.", beat="consequence"),
+    v(A, "The cost of that is {places} for {a}.", beat="consequence"),
 ]
 
 K["S_INC_02"] = [
     v(L, "{a} is off!", "{a} went off.", beat="off"),
     v(L, "{a} has gone off the track.", "{a} went off the track.", beat="off"),
-    v(A, "{a} rejoins, and that cost him {places} places, {pos} now.", beat="rejoined", lost=True),
+    v(A, "{a} rejoins, and that cost him {places}, {pos} now.", beat="rejoined", lost=True),
     v(A, "{a} is back on, and got away with it, still {pos}.", beat="rejoined", lost=False),
 ]
 
@@ -201,10 +201,10 @@ K["S_SF_02"] = [
 ]
 
 K["S_SF_03"] = [
-    v(L, "Great start from {a}, up {places} places to {pos}!", "{a} gained {places} places at the start.", beat="good_start"),
-    v(A, "{a} got off the line beautifully, {places} places gained, {pos} now.", beat="good_start"),
-    v(L, "Bad start for {a}, down {places} to {pos}.", "{a} lost {places} places at the start.", beat="bad_start"),
-    v(A, "{a} bogged down there, {places} places lost, {pos} now.", beat="bad_start"),
+    v(L, "Great start from {a}, up {places} to {pos}!", "{a} gained {places} at the start.", beat="good_start"),
+    v(A, "{a} got off the line beautifully, {places} gained, {pos} now.", beat="good_start"),
+    v(L, "Bad start for {a}, down {places} to {pos}.", "{a} lost {places} at the start.", beat="bad_start"),
+    v(A, "{a} bogged down there, {places} lost, {pos} now.", beat="bad_start"),
 ]
 
 K["S_SF_04"] = [
@@ -231,9 +231,11 @@ K["S_SF_06"] = [
 ]
 
 K["S_SF_07"] = [
-    v(A, "Best of our drivers tonight is {a}, home in {pos}.", beat="best_human"),
+    v(A, "Best of our drivers tonight is {a}, home in {pos}.", beat="best_human", only=False),
     v(L, "{a} takes the honours among our drivers, {pos} at the flag, ahead of {b}.", beat="best_human", only=False),
-    v(L, "{a} is the top finisher of our drivers, in {pos}.", beat="best_human"),
+    v(L, "{a} is the top finisher of our drivers, in {pos}.", beat="best_human", only=False),
+    v(L, "{a} brings it home in {pos}.", beat="best_human", only=True),
+    v(A, "That is {a}'s night done, {pos} at the flag.", beat="best_human", only=True),
 ]
 
 K["S_HUM_01"] = [
@@ -283,20 +285,59 @@ K["S_DEV_08"] = [
 ]
 
 K["S_RELATE"] = [
-    v(A, "All of that is {gap} up the road from {a}.", beat="relate", ahead=False),
-    v(A, "And {a} is {gap} back from that, in his own race.", beat="relate", ahead=False),
-    v(A, "{a} is {places} behind that.", beat="relate", ahead=False),
-    v(A, "That is {places} ahead of {a}.", beat="relate", ahead=False, input="places"),
-    v(A, "{a} is {places} ahead of all that, and {gap} up the road.", beat="relate", ahead=True),
-    v(A, "That is behind {a}, by {gap}.", beat="relate", ahead=True),
-    v(A, "{a} is {places} ahead of all that.", beat="relate", ahead=True),
-    v(A, "All of that is {places} behind {a}.", beat="relate", ahead=True),
-    v(A, "{a} is {places} back from that, and it changes what he can still reach tonight.", beat="relate", input="ceiling", ahead=False),
-    v(A, "{a} is {gap} from that, close enough to be part of it.", beat="relate", input="chance", ahead=False),
+    # defend: a threat from behind
+    v(A, "{a} has {b} right behind him for {pos}. That is a fight now.", beat="relate", ctype="defend", fight=True),
+    v(A, "And that brings {b} onto the back of {a}, {gap} between them.", beat="relate", ctype="defend", fight=True),
+    v(A, "{b} is coming for {a}. {gap} back and closing at {rate}; {a} has {laps} before that is a fight.", beat="relate", ctype="defend", reaches=True),
+    v(A, "Watch {a}'s mirrors. {b} is {gap} behind and taking {rate} out of him, so about {laps} and he is there.", beat="relate", ctype="defend", reaches=True),
+    v(A, "{b} is {places} behind {a} and closing, {gap} to make up. {a} has {laps} to answer that.", beat="relate", ctype="defend", reaches=True),
+    # attack: an opportunity ahead
+    v(A, "That is {gap} up the road from {a}, and he is closing. {b} is the next car he can reach.", beat="relate", ctype="attack", reaches=True),
+    v(A, "{a} is taking {rate} out of {b}, {gap} ahead. At that rate he is on him in {laps}.", beat="relate", ctype="attack", reaches=True),
+    v(A, "Good news for {a}: {b} is {gap} ahead and slowing. That is {laps} away.", beat="relate", ctype="attack", reaches=True),
+    v(A, "{a} is right with {b} for {pos}. That is his chance.", beat="relate", ctype="attack", fight=True),
+    v(A, "And {a} is on the back of that, {gap} off {b}.", beat="relate", ctype="attack", fight=True),
+    # deal: the race changed for him
+    v(A, "That hands {a} {places}. He is {pos} now.", beat="relate", ctype="deal", what="gained"),
+    v(A, "{a} gains {places} out of that without passing anyone, up to {pos}.", beat="relate", ctype="deal", what="gained"),
+    v(A, "That changes what {a} can reach tonight.", beat="relate", ctype="deal", what="projection"),
+    v(A, "It moves the picture for {a}, running {pos}.", beat="relate", ctype="deal", what="projection"),
+]
+
+# ---- the lull programme (07 OCT): revisit / human race so far / stats ----
+K["S_LULL_REVISIT"] = [
+    v(A, "Still live, that one: {a} is {gap} behind {b} for {pos}, and closing.", beat="lull_revisit", trend="closing", reaches=False),
+    v(A, "{a} is taking {rate} out of {b}. {gap} to close, and at that rate he is there in {laps} laps.", beat="lull_revisit", trend="closing", reaches=True),
+    v(A, "Keep an eye on {a} and {b} for {pos}. {gap} between them, and {a} has the pace. {laps} laps and he is on him.", beat="lull_revisit", trend="closing", reaches=True),
+    v(A, "{a} is closing on {b}, {gap} now, but with {remaining} laps left it may not be enough.", beat="lull_revisit", trend="closing", reaches=False),
+    v(A, "{b} is holding {a} at {gap} for {pos}. Nothing in it either way.", beat="lull_revisit", trend="steady"),
+    v(A, "That one has settled for now: {a} sits {gap} behind {b}, and the gap is not moving.", beat="lull_revisit", trend="steady"),
+    v(A, "{b} is edging away from {a}, {gap} now and growing.", beat="lull_revisit", trend="opening"),
+    v(A, "{a} has lost touch with {b} for the moment. {gap}, and {b} is the quicker car right now.", beat="lull_revisit", trend="opening"),
+]
+
+K["S_LULL_HUMAN"] = [
+    v(L, "{a} runs {pos}, up {places} from {grid} on the grid, with {remaining} laps to go.", beat="lull_human", up=True),
+    v(L, "Where is {a}? {pos}, from {grid} at the start, and {b} is {gap} up the road.", beat="lull_human", up=True, has_ahead=True),
+    v(L, "{a} started {grid} and is running {pos} now, {gap} behind {b}, with {c} {delta} back.", beat="lull_human", has_ahead=True, has_behind=True),
+    v(L, "{a} is {pos}, {places} down on where he started, and {b} is {gap} ahead.", beat="lull_human", down=True, has_ahead=True),
+    v(L, "{a} is holding {pos}. {remaining} laps left and {b} is {gap} up the road.", beat="lull_human", has_ahead=True),
+    v(L, "{a} is in {pos} with {remaining} laps to run, and {c} is {delta} behind him.", beat="lull_human", has_behind=True),
+    v(L, "{a} leads the race with {remaining} laps to go.", beat="lull_human", has_ahead=False),
+    v(L, "{a} runs {pos}, {remaining} laps to go.", beat="lull_human"),
+]
+
+K["S_LULL_STATS"] = [
+    v(A, "{a} has led {n} laps of this race.", beat="lull_stats", stat="laps_led"),
+    v(A, "Every lap so far has had {a} at the front: {n} of them.", beat="lull_stats", stat="laps_led"),
+    v(A, "Fastest lap of the race still stands to {a}, a {time}.", beat="lull_stats", stat="fastest"),
+    v(A, "The quickest lap we have seen tonight is {a}'s {time}.", beat="lull_stats", stat="fastest"),
+    v(A, "One car out of this race so far.", beat="lull_stats", stat="out", one=True),
+    v(A, "{n} cars out of this race so far.", beat="lull_stats", stat="out", one=False),
 ]
 
 doc = collections.OrderedDict(base)
-doc["words_version"] = "V4-05OCT26"
+doc["words_version"] = "V4-07OCT26"
 doc["_about_v4"] = ("V4: the V3 words file plus one kind per Story Matrix row in the "
                     "Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with "
                     "when.beat and optional view keys. Placeholders come from the story "

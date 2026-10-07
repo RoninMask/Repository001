@@ -96,6 +96,7 @@ def _engine(w, logs=None):
 
 
 STORIES = "hoover_stories_v4.json"
+V3_CONFIG = os.path.join(REPO, "hoover_config_v3.json")
 
 
 class TestByteIdentityOff(unittest.TestCase):
@@ -106,8 +107,10 @@ class TestByteIdentityOff(unittest.TestCase):
         self.assertTrue(FIXTURES, "run tests/make_fixture_corpus.py first")
         for b in FIXTURES:
             with tempfile.TemporaryDirectory() as d3, tempfile.TemporaryDirectory() as d4:
+                # the identity gate pins the Pass 4 config (hoover_config_v3.json,
+                # frozen); the V4 tool otherwise reads hoover_config_v4.json
                 rc3, _ = _run(V3_FILE, b, d3, [])
-                rc4, out4 = _run(V4_FILE, b, d4, ["--stories", "off"])
+                rc4, out4 = _run(V4_FILE, b, d4, ["--stories", "off", "--config", V3_CONFIG])
                 self.assertEqual(rc3, 0, b)
                 self.assertEqual(rc4, 0, out4)
                 s3, p3 = _artefacts(d3)
@@ -148,7 +151,9 @@ class TestEngineOnFixtures(unittest.TestCase):
                 # every stories-file line parses and carries the schema keys
                 for line in open(p + "_stories.jsonl"):
                     ev = json.loads(line)
-                    for k in ("ts", "lap", "ev", "id", "type", "phase"):
+                    keys = ("ts", "lap", "ev", "on", "why") if ev.get("ev") == "lull" \
+                        else ("ts", "lap", "ev", "id", "type", "phase")
+                    for k in keys:
                         self.assertIn(k, ev)
 
     def test_superseded_kinds_are_withheld_not_aired(self):
@@ -214,22 +219,40 @@ class TestPaceModel(unittest.TestCase):
 
 class TestRelate(unittest.TestCase):
 
-    def test_anchor_picks_nearest_human_and_direction(self):
+    def _closing(self, eng, human=2, ahead=(0, 1)):
+        """Give the human a pace edge over the cars ahead, so the story ahead
+        of him is an 'attack' consequence he reaches before the flag."""
+        pm = eng.pace
+        for i in ahead:
+            pm.laps[i] = [91.0, 91.0, 91.0]
+        pm.laps[human] = [90.0, 90.0, 90.0]
+
+    def test_anchor_is_the_human_with_a_consequence(self):
         w = _world(lap=5)
         eng, model = _engine(w)
         t = 1000.0
-        # an AI battle between cars 0 and 1 at the front; humans are 2 and 4
+        self._closing(eng)
+        # an AI battle between cars 0 and 1 at the front; humans are 2 and 4.
+        # Car 2 is closing on it (attack); car 4 is not (no consequence).
         rec = eng.store.open(t, "BAT-01", [1, 0])
         eng.relate.run(t)
         self.assertIsNotNone(rec.anchor)
-        self.assertEqual(rec.anchor["human"], 2)       # nearer in the order
+        self.assertEqual(rec.anchor["human"], 2)
+        self.assertEqual(rec.anchor["input"], "attack")
         val = rec.anchor["value"]
         self.assertLess(val["places"], 0)              # the story is ahead of him
+        self.assertIsNotNone(val["laps"])              # and he gets there
+        # the same story with no pace edge: no consequence, no anchor line
+        eng2, _ = _engine(_world(lap=5))
+        rec2 = eng2.store.open(t, "BAT-01", [1, 0])
+        eng2.relate.run(t)
+        self.assertEqual(rec2.anchor["input"], "none")
 
-    def test_relate_beat_needs_a_number_and_respects_interval(self):
+    def test_relate_carries_the_consequence_and_respects_interval(self):
         w = _world(lap=5)
         eng, model = _engine(w)
         t = 1000.0
+        self._closing(eng)
         rec = eng.store.open(t, "BAT-01", [1, 0])
         eng.relate.run(t)
         eng.claims_out = []
@@ -238,12 +261,26 @@ class TestRelate(unittest.TestCase):
         kinds = [c.kind for c in eng.claims_out]
         self.assertIn(v4.STORY_RELATE_KIND, kinds)
         c = [c for c in eng.claims_out if c.kind == v4.STORY_RELATE_KIND][0]
-        self.assertTrue(c.facts.get("places") or c.facts.get("gap") is not None)
+        self.assertEqual(c.facts["consequence"], "attack")
+        self.assertEqual(c.facts["view"]["ctype"], "attack")
+        self.assertTrue(c.facts.get("gap") is not None)
         self.assertEqual(c.facts["anchor_human"], 2)
         # and not again inside the minimum interval
         eng.claims_out = []
         eng.relate.run(t + eng.relate.first_s + 5.0)
         self.assertEqual([c.kind for c in eng.claims_out], [])
+
+    def test_no_consequence_never_relates(self):
+        """The lead battle fifteen places up the road from a human with no
+        pace edge is not his story: no relate line, not even once."""
+        w = _world(n=18, humans=(16,), lap=5)
+        eng, model = _engine(w)
+        t = 1000.0
+        rec = eng.store.open(t, "LEAD-02", [1, 0])
+        for dt in (0.0, 10.0, 60.0, 120.0):
+            eng.relate.run(t + dt)
+        self.assertEqual([c.kind for c in eng.claims_out], [])
+        self.assertEqual(rec.anchor["input"], "none")
 
     def test_subject_anchored_rows_do_not_relate(self):
         w = _world(lap=5)
@@ -252,6 +289,113 @@ class TestRelate(unittest.TestCase):
         eng.relate.run(1000.0 + 60.0)
         self.assertEqual(rec.anchor["input"], "subject")
         self.assertEqual(eng.claims_out, [])
+
+
+class TestRestartReset(unittest.TestCase):
+    """07 OCT: a lobby restart (SEND then SSTA from suspended) is a new race."""
+
+    def _engine_v4cfg(self, w):
+        cfg = v4.Config(os.path.join(REPO, "hoover_config_v4.json"))
+        model = v4.RaceModel(w, cfg, v4.Roster(None), lambda m: None)
+        model.state = "green"
+        model.leader_idx = 0
+        for c in w.cars:
+            if c.seen:
+                model.last_pos[c.idx] = c.position
+        scfg = v4.StoriesConfig(os.path.join(REPO, STORIES))
+        eng = v4.StoryEngine(model, w, cfg, scfg, lambda m: None)
+        return eng, model
+
+    def test_model_and_engine_reset_on_restart_grid(self):
+        w = _world(lap=3)
+        eng, model = self._engine_v4cfg(w)
+        self.assertTrue(model.restart_reset)
+        t = 1000.0
+        model._retire_signal(t, 2, "RTMT")          # the human retires
+        self.assertTrue(model.is_retired(2))
+        rec = eng.store.open(t, "BAT-01", [1, 0])   # a live battle
+        eng.observe(t + 1.0)
+        model.state = "suspended"
+        model.on_event(t + 5.0, {"code": "SSTA"})
+        self.assertEqual(model.state, "restart_grid")
+        self.assertFalse(model.is_retired(2))        # everyone races again
+        self.assertEqual(len(model.restart_resets), 1)
+        eng.observe(t + 6.0)
+        self.assertFalse(rec.live)
+        self.assertEqual(rec.outcome, "restart")
+        # the only live record is RC-03 (the grid reforming), opened after the reset
+        self.assertEqual({r.row_id for r in eng.store.live.values()}, {"RC-03"})
+
+    def test_v3_config_keeps_v3_behaviour(self):
+        w = _world(lap=3)
+        eng, model = _engine(w)                      # hoover_config_v3.json
+        self.assertFalse(model.restart_reset)
+        model._retire_signal(1000.0, 2, "RTMT")
+        model.state = "suspended"
+        model.on_event(1005.0, {"code": "SSTA"})
+        self.assertTrue(model.is_retired(2))
+
+
+class TestRaceLull(unittest.TestCase):
+
+    def test_enter_and_exit_on_action_score(self):
+        w = _world(lap=5)
+        eng, model = _engine(w)
+        eng.processors = []                          # drive the store by hand
+        cfg = eng.scfg.e("lull", {})
+        t = 1000.0
+        eng.observe(t)
+        eng.observe(t + cfg["enter_s"] + 1.0)
+        self.assertTrue(eng.lull_active)             # nothing live: a lull
+        rec = eng.store.open(t + 30.0, "BAT-01", [3, 2])   # human battle
+        eng.observe(t + 30.0)
+        self.assertGreaterEqual(rec.score, cfg["score_exit"])
+        self.assertFalse(eng.lull_active)
+        self.assertEqual([e["lull"] for e in eng.lull_log], [True, False])
+
+    def test_structure_rows_do_not_hold_off_a_lull(self):
+        w = _world(lap=5)
+        eng, model = _engine(w)
+        eng.processors = []
+        t = 1000.0
+        eng.store.open(t, "SF-04", [2, 4])           # start-of-race record, score high
+        eng.observe(t)
+        eng.observe(t + eng.scfg.e("lull", {})["enter_s"] + 1.0)
+        self.assertTrue(eng.lull_active)
+
+    def test_lull_programme_offers_the_humans_race(self):
+        w = _world(lap=5)
+        eng, model = _engine(w)
+        eng.processors = []
+        t = 1000.0
+        eng.observe(t)
+        eng.observe(t + 30.0)
+        self.assertTrue(eng.lull_active)
+        c = eng.build_lull(t + 31.0, avoid=set(), forced=False)
+        self.assertIsNotNone(c)
+        self.assertTrue(c.kind.startswith("S_LULL_"))
+        # the same item is not offered twice for the same state
+        again = [eng.build_lull(t + 32.0 + i, avoid=set(), forced=True) for i in range(6)]
+        texts = [(x.kind, tuple(sorted(x.facts["display"].items()))) for x in again if x]
+        self.assertEqual(len(texts), len(set(texts)))
+
+
+class TestGapSanity(unittest.TestCase):
+
+    def test_line_crossing_jump_is_ignored(self):
+        w = _world(lap=5)
+        eng, model = _engine(w)
+        eng._now = 1000.0
+        self.assertAlmostEqual(eng.gap_ahead(2), 2.5)
+        w.cars[2].delta_front = 65.5                 # the s04 artefact
+        eng._now = 1000.5
+        self.assertAlmostEqual(eng.gap_ahead(2), 2.5)  # last good reading stands
+        w.cars[2].delta_front = 2.4
+        eng._now = 1001.0
+        self.assertAlmostEqual(eng.gap_ahead(2), 2.4)
+        w.cars[2].delta_front = 65.5                 # a real 65 s gap persists
+        eng._now = 1010.0                            # past the window
+        self.assertAlmostEqual(eng.gap_ahead(2), 65.5)
 
 
 class TestBattleLifecycle(unittest.TestCase):

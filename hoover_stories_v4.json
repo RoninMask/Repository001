@@ -14,7 +14,10 @@
    "tier_priority": {
     "Interrupt": 84,
     "Priority": 72
-   }
+   },
+   "anchor_look_s": 4.0,
+   "anchor_return_s": 4.0,
+   "anchor_priority": 60
   },
   "cluster_cap": 3.0,
   "cluster_multipliers": [
@@ -58,7 +61,44 @@
   "relate_w_position": 3.0,
   "relate_w_projection": 2.0,
   "relate_w_road": 1.0,
-  "subject_share_max_story": 0.6
+  "subject_share_max_story": 0.6,
+  "lull": {
+   "_about": "Race lull (07 OCT): a condition of the race, not of the output. Entered when no live story scores above score_enter for enter_s; left when one passes score_exit. The lull programme feeds V3's silence picker (v3.lull) in rotation; revisits are allowed outside a lull, human_race and stats only inside one. Weather (V3) comes after all of these.",
+   "enabled": true,
+   "score_enter": 45.0,
+   "score_exit": 60.0,
+   "enter_s": 20.0,
+   "groups": [
+    "Lead",
+    "Battles",
+    "Position",
+    "Incidents",
+    "Strategy",
+    "Pace",
+    "Human"
+   ],
+   "rotation": [
+    "revisit",
+    "human_race",
+    "stats"
+   ],
+   "cooldown_s": {
+    "revisit": 60.0,
+    "human_race": 120.0,
+    "stats": 180.0
+   },
+   "revisit_quiet_s": 30.0,
+   "revisit_rows": [
+    "BAT-01",
+    "LEAD-02",
+    "BAT-03",
+    "HUM-06",
+    "LEAD-01"
+   ],
+   "max_age_s": 12.0
+  },
+  "gap_jump_max_s": 15.0,
+  "gap_jump_window_s": 5.0
  },
  "params": {
   "BAT-01": {
@@ -70,7 +110,8 @@
    "min_laps_live": 1,
    "open_gap_s": 1.5,
    "project_gap_max_s": 6.0,
-   "revisit_laps": 3
+   "revisit_laps": 3,
+   "speak_separated_human": true
   },
   "BAT-03": {
    "ai_only_top_n": 3
@@ -132,7 +173,9 @@
   },
   "PACE-01": {
    "announce_first": false,
-   "min_lap_ms": 40000
+   "min_lap_ms": 40000,
+   "one_per_lap": true,
+   "speak_on_final_lap": false
   },
   "POS-01": {
    "ai_only_top_n": 3,
@@ -184,6 +227,9 @@
    "ai_top_n": 3,
    "max_age_s": 25.0,
    "rejoin_settle_s": 3.0
+  },
+  "HUM-06": {
+   "defer_to_battle_s": 20.0
   }
  },
  "rows": {

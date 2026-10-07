@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "4.1.0"
+SCRIPT_VERSION = "4.2.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -3672,6 +3672,17 @@ def run_detectors(artifact_dir, stem, config_path):
 V3_TOOL_NAME = "T11_F125_Baby_Hoover_V3"
 V3_SCRIPT_VERSION = "3.1.0"
 V3_CONFIG_NAME = "hoover_config_v3.json"
+# V4 (07 OCT): the V4 tool reads hoover_config_v4.json when it is beside the
+# tool, else hoover_config_v3.json. The v3 file is frozen at Pass 4 so the V3
+# tool and the identity gate keep their config; the v4 file carries the
+# restart reset, the lull cadence and the camera bands decided on 07 OCT.
+V4_CONFIG_NAME = "hoover_config_v4.json"
+
+
+def default_config_path(here=None):
+    here = here or os.path.dirname(os.path.abspath(__file__))
+    p4 = os.path.join(here, V4_CONFIG_NAME)
+    return p4 if os.path.isfile(p4) else os.path.join(here, V3_CONFIG_NAME)
 
 # Extra decoders V3 needs and V2 did not provide. These live outside the Booth
 # and Gallery sections (they decode packets), so A32 does not flag them.
@@ -3838,6 +3849,14 @@ class RaceModel:
         self.collapse_window = pa.get("collapse_window_s", 20.0)
         self.winner_call_delay = v3.get("finish", {}).get(
             "winner_call_max_delay_s", 5.0)
+        # V4 (07 OCT, s04 finding): a lobby restart (SEND then SSTA from
+        # suspended) is a new race for every car. With the knob on, the
+        # per-car race state -- retirements, pit and pass bookkeeping, the
+        # lead tracker -- is reset when the grid reforms. Absent key = V3
+        # behaviour (a car retired in the aborted race stayed retired).
+        self.restart_reset = bool(v3.get("restart", {}).get(
+            "reset_on_grid", False))
+        self.restart_resets = []      # t_unix of each reset, for the manifest
 
         # anchor
         self.anchor_t = None
@@ -3939,6 +3958,42 @@ class RaceModel:
         self.state = new
         self.state_since = t
 
+    def _reset_for_restart(self, t):
+        """V4: the grid reforms for a new race. Every car is running again;
+        the aborted race's retirements, pit and pass bookkeeping, contests,
+        collapses and lead history are void. The anchor, roster, weather and
+        the session's best speed are kept -- they are the session's, not the
+        race's. The reset is logged as a STATE line and counted in the
+        manifest so a restart is never silent."""
+        self.restart_resets.append(round(t, 6))
+        n_ret = len(self.retired_at)
+        self.retired_at = {}
+        self.retire_signals = defaultdict(list)
+        self.car_state = {}
+        self.finish_pos = {}
+        self.finish_t = {}
+        self.disqualified = set()
+        self.colls = []
+        self.penalty_events = []
+        self._pit_pending = []
+        self._pending_order = {}
+        self._contest = {}
+        self._collapse_marks = defaultdict(list)
+        self._reported_pass = set()
+        self._last_leader = None
+        self._lead_events = []
+        self._lead_contest = None
+        self._pending_lead = None
+        self.pos_times = defaultdict(list)
+        self.pos_values = defaultdict(list)
+        self.leader_finish_t = None
+        self.road_winner = None
+        self.result_aired_pos = {}
+        self.humans_result_done = set()
+        self.chqf_seen = False
+        self.log(">>> RESTART RESET: race state cleared for all cars "
+                 "(%d retirement%s void)" % (n_ret, "" if n_ret == 1 else "s"))
+
     def _t_rec(self, t):
         return None if self.rec_start is None else round(t - self.rec_start, 6)
 
@@ -4011,6 +4066,8 @@ class RaceModel:
                 self.ssta_t = t
             if self.state == "suspended":
                 self._set_state(t, "restart_grid", "SSTA")
+                if self.restart_reset:
+                    self._reset_for_restart(t)
         elif code == "PENA":
             self._on_pena(t, info)
         elif code == "COLL":
@@ -5067,6 +5124,8 @@ class V3Booth:
         self.lull_max_silence = ll.get("max_silence_s", 50.0)   # G1 coverage floor
         self.lull_window_reserve = ll.get("window_reserve_s", 4.0)  # J3
         self.lull_cooldowns = ll.get("kind_cooldown_s", {}) or {}
+        self.lull_kind_min = ll.get("kind_min_s", {}) or {}
+        self.lull_hard_silence = float(ll.get("hard_silence_s", ll.get("max_silence_s", 50.0)))
         self._lull_times = []
         self._lull_kind_times = {}     # F10: last-aired time per lull kind
         self._weather_aired = None     # F14: (track_temp, air_temp) last aired
@@ -5385,6 +5444,8 @@ class V3Booth:
         are handled at render by choosing a different variant, not dropped."""
         if claim.kind in self.rp_immune:      # F1: never suppress these
             return None
+        if getattr(claim, "lull_desperate", False):
+            return None                       # 07 OCT: past hard_silence_s
         if claim.kind.startswith(STORY_KIND_PREFIX) and claim.hard:
             return None                       # V4: a must-call beat always airs
         subjkey = tuple(sorted(claim.subjects))
@@ -5478,9 +5539,16 @@ class V3Booth:
         wire-derived line, capped per minute. Never during the stopped states."""
         if self._last_air_end is None or self.channel_busy_until > t + 1e-9:
             return False
+        # V4 (07 OCT): one lull attempt per tick. With a short coverage floor
+        # a forced lull that the queue then refuses (stale, window, state)
+        # was rebuilt on the same tick forever -- a live-lock in tick(). The
+        # next tick may try again; this one may not.
+        if getattr(self, "_lull_attempt_t", None) == t:
+            return False
         silence = t - self._last_air_end
         if silence < self.lull_after:
             return False
+        self._lull_attempt_t = t
         # H3: the run-in to the chequered flag is state `final_lap`; it was
         # missing here, so the last laps -- the worst place to be silent -- got
         # no lull coverage. allows() already permits filler in final_lap.
@@ -5490,6 +5558,10 @@ class V3Booth:
         # available -- bypass the per-minute cap and the per-kind cooldowns so
         # no green silence exceeds max_silence_s (inside the A40 limit).
         forced = silence >= self.lull_max_silence
+        # 07 OCT: past hard_silence_s the booth says whatever it has, repeat
+        # or not (V3's old guarantee). Between max_silence_s and that, the
+        # programme and the per-kind minimums decide, and silence is allowed.
+        desperate = silence >= self.lull_hard_silence
         recent = [x for x in self._lull_times if (t - x) < 60.0]
         if not forced and len(recent) >= self.lull_max_per_min:
             return False
@@ -5507,6 +5579,13 @@ class V3Booth:
             avoid = set(avoid) | set(self.stories.scfg.e(
                 "lull_superseded", ["LULL_GAP", "LULL_HUMAN", "LULL_PROGRESS",
                                     "LULL_DISTANCE", "LULL_FASTEST"]))
+        # 07 OCT: a per-kind minimum interval that even a forced coverage lull
+        # honours (v3.lull.kind_min_s), so a short floor does not read the
+        # weather every repetition window. The 3 C swing below still bypasses.
+        if not desperate:
+            for k, mn in (self.lull_kind_min or {}).items():
+                if k in self._lull_kind_times and (t - self._lull_kind_times[k]) < mn:
+                    avoid.add(k)
         # F14: a track/air swing of >=3 C bypasses the weather cooldown.
         if "LULL_WEATHER" in avoid and self._weather_aired is not None:
             tt, at = self.model.w.track_temp, self.model.w.air_temp
@@ -5514,7 +5593,11 @@ class V3Booth:
             if tt is not None and at is not None \
                     and (abs(tt - lt) >= 3 or abs(at - la) >= 3):
                 avoid.discard("LULL_WEATHER")
-        claim = self.model.build_lull(t, avoid=avoid)
+        claim = None
+        if self.stories is not None:
+            claim = self.stories.build_lull(t, avoid=avoid, forced=forced)
+        if claim is None:
+            claim = self.model.build_lull(t, avoid=avoid)
         if claim is None:
             return False
         # J3: a lull is the lowest-priority line the booth can say, so it is the
@@ -5533,10 +5616,14 @@ class V3Booth:
             claim.outcome_t = t
             self.claim_records.append(claim.record())
             return False
-        # repetition guard applies to lull lines like any other -- except a
-        # forced coverage lull, where covering the silence wins over variety.
-        if not forced and self._repetition_reason(claim, t) is not None:
+        # repetition guard applies to lull lines like any other. V4 (07 OCT):
+        # a forced coverage lull no longer bypasses it -- with a short floor the
+        # bypass re-aired the same weather line every tick (45,000 drop
+        # records on one replay). When the only material left is a repeat,
+        # the correct outcome is silence until the next tick brings something.
+        if not desperate and self._repetition_reason(claim, t) is not None:
             return False
+        claim.lull_desperate = desperate      # the queue's guard honours it too
         self._lull_times.append(t)
         self._lull_kind_times[claim.kind] = t
         if claim.kind == "LULL_WEATHER":
@@ -7132,8 +7219,8 @@ class SpeechChannel:
 # stays byte-identical to V4.0.
 
 BUILD_PRODUCT = "Baby Hoover"
-BUILD_VERSION = "V4.1"
-BUILD_DATE = "06OCT26"
+BUILD_VERSION = "V4.2"
+BUILD_DATE = "07OCT26"
 SETTINGS_ENV = "HOOVER_SETTINGS"
 SETTINGS_FILE_VERSION = 1
 
@@ -7638,7 +7725,7 @@ def build_info(tool_path=None, settings_path=None):
     commit = _git(here, "rev-parse", "--short", "HEAD")
     status = _git(here, "status", "--porcelain", "--untracked-files=no")
     files = {}
-    for role, name in (("config", V3_CONFIG_NAME),
+    for role, name in (("config", os.path.basename(default_config_path(here))),
                        ("words", "hoover_words_v4.json"),
                        ("stories", STORIES_FILE_NAME),
                        ("prompts", "hoover_prompts_v3.json"),
@@ -8540,6 +8627,21 @@ def _places_word(n):
     return "one place" if n == 1 else "%s places" % _num_word(n)
 
 
+def _fmt_rate(r):
+    """A catch rate in s/lap as spoken: 'two tenths a lap', 'a second a lap'."""
+    if r is None:
+        return None
+    r = abs(float(r))
+    if r < 0.05:
+        return None
+    if r < 0.95:
+        tenths = int(round(r * 10))
+        return "a tenth a lap" if tenths <= 1 else "%s tenths a lap" % _num_word(tenths)
+    if abs(r - round(r)) < 0.05:
+        return "a second a lap" if round(r) == 1 else "%d seconds a lap" % int(round(r))
+    return "%.1f seconds a lap" % r
+
+
 def _fmt_gap(g):
     if g is None:
         return None
@@ -8611,6 +8713,7 @@ class StoryRecord:
         self.last_spoken_t = None
         self.last_related = None
         self.last_related_t = None
+        self.last_revisit_t = None      # lull programme revisit (07 OCT)
         self.last_beat_t = t
         self.parent = parent
         self.relations = []
@@ -8729,6 +8832,15 @@ class PaceModel:
         self.prev_ceiling = {}
         self.n = engine.scfg.e("pace_window_laps", 3)
 
+    def reset(self):
+        """V4 restart: the aborted race's laps say nothing about the new one."""
+        self.laps = defaultdict(list)
+        self.last_lap_seen = {}
+        self.projected = {}
+        self.ceiling = {}
+        self.prev_projected = {}
+        self.prev_ceiling = {}
+
     def observe(self, t):
         w = self.eng.w
         for c in w.cars:
@@ -8820,53 +8932,99 @@ class RelatePass:
         self.min_interval_s = e("relate_min_interval_s", 45.0)
         self.hysteresis = e("relate_anchor_hysteresis", 0.20)
 
+    def reset(self):
+        """V4 restart: forget the last relate time so the new race's first
+        relate is owed on its own clock."""
+        self._last_relate_t = None
+
     def score(self, rec, h):
-        """Relate score for human h against story rec: what did this story do
-        to his race? Four inputs from the paper, read as deltas the pace model
-        and the order expose this tick, plus proximity as the proxy for
-        'affects' when nothing has moved yet."""
+        """Relate as consequence (07 OCT, Dustin's definition). A story relates
+        to human h only if it changes one of four things for him, and the line
+        says which:
+
+          defend  a threat from behind -- a participant behind h is closing
+                  and gets there before the flag
+          attack  an opportunity ahead -- a participant ahead of h that h is
+                  closing on and reaches before the flag, or a story that is
+                  slowing the cars ahead of him
+          deal    his race has changed -- places handed to him by a
+                  retirement, a projection or ceiling that moved this tick
+          feel    the interior register; left to subject-anchored rows and
+                  the model, never synthesised here
+
+        Returns (score, type, value). type 'none' means no line, ever, for
+        this story and this human -- not 'fourteen places behind that'.
+        Distance only enters as time-to-consequence (laps until it bites)."""
         eng = self.eng
         hp = eng.pos(h)
         if hp is None:
             return 0.0, "none", None
-        parts = [p for p in rec.participants if p != h]
-        inputs = {}
-        # position: a participant retired / collapsed from ahead of h
-        gained = 0
+        parts = [p for p in rec.participants if p != h and eng.pos(p) is not None]
+        rem = eng.laps_remaining()
+        cands = []                      # (score, type, value)
+        e = eng.scfg.e
+
+        def urgency(laps_to):
+            if not rem or not laps_to or laps_to <= 0:
+                return 0.0
+            return max(0.0, min(1.0, (rem - laps_to + 1) / float(rem)))
+
+        # defend / attack: each participant's road relation to h
         for p in parts:
             pp = eng.pos(p)
-            if rec.row_id in ("INC-05", "REL-02", "HUM-08") and rec.phase != "open":
-                pass
-            if eng.model.is_retired(p) and rec.opened_lap is not None:
+            g = eng.road_gap(h, p)
+            if g is None:
+                continue
+            if pp > hp:                                  # p is behind h
+                rate = eng.pace.rate_s_per_lap(p, h)     # >0: p closing on h
+                within = (pp - hp) <= e("relate_defend_places", 3)
+                if within and g <= e("relate_fight_s", 2.0):
+                    cands.append((e("relate_w_defend", 3.0) * 1.0, "defend",
+                                  {"other": p, "places": pp - hp, "gap": g,
+                                   "laps": None, "rate": rate}))
+                elif within and rate and rate > e("relate_min_rate_s", 0.1):
+                    laps_to = g / rate
+                    if rem and laps_to <= rem:
+                        cands.append((e("relate_w_defend", 3.0) * urgency(laps_to),
+                                      "defend", {"other": p, "places": pp - hp,
+                                                 "gap": g, "laps": laps_to,
+                                                 "rate": rate}))
+            elif pp < hp:                                # p is ahead of h
+                rate = eng.pace.rate_s_per_lap(h, p)     # >0: h closing on p
+                within = (hp - pp) <= e("relate_attack_places", 3)
+                if within and g <= e("relate_fight_s", 2.0):
+                    cands.append((e("relate_w_attack", 3.0) * 1.0, "attack",
+                                  {"other": p, "places": pp - hp, "gap": g,
+                                   "laps": None, "rate": rate}))
+                elif within and rate and rate > e("relate_min_rate_s", 0.1):
+                    laps_to = g / rate
+                    if rem and laps_to <= rem:
+                        cands.append((e("relate_w_attack", 3.0) * urgency(laps_to),
+                                      "attack", {"other": p, "places": pp - hp,
+                                                 "gap": g, "laps": laps_to,
+                                                 "rate": rate}))
+        # deal: places handed over by a participant leaving the race ahead
+        gained = 0
+        for p in [q for q in rec.participants if q != h]:
+            if eng.model.is_retired(p):
                 before = rec.fields.get("pos_at_open", {}).get(str(p))
                 if before is not None and before < hp:
                     gained += 1
-        inputs["places"] = self.w_pos * gained
-        # projection and ceiling deltas for h this tick
+        if gained:
+            cands.append((e("relate_w_position", 3.0) * gained, "deal",
+                          {"other": None, "places": gained, "gap": None,
+                           "laps": None, "rate": None, "what": "gained"}))
+        # deal: projection / ceiling moved for h this tick
         dp, dc = eng.pace.delta(h)
-        inputs["projection"] = self.w_proj * abs(dp)
-        inputs["ceiling"] = self.w_ceiling * abs(dc)
-        # road and order proximity: how near the story is to h
-        near = 0.0
-        for p in parts:
-            pp = eng.pos(p)
-            if pp is None:
-                continue
-            near = max(near, 1.0 / (1.0 + abs(pp - hp)))
-            g = eng.road_gap(h, p)
-            if g is not None and g <= self.road_s:
-                near = max(near, 1.0)
-        inputs["chance"] = self.w_road * near
-        total = sum(inputs.values()) * eng.stakes(h)
-        win = max(inputs, key=inputs.get) if inputs else "chance"
-        # the relation value is what the line says: places or seconds
-        value = None
-        if parts:
-            p0 = min(parts, key=lambda p: abs((eng.pos(p) or 99) - hp))
-            value = {"places": (eng.pos(p0) or 0) - hp,
-                     "gap": eng.road_gap(h, p0),
-                     "other": p0}
-        return total, win, value
+        if dp or dc:
+            cands.append((e("relate_w_projection", 2.0) * abs(dp)
+                          + e("relate_w_ceiling", 2.5) * abs(dc), "deal",
+                          {"other": None, "places": int(dp or dc), "gap": None,
+                           "laps": None, "rate": None, "what": "projection"}))
+        if not cands:
+            return 0.0, "none", None
+        best = max(cands, key=lambda c: c[0])
+        return best[0] * eng.stakes(h), best[1], best[2]
 
     def run(self, t):
         eng = self.eng
@@ -8908,29 +9066,22 @@ class RelatePass:
                           "both": both}
             self._maybe_relate(t, rec)
 
-    def _affects(self, val):
-        """A relation is worth a line only if the story can touch the human's
-        race: it is ahead of him (places < 0), or he is ahead of it by no more
-        than relate_ahead_places and relate_ahead_s."""
-        places = val.get("places")
-        gap = val.get("gap")
-        if places is None:
-            return False
-        if places < 0:
-            return True
-        if places <= self.eng.scfg.e("relate_ahead_places", 2) and (
-                gap is None or gap <= self.eng.scfg.e("relate_ahead_s", 5.0)):
-            return True
-        return False
+    def _affects(self, val, ctype):
+        """A relation is worth a line only if it carries a consequence."""
+        return bool(val) and ctype not in (None, "none")
 
     def _maybe_relate(self, t, rec):
-        """First relate within one hold of opening; again when the relation
-        has moved; the close beat carries the final relation itself. Never
-        more than one relate line across all stories inside relate_global_s."""
+        """A relate line is owed when the story first carries a consequence
+        for its anchor (after relate_first_s), and again when that consequence
+        changes -- a different type, a fight that becomes a chase, a gap that
+        moved by relate_move_gap_s, a place change. A story with no
+        consequence never relates. Never more than one relate line across
+        all stories inside relate_global_s."""
         if rec.anchor is None or rec.anchor.get("value") is None:
             return
         val = rec.anchor["value"]
-        if not self._affects(val):
+        ctype = rec.anchor.get("input")
+        if not self._affects(val, ctype):
             return
         last_any = getattr(self, "_last_relate_t", None)
         if last_any is not None and (t - last_any) < self.eng.scfg.e("relate_global_s", 30.0):
@@ -8943,12 +9094,14 @@ class RelatePass:
         prev = rec.last_related
         if rec.last_related_t is not None and (t - rec.last_related_t) < self.min_interval_s:
             return
-        moved = False
+        moved = prev.get("type") != ctype
         if prev.get("places") is not None and val.get("places") is not None \
                 and abs(prev["places"] - val["places"]) >= self.move_places:
             moved = True
         if prev.get("gap") is not None and val.get("gap") is not None \
                 and abs(prev["gap"] - val["gap"]) >= self.move_gap_s:
+            moved = True
+        if (prev.get("laps") is None) != (val.get("laps") is None):
             moved = True
         if moved:
             self.eng.emit_relate(t, rec, "moved")
@@ -9070,6 +9223,19 @@ class StoryEngine:
         self.drs = {}                 # idx -> drs flag (from car telemetry)
         self.surface = {}             # idx -> surface types (4)
         self.incoming = []            # V3 claims withheld this tick (observations)
+        self._restarts_seen = 0       # RaceModel.restart_resets consumed
+        self._gap_last = {}           # idx -> (t, last plausible delta_front)
+        self.lull_active = False      # race lull (07 OCT)
+        self.lull_since = None
+        self.lull_log = []
+        self._lull_below_since = None
+        self._lull_rot = 0
+        self._lull_item_t = {}
+        self._lull_human_t = {}
+        self._lull_human_last = {}
+        self._lull_stat_t = {}
+        self._lull_stat_last = {}
+        self.claims_out_lull = 0
         enabled = set(scfg.e("enabled_phases", ["V3-P1"]))
         self.processors = []
         for rid, cls in sorted(_STORY_REGISTRY.items()):
@@ -9130,9 +9296,27 @@ class StoryEngine:
         return c.idx if c is not None else None
 
     def gap_ahead(self, idx):
+        """Gap to the car ahead, with the start/finish-line artefact removed:
+        Lap Data's delta_front jumps by a whole lap time for one or two
+        packets as the pair cross the line (65.5 s then 0.03 s on s04, 07
+        OCT). A jump above engine.gap_jump_max_s inside gap_jump_window_s
+        of the last good reading is not a gap; the last good reading stands
+        until a plausible one arrives or the window passes."""
         c = self.w.cars[idx]
         g = c.delta_front
-        return g if 0.0 < g < 900.0 else None
+        if not (0.0 < g < 900.0):
+            return None
+        t = getattr(self, "_now", None)
+        last = self._gap_last.get(idx)
+        jump = self.scfg.e("gap_jump_max_s", 15.0)
+        win = self.scfg.e("gap_jump_window_s", 5.0)
+        if last is not None and t is not None:
+            lt, lg = last
+            if (t - lt) <= win and abs(g - lg) > jump:
+                return lg
+        if t is not None:
+            self._gap_last[idx] = (t, g)
+        return g
 
     def road_gap(self, a, b):
         """Seconds between two cars on the road via the chain of delta_front
@@ -9144,9 +9328,12 @@ class StoryEngine:
         total = 0.0
         for p in range(lo + 1, hi + 1):
             c = self.w.car_at_position(p)
-            if c is None or not (0.0 < c.delta_front < 900.0):
+            if c is None:
                 return None
-            total += c.delta_front
+            g = self.gap_ahead(c.idx)
+            if g is None:
+                return None
+            total += g
         return total
 
     def lap_now(self):
@@ -9212,11 +9399,37 @@ class StoryEngine:
         if self.is_human(idx):
             self._mention_t[idx] = t
 
+    def _restart_check(self, t):
+        """A lobby restart (the RaceModel reset its race state) voids every
+        live story: the battles, the incident records, the retirements, the
+        lead history all belonged to the aborted race. Close them with outcome
+        'restart' (never spoken -- the grid reforming is V3's call), clear the
+        pace model, the relate memory and the mention debt, and log one line."""
+        n = len(getattr(self.model, "restart_resets", []) or [])
+        if n <= self._restarts_seen:
+            return
+        self._restarts_seen = n
+        live = list(self.store.live.values())
+        for rec in live:
+            self.store.close(t, rec, "restart")
+        self.pace.reset()
+        self.relate.reset()
+        self._mention_t = {}
+        self.incoming = []
+        self._gap_last = {}
+        if self.lull_active:
+            self._lull_set(t, False, "restart")
+        self._lull_below_since = None
+        self.log("[stories] restart: %d live stor%s closed, race memory "
+                 "cleared" % (len(live), "y" if len(live) == 1 else "ies"))
+
     # ---- the tick -----------------------------------------------------------
     def observe(self, t):
+        self._now = t
         lap = self.lap_now()
         if lap and lap not in self._lap_t:
             self._lap_t[lap] = t
+        self._restart_check(t)
         self.pace.observe(t)
         for proc in self.processors:
             try:
@@ -9228,6 +9441,7 @@ class StoryEngine:
         self.relate.run(t)
         for rec in self.store.live.values():
             self.scorer.score(rec, t)
+        self._lull_check(t)
         self._last_tick_t = t
 
     def filter_claims(self, claims):
@@ -9297,26 +9511,41 @@ class StoryEngine:
             return
         h = a["human"]
         val = a["value"]
+        ctype = a.get("input") or "none"
+        if ctype == "none":
+            return                            # no consequence, no line
         other = val.get("other")
         places = val.get("places")
         gap = val.get("gap")
-        if not places and gap is None:
+        laps = val.get("laps")
+        if other is None and not places and gap is None:
             return                            # a relation with no number is no line
+        laps_word = None
+        if laps is not None:
+            laps_i = max(1, int(laps + 0.999))
+            laps_word = "one lap" if laps_i == 1 else "%s laps" % _num_word(laps_i)
         ctx = {"a": self.name(h), "b": self.name(other) if other is not None else None,
                "gap": _fmt_gap(gap), "places": _places_word(places) if places else None,
-               "relation": a.get("input")}
-        view = {"input": a.get("input"), "ahead": bool(places and places > 0),
-                "both": bool(a.get("both")), "why": why}
-        numbers = {"gap": gap, "places": abs(places) if places else None}
+               "laps": laps_word, "rate": _fmt_rate(val.get("rate")),
+               "pos": _ordinal(self.pos(h)) if self.pos(h) else None,
+               "relation": ctype}
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        view = {"ctype": ctype, "fight": laps is None and gap is not None,
+                "reaches": laps is not None, "what": val.get("what"),
+                "ahead": bool(places and places > 0), "why": why,
+                "story": rec.row_id}
+        numbers = {"gap": gap, "places": abs(places) if places else None,
+                   "laps": laps}
         numbers = {k: v for k, v in numbers.items() if v is not None}
-        self.store.beat(t, rec, "relate", why, {"ctx": ctx, "view": view})
-        rec.last_related = dict(val)
+        self.store.beat(t, rec, "relate", ctype, {"ctx": ctx, "view": view})
+        rec.last_related = dict(val, type=ctype)
         rec.last_related_t = t
         subjects = [h] + ([other] if other is not None else [])
         facts = {"story_id": rec.id, "story_type": rec.row_id,
                  "beat": "relate", "beat_kind": "relate", "phase": rec.phase,
                  "display": ctx, "view": dict(view, beat="relate"),
-                 "anchor_human": h, "energy": max(1, rec.energy - 1),
+                 "anchor_human": h, "consequence": ctype,
+                 "energy": max(1, rec.energy - 1),
                  "valence": rec.valence, "register": "fact", "cause": None}
         facts.update(numbers)
         pri = min(self.prio_cap, self.prio_floor + rec.score / self.prio_div)
@@ -9328,6 +9557,220 @@ class StoryEngine:
         self.claims_out.append(claim)
         self.relate_count += 1
         self.note_mention(h, t)
+
+    # ---- race lull and the lull programme (07 OCT) ------------------------
+    # A race lull is a condition of the race, not of the output: no live story
+    # above engine.lull.score_enter for engine.lull.enter_s, left when one
+    # climbs past score_exit. In a lull the Booth changes register -- the lull
+    # programme supplies revisits of quiet live stories, each human's race so
+    # far and the stats of record to V3's silence picker, weather last. The
+    # silence floor (v3.lull.max_silence_s) is the backstop under it.
+    def _lull_check(self, t):
+        cfg = self.scfg.e("lull", {}) or {}
+        if not cfg.get("enabled", True):
+            return
+        if self.model.state not in ("green", "final_lap", "safety_car", "vsc"):
+            if self.lull_active:
+                self._lull_set(t, False, "state:%s" % self.model.state)
+            self._lull_below_since = None
+            return
+        # only the action groups count: a live start-of-race or result record
+        # (Start/finish, Lead-01 'open') is structure, not action
+        groups = set(cfg.get("groups", ["Lead", "Battles", "Position",
+                                        "Incidents", "Strategy", "Pace"]))
+        top = max([r.score for r in self.store.live.values()
+                   if r.row.get("group") in groups] or [0.0])
+        if not self.lull_active:
+            if top < cfg.get("score_enter", 45.0):
+                if self._lull_below_since is None:
+                    self._lull_below_since = t
+                elif (t - self._lull_below_since) >= cfg.get("enter_s", 20.0):
+                    self._lull_set(t, True, "top_score=%.0f" % top)
+            else:
+                self._lull_below_since = None
+        elif top >= cfg.get("score_exit", 60.0):
+            self._lull_set(t, False, "top_score=%.0f" % top)
+            self._lull_below_since = None
+
+    def _lull_set(self, t, on, why):
+        self.lull_active = on
+        self.lull_since = t if on else None
+        self.lull_log.append({"t_unix": round(t, 6), "lap": self.lap_now(),
+                              "lull": on, "why": why})
+        self.store.events.append({"ts": round(t, 6), "lap": self.lap_now(),
+                                  "ev": "lull", "on": on, "why": why})
+        self.log("[stories] race lull %s (%s)" % ("ENTER" if on else "EXIT", why))
+
+    def build_lull(self, t, avoid=None, forced=False):
+        """The lull programme: one Claim for the silence picker, or None. The
+        rotation and cooldowns live in engine.lull. Revisits are allowed
+        outside a race lull (they are about live stories); the human's race
+        and the stats of record only inside one. Forced (the silence floor)
+        ignores cooldowns and takes the least recently used item."""
+        cfg = self.scfg.e("lull", {}) or {}
+        if not cfg.get("enabled", True):
+            return None
+        if self.model.state not in ("green", "final_lap", "safety_car", "vsc"):
+            return None
+        rotation = list(cfg.get("rotation", ["revisit", "human_race", "stats"]))
+        cool = cfg.get("cooldown_s", {}) or {}
+        order = rotation[self._lull_rot:] + rotation[:self._lull_rot]
+        if forced:
+            order = sorted(rotation, key=lambda k: self._lull_item_t.get(k, -1e9))
+        for item in order:
+            if item in ("human_race", "stats") and not self.lull_active:
+                continue
+            last = self._lull_item_t.get(item)
+            if not forced and last is not None and (t - last) < cool.get(item, 90.0):
+                continue
+            builder = getattr(self, "_lull_" + item, None)
+            claim = builder(t, cfg, forced) if builder else None
+            if claim is None:
+                continue
+            self._lull_item_t[item] = t
+            self._lull_rot = (rotation.index(item) + 1) % len(rotation)
+            claim.max_age_override = cfg.get("max_age_s", 12.0)
+            self.claims_out_lull += 1
+            return claim
+        return None
+
+    def _lull_claim(self, kind, subjects, t, display, view, numbers=None,
+                    speaker="ANALYST", story=None, energy=2, priority=12.0):
+        facts = {"story_id": story.id if story else None,
+                 "story_type": story.row_id if story else "LULL",
+                 "beat": view.get("beat", "lull"), "beat_kind": "revisit",
+                 "phase": story.phase if story else "lull",
+                 "display": dict(display), "view": dict(view),
+                 "anchor_human": None, "energy": energy, "valence": "neutral",
+                 "register": "fact", "cause": None}
+        facts.update(numbers or {})
+        claim = Claim(kind, CLASS_FILLER, subjects, [self.name(i) for i in subjects],
+                      t, facts=facts, priority=priority, speaker=speaker,
+                      max_age_key="story", demotable=True)
+        claim.story = story
+        return claim
+
+    def _lull_revisit(self, t, cfg, forced):
+        """The highest-scoring live story that has been quiet for
+        revisit_quiet_s, as a gap / trend / projection line. Battle-shaped
+        rows only (two participants, a gap in the record)."""
+        quiet = cfg.get("revisit_quiet_s", 30.0)
+        rows = set(cfg.get("revisit_rows", ["BAT-01", "LEAD-02", "BAT-03", "HUM-06"]))
+        best = None
+        for rec in self.store.live.values():
+            if rec.row_id not in rows or len(rec.participants) not in (1, 2):
+                continue
+            if rec.last_beat_t is not None and (t - rec.last_beat_t) < quiet:
+                continue
+            if rec.last_revisit_t is not None and (t - rec.last_revisit_t) < quiet:
+                continue
+            if best is None or rec.score > best.score:
+                best = rec
+        if best is None:
+            return None
+        if len(best.participants) == 1:
+            # a leader record (LEAD-01): the pair is the leader and P2
+            b = best.participants[0]
+            a = self.car_behind(b)
+            if a is None:
+                return None
+        else:
+            a, b = best.participants
+        if not (self.running(a) and self.running(b)):
+            return None
+        gap = self.gap_ahead(a) if self.pos(a) and self.pos(b) and self.pos(a) > self.pos(b) \
+            else self.road_gap(a, b)
+        if gap is None:
+            return None
+        rate = self.pace.rate_s_per_lap(a, b)
+        rem = self.laps_remaining()
+        trend = "closing" if (rate or 0) > 0.05 else ("opening" if (rate or 0) < -0.05 else "steady")
+        laps_to = None
+        if rate and rate > 0 and rem:
+            laps_to = int(gap / rate + 0.999)
+            if laps_to > rem:
+                laps_to = None
+        best.last_revisit_t = t
+        display = {"gap": _fmt_gap(gap), "pos": _ordinal(self.pos(b)),
+                   "rate": _fmt_rate(rate),
+                   "laps": _num_word(laps_to) if laps_to else None,
+                   "remaining": _num_word(rem) if rem else None}
+        display = {k: v for k, v in display.items() if v is not None}
+        view = {"beat": "lull_revisit", "trend": trend,
+                "reaches": bool(laps_to), "human": bool(best.humans)}
+        return self._lull_claim("S_LULL_REVISIT", [a, b], t, display, view,
+                                numbers={"gap": gap}, story=best)
+
+    def _lull_human(self, t, cfg, forced):
+        """One human's race so far: grid to now, the cars either side, laps
+        left. Rotates across the humans."""
+        hs = self.humans()
+        if not hs:
+            return None
+        hs = sorted(hs, key=lambda h: self._lull_human_t.get(h, -1e9))
+        h = hs[0]
+        c = self.w.cars[h]
+        p = self.pos(h)
+        if p is None:
+            return None
+        # the same human at the same position on the same lap is not news
+        key = (p, self.lap_now())
+        if self._lull_human_last.get(h) == key:
+            return None
+        self._lull_human_last[h] = key
+        self._lull_human_t[h] = t
+        grid = c.grid if c.grid and c.grid > 0 else None
+        delta = (grid - p) if grid else None
+        ahead, behind = self.car_ahead(h), self.car_behind(h)
+        ga = self.gap_ahead(h)
+        gb = self.gap_ahead(behind) if behind is not None else None
+        rem = self.laps_remaining()
+        subjects = [h] + ([ahead] if ahead is not None else []) + \
+            ([behind] if behind is not None else [])
+        display = {"pos": _ordinal(p), "grid": _ordinal(grid) if grid else None,
+                   "places": _places_word(delta) if delta else None,
+                   "gap": _fmt_gap(ga), "delta": _fmt_gap(gb),
+                   "remaining": _num_word(rem) if rem else None,
+                   "lap": _num_word(self.lap_now()) if self.lap_now() else None}
+        display = {k: v for k, v in display.items() if v is not None}
+        view = {"beat": "lull_human", "up": bool(delta and delta > 0),
+                "down": bool(delta and delta < 0), "has_ahead": ahead is not None,
+                "has_behind": behind is not None, "human": True}
+        return self._lull_claim("S_LULL_HUMAN", subjects, t, display, view,
+                                speaker="LEAD")
+
+    def _lull_stats(self, t, cfg, forced):
+        """Stats of record: laps led, the fastest lap, cars out. Rotates."""
+        items = []
+        lead = self.store.find("LEAD-01") or next(
+            (r for r in self.store.closed if r.row_id == "LEAD-01"), None)
+        li = self.model.leader_idx
+        if li is not None and lead is not None and lead.fields.get("laps_led"):
+            items.append(("laps_led", [li], {"n": _num_word(lead.fields["laps_led"])},
+                          {"beat": "lull_stats", "stat": "laps_led"}))
+        best = None
+        for c in self.w.cars:
+            if c.seen and c.last_lap_ms and c.last_lap_ms > 0:
+                if best is None or c.last_lap_ms < best.last_lap_ms:
+                    best = c
+        if best is not None and hasattr(self.model, "_fmt_laptime"):
+            items.append(("fastest", [best.idx],
+                          {"time": self.model._fmt_laptime(best.last_lap_ms)},
+                          {"beat": "lull_stats", "stat": "fastest"}))
+        out = len(self.model.retired_at)
+        if out:
+            items.append(("out", [], {"n": _num_word(out), "count": out},
+                          {"beat": "lull_stats", "stat": "out", "one": out == 1}))
+        # a stat is offered once per value: the same fastest lap or the same
+        # count is not news twice (V3's F10 rule for the fastest-lap lull)
+        items = [it for it in items if self._lull_stat_last.get(it[0]) != (tuple(it[1]), tuple(sorted(it[2].items())))]
+        if not items:
+            return None
+        items.sort(key=lambda it: self._lull_stat_t.get(it[0], -1e9))
+        key, subjects, display, view = items[0]
+        self._lull_stat_t[key] = t
+        self._lull_stat_last[key] = (tuple(subjects), tuple(sorted(display.items())))
+        return self._lull_claim("S_LULL_STATS", subjects, t, display, view)
 
     # ---- Gallery: story moments -------------------------------------------
     def focus_candidates(self, t):
@@ -9364,6 +9807,26 @@ class StoryEngine:
             # stays with the human-default layer (05 OCT live run: the lead
             # battle between two AI cars held the camera off the humans)
             if humans_only and not rec.humans:
+                # 07 OCT: an AI story that carries a consequence for a human
+                # (anchor type defend/attack) earns the camera version of
+                # 'relate it in the conversation': a short look at the story
+                # on its relate beat, then back to the anchored human.
+                a = rec.anchor or {}
+                if a.get("input") in ("defend", "attack") and rec.beats \
+                        and rec.beats[-1][1] == "relate":
+                    bt = rec.beats[-1][0]
+                    look = float(cam.get("anchor_look_s", 4.0))
+                    back = float(cam.get("anchor_return_s", 4.0))
+                    car = self._focus_car(rec)
+                    if car is not None and bt <= t < bt + look:
+                        out.append({"until": bt + look, "priority": cam.get("anchor_priority", 60),
+                                    "car": car, "reason": "story:%s:anchor_look" % rec.row_id,
+                                    "hold": look, "hold_max": look + 2.0})
+                    elif a.get("human") is not None and bt + look <= t < bt + look + back \
+                            and self.running(a["human"]):
+                        out.append({"until": bt + look + back, "priority": cam.get("anchor_priority", 60) + 2,
+                                    "car": a["human"], "reason": "story:%s:anchor_return" % rec.row_id,
+                                    "hold": back, "hold_max": back + 2.0})
                 continue
             tier = row.get("override", "Normal")
             if tier not in tier_prio or rec.score < floor:
@@ -9727,7 +10190,8 @@ class P_BAT_01(StoryProcessor):
                 rec.fields["drs_said"] = True
                 self.beat(t, rec, "threshold", "drs", ctx)
             if gap > fail_gap and eng.laps_since(rec.last_beat_t) >= self.p("fail_laps", 3):
-                self.beat(t, rec, "transition", "resolved", ctx, view={"outcome": "failed"})
+                if self._was_close(rec):
+                    self.beat(t, rec, "transition", "resolved", ctx, view={"outcome": "failed"})
                 self.close(t, rec, "failed")
                 continue
             if eng.laps_since(rec.last_beat_t) >= self.p("revisit_laps", 3):
@@ -9748,11 +10212,23 @@ class P_BAT_01(StoryProcessor):
                 outcome = "separated"
             else:
                 continue
+            # 07 OCT: a battle that dissolved without ever reaching attack
+            # range was never a fight on air ('gone cold' x11 on s02). It
+            # closes silently unless a human was in it.
+            if outcome == "separated" and not self._was_close(rec):
+                self.close(t, rec, outcome)
+                continue
             self.beat(t, rec, "transition", "resolved",
                       ctx={"a": eng.name(behind), "b": eng.name(ahead),
                            "pos": _ordinal(pb)},
                       view={"outcome": outcome}, must=(outcome == "passed" and bool(rec.humans)))
             self.close(t, rec, outcome)
+
+    def _was_close(self, rec):
+        if rec.humans and self.p("speak_separated_human", True):
+            return True
+        return any(name in ("attack_range", "big_catch", "drs")
+                   for (_t, _k, name) in rec.beats)
 
     def _proj(self, gap, rate, rem):
         if rate is None or rate <= 0 or gap is None or not rem:
@@ -9929,7 +10405,7 @@ class P_POS_03(StoryProcessor):
                                             "pos_at_open": _pos_map(eng, [c.idx])},
                                     cause=cause, phase="collapsing")
                     self.beat(t, rec, "transition", "open",
-                              ctx={"a": eng.name(c.idx), "places": _num_word(lost),
+                              ctx={"a": eng.name(c.idx), "places": _places_word(lost),
                                    "cause": cause["text"]},
                               view={"cause_known": cause.get("known", False)},
                               numbers={"places": lost}, must=eng.is_human(c.idx))
@@ -9939,12 +10415,12 @@ class P_POS_03(StoryProcessor):
                 if lost >= big and not rec.fields.get("big_said"):
                     rec.fields["big_said"] = True
                     self.beat(t, rec, "threshold", "magnitude",
-                              ctx={"a": eng.name(c.idx), "places": _num_word(lost)},
+                              ctx={"a": eng.name(c.idx), "places": _places_word(lost)},
                               numbers={"places": lost})
             elif eng.laps_since(rec.last_beat_t) >= self.p("arrest_laps", 1):
                 rec.phase = "arrested"
                 self.beat(t, rec, "transition", "arrested",
-                          ctx={"a": eng.name(c.idx), "places": _num_word(rec.fields["places"]),
+                          ctx={"a": eng.name(c.idx), "places": _places_word(rec.fields["places"]),
                                "pos": _ordinal(c.position)},
                           numbers={"places": rec.fields["places"]})
                 self.close(t, rec, "arrested")
@@ -10043,6 +10519,7 @@ class P_PACE_01(StoryProcessor):
         StoryProcessor.__init__(self, engine)
         self.best = None        # (ms, idx)
         self._seen = {}
+        self._last_fire_lap = None
 
     def observe(self, t):
         eng = self.eng
@@ -10063,6 +10540,16 @@ class P_PACE_01(StoryProcessor):
                 if prev is None and not self.p("announce_first", False):
                     continue
                 human = eng.is_human(c.idx)
+                # 07 OCT caps: one fastest-lap call per lap, and none on the
+                # final lap (fuel-light laps fall one after another) unless a
+                # human set it. The record still updates silently.
+                lap_now = eng.lap_now()
+                if not human:
+                    if self._last_fire_lap == lap_now and self.p("one_per_lap", True):
+                        continue
+                    if eng.model.state == "final_lap" and not self.p("speak_on_final_lap", False):
+                        continue
+                self._last_fire_lap = lap_now
                 beat_ai = prev is not None and human and not eng.is_human(prev[1])
                 rec = self.open(t, [c.idx], fields={"ms": ms,
                                                     "pos_at_open": _pos_map(eng, [c.idx])},
@@ -10085,11 +10572,18 @@ class P_STR_01(StoryProcessor):
 
     def observe(self, t):
         eng = self.eng
+        m = eng.model
         for c in eng.w.cars:
             if not c.seen or c.position <= 0:
                 continue
             rec = eng.store.find(self.ID, [c.idx])
+            # 07 OCT: a car that has finished, or any car once the leader has
+            # taken the flag, is driving into parc ferme, not making a stop
+            # ('Valor is in the pits, the first stop' on the last lap of s02).
+            finished = (c.idx in m.finish_t) or (m.leader_finish_t is not None)
             if rec is None:
+                if finished:
+                    continue
                 if c.pit_status and not c.prev_pit_status and eng.model.state in (
                         "green", "final_lap", "safety_car", "vsc"):
                     rec = self.open(t, [c.idx],
@@ -10137,7 +10631,7 @@ class P_STR_01(StoryProcessor):
                               ctx={"a": eng.name(c.idx), "pos": _ordinal(pos_out),
                                    "b": eng.name(into) if into is not None else (
                                        eng.name(ahead) if ahead is not None else None),
-                                   "gap": _fmt_gap(g), "places": _num_word(lost) if lost else None},
+                                   "gap": _fmt_gap(g), "places": _places_word(lost) if lost else None},
                               view={"into_human": into is not None,
                                     "human": eng.is_human(c.idx), "action": action,
                                     "lost": lost > 0},
@@ -10207,7 +10701,7 @@ class P_INC_01(StoryProcessor):
                 if lost:
                     i, n = max(lost, key=lambda x: x[1])
                     self.beat(t, rec, "transition", "consequence",
-                              ctx={"a": eng.name(i), "places": _num_word(n),
+                              ctx={"a": eng.name(i), "places": _places_word(n),
                                    "pos": _ordinal(eng.pos(i))},
                               numbers={"places": n})
                 self.close(t, rec, "consequence" if lost else "no_consequence")
@@ -10261,7 +10755,7 @@ class P_INC_02(StoryProcessor):
                     lost = (c.position - before) if before else 0
                     rec.fields["places"] = max(0, lost)
                     self.beat(t, rec, "transition", "rejoined",
-                              ctx={"a": eng.name(c.idx), "places": _num_word(max(0, lost)),
+                              ctx={"a": eng.name(c.idx), "places": _places_word(max(0, lost)),
                                    "pos": _ordinal(c.position)},
                               view={"lost": lost > 0},
                               numbers={"places": max(0, lost)})
@@ -10587,12 +11081,12 @@ class P_SF_03(StoryProcessor):
                     worst = (h, d)
             if best and best[1] >= self.p("good_start_places", 2):
                 self.beat(t, rec, "threshold", "good_start",
-                          ctx={"a": eng.name(best[0]), "places": _num_word(best[1]),
+                          ctx={"a": eng.name(best[0]), "places": _places_word(best[1]),
                                "pos": _ordinal(eng.pos(best[0]))},
                           numbers={"places": best[1]}, must=True, subjects=[best[0]])
             if worst and worst[1] <= -self.p("bad_start_places", 2):
                 self.beat(t, rec, "threshold", "bad_start",
-                          ctx={"a": eng.name(worst[0]), "places": _num_word(-worst[1]),
+                          ctx={"a": eng.name(worst[0]), "places": _places_word(-worst[1]),
                                "pos": _ordinal(eng.pos(worst[0]))},
                           numbers={"places": -worst[1]}, must=True, subjects=[worst[0]])
             self.close(t, rec, "launched")
@@ -10631,7 +11125,7 @@ class P_SF_04(StoryProcessor):
                 if eng.model.is_retired(h):
                     continue
                 self.beat(t, rec, "threshold", "net",
-                          ctx={"a": eng.name(h), "places": _num_word(abs(d)),
+                          ctx={"a": eng.name(h), "places": _places_word(abs(d)),
                                "pos": _ordinal(p)},
                           view={"up": d > 0}, numbers={"places": abs(d)},
                           subjects=[h])
@@ -10690,11 +11184,15 @@ class P_SF_06(StoryProcessor):
                             fields={"battles": len(live_h)}, phase="final_lap")
             if live_h:
                 b = live_h[0]
+                # subjects follow the battle's order so the Booth's name
+                # refetch (H2) keeps a = chaser, b = car ahead (07 OCT: the
+                # human-only subject list once read 'Valor behind Valor')
                 self.beat(t, rec, "transition", "final_lap",
                           ctx={"a": eng.name(b.participants[0]),
                                "b": eng.name(b.participants[1]),
                                "gap": _fmt_gap(b.fields.get("gap"))},
-                          view={"battle": True}, must=True)
+                          view={"battle": True}, must=True,
+                          subjects=list(b.participants[:2]))
             else:
                 self.beat(t, rec, "transition", "final_lap", ctx={},
                           view={"battle": False}, must=True)
@@ -10881,6 +11379,15 @@ class P_HUM_06(StoryProcessor):
             else:
                 h, other = p1, p0
                 lost = (r.outcome in ("earned", "gifted"))
+            # 07 OCT: when a BAT-01 record on the same pair closed 'passed'
+            # inside defer_s, the battle row already spoke the pass from the
+            # chaser's side; a second line from the human's side is a double.
+            defer = self.p("defer_to_battle_s", 20.0)
+            if any(b.row_id == "BAT-01" and b.outcome == "passed"
+                   and set(b.participants) == {h, other}
+                   and b.closed_t is not None and (t - b.closed_t) <= defer
+                   for b in eng.store.closed[-30:]):
+                continue
             if lost:
                 rec = self.open(t, [h, other], fields={"pos": eng.pos(h),
                                                        "pos_at_open": _pos_map(eng, [h])},
@@ -11025,7 +11532,7 @@ class BabyHooverV3:
         self.ignore_events = ([s.strip() for s in args.ignore_events.split(",")]
                               if args.ignore_events else [])
         here = os.path.dirname(os.path.abspath(__file__))
-        cfg_path = args.config or os.path.join(here, V3_CONFIG_NAME)
+        cfg_path = args.config or default_config_path(here)
         self.config = Config(cfg_path)
         self.roster = Roster(args.roster)
         self.world = World()
@@ -11301,11 +11808,16 @@ class BabyHooverV3:
         claims = self.model.claims_out
         self.model.claims_out = []
         stories = getattr(self, "stories", None)
-        if stories is not None and getattr(self, "session_opened", True):
+        if stories is not None:
+            # superseded V3 kinds are withheld from the first packet (07 OCT:
+            # a LEAD_CONTEST aired before the session guard opened); the
+            # engine itself observes only once the session is open
             claims = stories.filter_claims(claims)
+        if stories is not None and getattr(self, "session_opened", True):
             stories.observe(t)
             claims.extend(stories.claims_out)
             stories.claims_out = []
+        if stories is not None:
             for c in claims:
                 if c.outcome == "withheld":
                     self.booth.claim_records.append(c.record())
@@ -11391,6 +11903,7 @@ class BabyHooverV3:
                         "source": m.anchor_source}
                        if m.anchor_t is not None else None),
             "restarts": m.restarts,
+            "restart_resets": list(getattr(m, "restart_resets", [])),
             "leader_finish": ({"t_unix": round(m.leader_finish_t, 6),
                                "car_idx": m.road_winner}
                               if m.leader_finish_t is not None else None),
@@ -11868,8 +12381,7 @@ def main():
     if args.pick_devices:
         return pick_devices(UserSettings(args.settings), _sounddevice)
     if args.audio_check:
-        cfg_path = args.config or os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), V3_CONFIG_NAME)
+        cfg_path = args.config or default_config_path()
         print(build_label())
         print("Audio check: you should hear a short beep on your speakers.")
         print("")
