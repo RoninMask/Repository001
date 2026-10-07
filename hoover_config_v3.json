@@ -411,8 +411,8 @@
       "subject_share_window_s": 180.0
     },
     "lull": {
-      "after_s": 20.0,
-      "max_per_minute": 1,
+      "after_s": 3.0,
+      "max_per_minute": 6,
       "kind_cooldown_s": {
         "LULL_DISTANCE": 180,
         "LULL_FASTEST": 120,
@@ -421,7 +421,7 @@
         "LULL_WEATHER": 300,
         "LULL_PROGRESS": 90
       },
-      "max_silence_s": 50.0,
+      "max_silence_s": 5.0,
       "window_reserve_s": 4.0
     },
     "camera": {
