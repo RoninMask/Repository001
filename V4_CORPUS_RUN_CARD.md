@@ -15,9 +15,11 @@ Nothing here touches the live socket or the game. Total time about 20 minutes, m
 
 ## Before you start
 
-- Pull the branch: `git fetch`, `git checkout claude/baby-hoover-v4-stories`, `git pull`. Head should be `36d145e`.
+- Pull the branch: `git fetch`, `git checkout claude/baby-hoover-v4-stories`, `git pull`. Head should be `36d145e` or later (V4.1, 06 OCT, adds the audio path; `python T11_F125_Baby_Hoover_V4_05OCT26.py --version` prints the commit you are on).
 - The corpus is at `C:\Hoover\corpus` on the Oklahoma machine (Mike: your `D:\...` path). The V3 expected artefacts are `tests/expected/`.
 - If your machine carries local device edits in `hoover_config_v3.json` (Mike's resolver patch), stash them first: `git stash`, run, `git stash pop`.
+- From V4.1 there is no reason to edit `hoover_config_v3.json` for devices: run `--pick-devices` once and they live in your own settings file outside the repo.
+- The cloud tests need the fixture corpus built once (it is git-ignored): `python tests/make_fixture_corpus.py`. Without it three V4 tests fail with "run tests/make_fixture_corpus.py first".
 
 ## Step 1 — the identity gate (about 5 min)
 

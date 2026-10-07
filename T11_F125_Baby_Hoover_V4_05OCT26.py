@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "4.0.0"
+SCRIPT_VERSION = "4.1.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -6648,7 +6648,8 @@ class SpeechChannel:
     simply does not air, recorded with its reason (Part failure-handling)."""
 
     def __init__(self, config, args, live=False, log=None,
-                 transport=None, player=None, device_lister=None, now=None):
+                 transport=None, player=None, device_lister=None, now=None,
+                 settings=None):
         rc = config.get("v3", "speech", "realtime", default={}) or {}
         self.cfg = config
         self.rc = rc
@@ -6677,8 +6678,38 @@ class SpeechChannel:
         # the cable (the authoritative track). device_audible is the operator's
         # real monitor: the call is ALSO played there, in parallel, so they hear
         # it live -- best-effort, and never allowed to disturb the cable feed.
-        self.device = getattr(args, "speech_device", None) or rc.get("device_cable")
-        self.device_audible = rc.get("device_audible")
+        #
+        # V4.1 (stage 1, audio path): the per-machine choice lives in the
+        # operator's own settings file (UserSettings, written by
+        # --pick-devices), not in the tracked config. Precedence for the cable:
+        # --speech-device, then the settings file, then the config pin. For the
+        # monitor: the settings file (where None means "no monitor" on purpose),
+        # then the config pin. settings=None (every pre-V4.1 caller) leaves the
+        # behaviour exactly as it was.
+        cable_s = _settings_device(settings, "device_cable")
+        audible_s = _settings_device(settings, "device_audible")
+        cli_dev = getattr(args, "speech_device", None)
+        if cli_dev:
+            self.device, self.device_source = cli_dev, "command line"
+            self._prefer_api = None
+        elif cable_s is not None and cable_s.get("name"):
+            self.device, self.device_source = cable_s["name"], "your settings file"
+            self._prefer_api = cable_s.get("hostapi")
+        else:
+            self.device = rc.get("device_cable")
+            self.device_source = "config" if self.device else "none"
+            self._prefer_api = None
+        if audible_s is not None:
+            self.device_audible = audible_s.get("name") or None
+            self._prefer_api_audible = audible_s.get("hostapi")
+        else:
+            self.device_audible = rc.get("device_audible")
+            self._prefer_api_audible = None
+        # honest monitor: configured is not the same as heard. Frames actually
+        # written to the monitor stream are counted; monitor_active in stats()
+        # is true only when some were.
+        self._monitor_frames = 0
+        self._monitor_error = None
         # the monitor is a second playback target only when it is a DISTINCT
         # device (no point playing the same stream twice).
         self._audible = (self.device_audible
@@ -6709,8 +6740,9 @@ class SpeechChannel:
         if (not self.dry_run and self._player is None
                 and self._playback_targets()):
             self._validate_devices()
-            self.device = self._resolve_device(self.device)
-            self._audible = self._resolve_device(self._audible)
+            self.device = self._resolve_device(self.device, self._prefer_api)
+            self._audible = self._resolve_device(self._audible,
+                                                 self._prefer_api_audible)
 
     # -- V4: device resolution (upstreams the 30 SEP / 03 OCT local patches) --
     @staticmethod
@@ -6727,7 +6759,7 @@ class SpeechChannel:
             return True
         return len(have) >= 31 and len(want) > len(have) and want.startswith(have)
 
-    def _resolve_device(self, target):
+    def _resolve_device(self, target, prefer_api=None):
         """A device NAME to a PortAudio INDEX. Windows enumerates every device
         once per host API (MME, DirectSound, WASAPI, WDM-KS) under the same
         name, and MME truncates names to 31 characters, so an exact-name match
@@ -6739,31 +6771,12 @@ class SpeechChannel:
         validation then reports it)."""
         if target is None or isinstance(target, int) or _sounddevice is None:
             return target
-        try:
-            devs = _sounddevice.query_devices()
-            apis = _sounddevice.query_hostapis()
-        except Exception:
+        hit = resolve_output_device(_sounddevice, target, prefer_api)
+        if hit is None:
             return target
-        want = self._norm(target)
-        cands = []
-        for i, d in enumerate(devs):
-            if d.get("max_output_channels", 0) <= 0:
-                continue
-            have = self._norm(d.get("name", ""))
-            if not self._name_matches(have, want):
-                continue
-            api = ""
-            try:
-                api = apis[d["hostapi"]]["name"].lower()
-            except Exception:
-                pass
-            rank = 0 if "directsound" in api else 1 if "wasapi" in api else 2
-            cands.append((rank, i, d.get("name"), api))
-        if not cands:
-            return target
-        cands.sort()
-        rank, idx, name, api = cands[0]
-        self.log("[speech] device %r -> index %d (%s via %s)" % (target, idx, name, api))
+        idx, name, api = hit
+        self.log("[speech] device %r -> index %d (%s via %s)"
+                 % (target, idx, name, api.lower()))
         return idx
 
     # -- start-up device check ----------------------------------------------
@@ -6969,6 +6982,8 @@ class SpeechChannel:
             # test stub: record every routed device (cable, then monitor).
             for dev in self._playback_targets():
                 self._player(pcm, self.sample_rate, dev)
+            if self._audible is not None:
+                self._monitor_frames += len(pcm) // 2
             return
         import numpy as np
         a = np.frombuffer(pcm, dtype=np.int16)
@@ -6996,8 +7011,10 @@ class SpeechChannel:
                     stream.start()
                     self._audible_stream = stream
                 stream.write(samples)
+                self._monitor_frames += len(samples)
         except Exception as e:
             # drop the monitor for the rest of the run; the cable is untouched.
+            self._monitor_error = type(e).__name__
             self.log("[speech] operator monitor %r disabled after error: %s"
                      % (self._audible, type(e).__name__))
             self._drop_audible()
@@ -7021,6 +7038,35 @@ class SpeechChannel:
             self.log("[speech] DEGRADED: %d synthesis failures; continuing to "
                      "write the script without audio" % self._fail_count)
 
+    # -- V4.1: start-up sound check (silent) -------------------------------
+    def probe(self, sd=None, seconds=0.1):
+        """Open each playback target at the speech sample rate and write a
+        short block of silence, before the session opens. This is the failure
+        the 05 OCT run hit on every line (a ValueError at playback), moved to
+        start-up where the operator can still fix it. Silent on purpose: OBS
+        is usually recording by now. Returns {"cable": (ok, detail),
+        "monitor": (ok, detail) or None}. A cable failure is the caller's to
+        stop on; a monitor failure switches the monitor off here and is
+        logged, as during a race."""
+        sd = sd if sd is not None else _sounddevice
+        out = {"cable": None, "monitor": None}
+        if sd is None or self.dry_run or self._player is not None:
+            return out
+        frames = int(self.sample_rate * seconds)
+        silence = _silence_block(frames)
+        for role, dev in (("cable", self.device), ("monitor", self._audible)):
+            if dev is None:
+                continue
+            ok, detail = _write_block(sd, dev, self.sample_rate, silence)
+            out[role] = (ok, detail)
+            if role == "monitor" and not ok:
+                self._monitor_error = detail
+                self.log("[speech] operator monitor %r failed the start-up "
+                         "check (%s); monitor off, cable unaffected"
+                         % (dev, detail))
+                self._audible = None
+        return out
+
     def stats(self):
         def dist(xs):
             xs = sorted(x for x in xs if x is not None)
@@ -7036,7 +7082,13 @@ class SpeechChannel:
             "device_audible": self.device_audible,  # operator monitor (live too)
             "device_cable_index": self.device if isinstance(self.device, int) else None,
             "device_audible_index": self._audible if isinstance(self._audible, int) else None,
-            "monitor_active": self._audible is not None,  # played to both?
+            # V4.1: honest. True only if frames actually reached the monitor.
+            "monitor_active": (self._audible is not None
+                               and self._monitor_frames > 0),
+            "monitor_configured": self.device_audible_name is not None,
+            "monitor_frames": self._monitor_frames,
+            "monitor_error": self._monitor_error,
+            "device_source": self.device_source,
             "chars_used": self.chars_used,
             "character_budget": self.char_budget,
             "spoken": self.counter.get("spoken", 0),
@@ -7056,6 +7108,597 @@ class SpeechChannel:
                 _sounddevice.stop()
             except Exception:
                 pass
+
+
+# =============================================================================
+# SECTION 18b -- THE AUDIO PATH AS A PRODUCT (V4.1, dashboard stage 1)
+# =============================================================================
+# The 05 OCT live run wrote 109 lines and spoke none: the device was addressed
+# by a name that Windows lists once per host API, and the failure only showed
+# as a ValueError on every line, mid-race. The resolver fix landed in c423b8b.
+# This section makes the rest of the path something an operator can set up and
+# prove without editing JSON:
+#   * a per-user settings file outside the repo (devices live there, not in
+#     the tracked config, so a git pull never changes your audio routing);
+#   * --pick-devices: a numbered list, DirectSound marked, saved by exact name
+#     and host API;
+#   * --audio-check: cable, monitor and ElevenLabs, each green/yellow/red with
+#     the evidence and what to do, plus a test tone and "did you hear it?";
+#   * a silent start-up probe of both devices on every speech run;
+#   * an honest monitor flag (frames actually written, not "configured");
+#   * build_info(): the version label written in the code, plus git and the
+#     data files, for --version now and the dashboard's "This Hoover" later.
+# Everything here runs only on request or with --speech on, so --speech none
+# stays byte-identical to V4.0.
+
+BUILD_PRODUCT = "Baby Hoover"
+BUILD_VERSION = "V4.1"
+BUILD_DATE = "06OCT26"
+SETTINGS_ENV = "HOOVER_SETTINGS"
+SETTINGS_FILE_VERSION = 1
+
+
+def user_settings_path(override=None):
+    """Where this machine's own Hoover settings live: --settings, else
+    $HOOVER_SETTINGS, else %APPDATA%\\Hoover\\settings.json on Windows and
+    ~/.config/hoover/settings.json elsewhere. Never inside the repo."""
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    env = os.environ.get(SETTINGS_ENV)
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    if IS_WINDOWS:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "Hoover", "settings.json")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "hoover", "settings.json")
+
+
+class UserSettings:
+    """One small JSON file per machine and user. Missing is fine (empty);
+    unreadable stops the run with the path, because silently ignoring a broken
+    settings file is how a run ends up on the wrong device."""
+
+    def __init__(self, path=None):
+        self.path = user_settings_path(path)
+        self.data = {}
+        self.exists = os.path.isfile(self.path)
+        if self.exists:
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("top level is not an object")
+                self.data = data
+            except Exception as e:
+                raise SystemExit(
+                    "STOP: your Hoover settings file could not be read:\n  %s\n"
+                    "  (%s: %s)\nFix it, or delete it and run Pick devices "
+                    "(--pick-devices) to make a new one."
+                    % (self.path, type(e).__name__, e))
+
+    def get(self, *keys, default=None):
+        node = self.data
+        for k in keys:
+            if not isinstance(node, dict) or k not in node:
+                return default
+            node = node[k]
+        return node
+
+    def set_device(self, role, name, hostapi=None):
+        sp = self.data.setdefault("speech", {})
+        sp[role] = {"name": name, "hostapi": hostapi if name else None}
+
+    def save(self):
+        self.data["settings_version"] = SETTINGS_FILE_VERSION
+        self.data["updated"] = datetime.now().isoformat(timespec="seconds")
+        folder = os.path.dirname(self.path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, self.path)
+        self.exists = True
+
+
+def _settings_device(settings, role):
+    """The settings file's entry for 'device_cable' / 'device_audible':
+    None when the file says nothing (fall through to the config), else a dict
+    whose name may be None (the operator chose 'no monitor')."""
+    if settings is None:
+        return None
+    if isinstance(settings, UserSettings):
+        sp = settings.get("speech", default={}) or {}
+    else:
+        sp = (settings or {}).get("speech", {}) or {}
+    if role not in sp:
+        return None
+    v = sp[role]
+    if v is None:
+        return {"name": None, "hostapi": None}
+    if isinstance(v, str):
+        return {"name": v, "hostapi": None}
+    if isinstance(v, dict):
+        return {"name": v.get("name"), "hostapi": v.get("hostapi")}
+    return None
+
+
+def audio_devices(sd):
+    """Every OUTPUT device as PortAudio lists it: one entry per host API, so a
+    single physical device usually appears three or four times."""
+    devs = sd.query_devices()
+    try:
+        apis = sd.query_hostapis()
+    except Exception:
+        apis = []
+    out = []
+    for i, d in enumerate(devs):
+        if d.get("max_output_channels", 0) <= 0:
+            continue
+        api = ""
+        try:
+            api = apis[d["hostapi"]]["name"]
+        except Exception:
+            pass
+        out.append({"index": i, "name": d.get("name", ""), "hostapi": api,
+                    "channels": d.get("max_output_channels", 0),
+                    "default_samplerate": d.get("default_samplerate")})
+    return out
+
+
+def resolve_output_device(sd, target, prefer_api=None):
+    """Name -> (index, enumerated name, host API name), or None. Exact name, or
+    MME's 31-character truncation of the configured full name (the
+    SpeechChannel rule). Among matches: the host API the operator picked, then
+    DirectSound, then WASAPI, then anything else."""
+    if target is None:
+        return None
+    try:
+        devs = audio_devices(sd)
+    except Exception:
+        return None
+    want = SpeechChannel._norm(target)
+    cands = []
+    for d in devs:
+        have = SpeechChannel._norm(d["name"])
+        if not SpeechChannel._name_matches(have, want):
+            continue
+        api = d["hostapi"] or ""
+        low = api.lower()
+        if prefer_api and api == prefer_api:
+            rank = -1
+        elif "directsound" in low:
+            rank = 0
+        elif "wasapi" in low:
+            rank = 1
+        else:
+            rank = 2
+        cands.append((rank, d["index"], d["name"], api))
+    if not cands:
+        return None
+    cands.sort()
+    _, idx, name, api = cands[0]
+    return idx, name, api
+
+
+def _silence_block(frames):
+    return b"\x00\x00" * max(0, int(frames))
+
+
+def make_tone(sample_rate=24000, seconds=0.6, freq=880.0, dbfs=-18.0):
+    """A short sine beep as 16-bit mono PCM bytes, faded in and out so it does
+    not click. Built with the standard library (no numpy needed)."""
+    import array
+    n = int(sample_rate * seconds)
+    amp = 32767.0 * (10.0 ** (dbfs / 20.0))
+    fade = max(1, int(sample_rate * 0.01))
+    a = array.array("h")
+    for i in range(n):
+        g = min(1.0, i / fade, (n - 1 - i) / fade)
+        a.append(int(amp * g * math.sin(2.0 * math.pi * freq * i / sample_rate)))
+    if sys.byteorder != "little":
+        a.byteswap()
+    return a.tobytes()
+
+
+def _write_block(sd, device, sample_rate, pcm):
+    """Open `device` for 16-bit mono at `sample_rate`, write `pcm`, close.
+    (ok, detail): detail names the frames written, or the exception."""
+    try:
+        stream = sd.RawOutputStream(samplerate=sample_rate, channels=1,
+                                    dtype="int16", device=device)
+    except Exception as e:
+        return False, "could not open: %s: %s" % (type(e).__name__, e)
+    try:
+        stream.start()
+        stream.write(pcm)
+        stream.stop()
+    except Exception as e:
+        try:
+            stream.close()
+        except Exception:
+            pass
+        return False, "opened, but writing failed: %s: %s" % (type(e).__name__, e)
+    try:
+        stream.close()
+    except Exception:
+        pass
+    return True, "%d frames written" % (len(pcm) // 2)
+
+
+# --- --pick-devices -----------------------------------------------------------
+def pick_devices(settings, sd, inp=input, out=print):
+    """Numbered device picker. Saves the exact enumerated name and the host API
+    to the operator's own settings file. Returns an exit code."""
+    if sd is None:
+        out("No audio backend: sounddevice / PortAudio is not installed.\n"
+            "Install with: pip install sounddevice soundfile numpy")
+        return 2
+    try:
+        devs = audio_devices(sd)
+    except Exception as e:
+        out("Could not list audio devices: %s: %s" % (type(e).__name__, e))
+        return 2
+    if not devs:
+        out("No output devices found.")
+        return 2
+    cur_c = _settings_device(settings, "device_cable") or {}
+    cur_m = _settings_device(settings, "device_audible")
+    out("")
+    out("Audio output devices on this machine")
+    out("(each device is listed once per Windows audio system; pick a "
+        "DirectSound entry)")
+    out("")
+    w = max(len(d["name"]) for d in devs)
+    for n, d in enumerate(devs, 1):
+        tag = "  <- recommended" if "directsound" in d["hostapi"].lower() else ""
+        out("  %2d)  %-*s  %s%s" % (n, w, d["name"], d["hostapi"], tag))
+    out("")
+    out("Current cable:   %s" % (_fmt_choice(cur_c) or "not set"))
+    out("Current monitor: %s" % (_fmt_choice(cur_m) if cur_m is not None
+                                 else "not set"))
+    out("")
+
+    def ask(prompt, allow_none):
+        while True:
+            try:
+                raw = inp(prompt).strip()
+            except EOFError:
+                return "quit"
+            if raw.lower() in ("q", "quit"):
+                return "quit"
+            if raw == "":
+                return "keep"
+            if allow_none and raw == "0":
+                return "none"
+            if raw.isdigit() and 1 <= int(raw) <= len(devs):
+                return devs[int(raw) - 1]
+            out("  Type a number from the list%s, Enter to keep, or q to quit."
+                % (", 0 for none" if allow_none else ""))
+
+    cable = ask("Cable device, the one OBS records (number): ", False)
+    if cable == "quit":
+        out("Nothing saved.")
+        return 1
+    monitor = ask("Your speakers or headphones, to hear it live "
+                  "(number, 0 for none): ", True)
+    if monitor == "quit":
+        out("Nothing saved.")
+        return 1
+    if isinstance(cable, dict):
+        settings.set_device("device_cable", cable["name"], cable["hostapi"])
+    if monitor == "none":
+        settings.set_device("device_audible", None)
+    elif isinstance(monitor, dict):
+        cname = (cable["name"] if isinstance(cable, dict)
+                 else (cur_c or {}).get("name"))
+        if monitor["name"] == cname:
+            out("  The monitor is the same device as the cable; "
+                "saving no monitor instead.")
+            settings.set_device("device_audible", None)
+        else:
+            settings.set_device("device_audible", monitor["name"],
+                                monitor["hostapi"])
+    settings.save()
+    out("")
+    out("Saved to %s" % settings.path)
+    out("  cable:   %s" % (_fmt_choice(_settings_device(settings, "device_cable"))
+                           or "not set"))
+    m = _settings_device(settings, "device_audible")
+    out("  monitor: %s" % (_fmt_choice(m) if m is not None else "not set"))
+    out("Next: run the audio check (--audio-check) to hear it.")
+    return 0
+
+
+def _fmt_choice(c):
+    if not c:
+        return ""
+    if c.get("name") is None:
+        return "none"
+    return "%s (%s)" % (c["name"], c.get("hostapi") or "any audio system")
+
+
+# --- --audio-check --------------------------------------------------------------
+GREEN, YELLOW, RED = "green", "yellow", "red"
+
+
+def _check(name, state, evidence, suggestion=""):
+    return {"check": name, "state": state, "evidence": evidence,
+            "suggestion": suggestion if state != GREEN else ""}
+
+
+def _http_status_of(exc):
+    m = re.search(r"status (\d{3})", str(exc))
+    return int(m.group(1)) if m else None
+
+
+def audio_check(config, settings, args, sd, transport=None, inp=None,
+                out=print, tone_seconds=0.6):
+    """Dashboard pre-flight checks 2, 3 and 4 in the console: the cable device,
+    the monitor device (with a test tone and, when someone is at the keyboard,
+    "did you hear it?"), and the ElevenLabs key (a one-character synthesis).
+    Returns (rows, exit_code); exit_code is 1 if anything is red."""
+    rc = config.get("v3", "speech", "realtime", default={}) or {}
+    rate = rc.get("sample_rate_hz", 24000)
+    rows = []
+
+    # 0. the audio packages
+    if sd is None:
+        rows.append(_check(
+            "Audio packages", RED, "sounddevice / PortAudio not installed",
+            "Install with: pip install sounddevice soundfile numpy"))
+    else:
+        rows.append(_check("Audio packages", GREEN,
+                           "sounddevice and PortAudio loaded"))
+
+    # which devices, and where the choice came from
+    cli_dev = getattr(args, "speech_device", None)
+    cs = _settings_device(settings, "device_cable")
+    ms = _settings_device(settings, "device_audible")
+    if cli_dev:
+        cable, c_api, c_src = cli_dev, None, "command line"
+    elif cs and cs.get("name"):
+        cable, c_api, c_src = cs["name"], cs.get("hostapi"), "your settings file"
+    else:
+        cable, c_api, c_src = rc.get("device_cable"), None, "config"
+    if ms is not None:
+        monitor, m_api, m_src = ms.get("name"), ms.get("hostapi"), "your settings file"
+    else:
+        monitor, m_api, m_src = rc.get("device_audible"), None, "config"
+
+    beep = make_tone(rate, tone_seconds)
+
+    # 2. cable
+    if sd is None:
+        rows.append(_check("Cable output device", RED, "not checked",
+                           "Install the audio packages first."))
+    elif not cable:
+        rows.append(_check("Cable output device", RED, "no cable device set",
+                           "Run Pick devices (--pick-devices)."))
+    else:
+        hit = resolve_output_device(sd, cable, c_api)
+        if hit is None:
+            rows.append(_check(
+                "Cable output device", RED,
+                "%r (from %s) not found on this machine" % (cable, c_src),
+                "Run Pick devices. If VB-Cable is not in the list, install "
+                "VB-CABLE and reboot."))
+        else:
+            idx, name, api = hit
+            ok, detail = _write_block(sd, idx, rate, beep)
+            ev = "%s -> index %d via %s (from %s); test tone %s" % (
+                cable, idx, api or "unknown audio system", c_src, detail)
+            if not ok:
+                rows.append(_check(
+                    "Cable output device", RED, ev,
+                    "The device was found but would not play at %d Hz. Pick "
+                    "its DirectSound entry in Pick devices." % rate))
+            elif "directsound" in (api or "").lower():
+                rows.append(_check("Cable output device", GREEN, ev))
+            else:
+                rows.append(_check(
+                    "Cable output device", YELLOW, ev,
+                    "Works, but not through DirectSound (sample-rate risk). "
+                    "Pick the DirectSound entry in Pick devices."))
+
+    # 3. monitor
+    heard_q = None
+    if sd is None:
+        rows.append(_check("Monitor (your speakers)", RED, "not checked",
+                           "Install the audio packages first."))
+    elif not monitor:
+        rows.append(_check(
+            "Monitor (your speakers)", YELLOW,
+            "no monitor set (from %s)" % m_src,
+            "You won't hear the commentary live. Pick your speakers in Pick "
+            "devices, or use OBS Monitor and Output on the Hoover source."))
+    elif cable and SpeechChannel._norm(monitor) == SpeechChannel._norm(cable):
+        rows.append(_check(
+            "Monitor (your speakers)", YELLOW, "the monitor is the cable device",
+            "Pick your real speakers or headphones as the monitor."))
+    else:
+        hit = resolve_output_device(sd, monitor, m_api)
+        if hit is None:
+            rows.append(_check(
+                "Monitor (your speakers)", RED,
+                "%r (from %s) not found on this machine" % (monitor, m_src),
+                "Run Pick devices and choose your speakers or headphones."))
+        else:
+            idx, name, api = hit
+            ok, detail = _write_block(sd, idx, rate, beep)
+            ev = "%s -> index %d via %s; test tone %s" % (
+                monitor, idx, api or "unknown audio system", detail)
+            if not ok:
+                rows.append(_check(
+                    "Monitor (your speakers)", RED, ev,
+                    "Use OBS Monitor and Output on the Hoover source until "
+                    "this is green."))
+            else:
+                heard_q = (len(rows), ev)
+                rows.append(_check("Monitor (your speakers)", GREEN, ev))
+
+    # "frames written" is not "heard": ask, when someone is there to answer.
+    if heard_q is not None and inp is not None:
+        try:
+            ans = inp("Did you just hear a short beep on your speakers? [y/n] ")
+        except EOFError:
+            ans = ""
+        a = (ans or "").strip().lower()
+        i, ev = heard_q
+        if a.startswith("n"):
+            rows[i] = _check(
+                "Monitor (your speakers)", YELLOW,
+                ev + "; operator did not hear it",
+                "The sound went to that device but you didn't hear it: check "
+                "its volume and mute, and that it is the device you're "
+                "listening on.")
+        elif a.startswith("y"):
+            rows[i]["evidence"] = ev + "; operator heard it"
+
+    # 4. ElevenLabs
+    key_var = getattr(args, "speech_key_var", "ELEVENLABS_API_KEY")
+    if not os.environ.get(key_var):
+        rows.append(_check(
+            "ElevenLabs key", RED, "$%s is not set" % key_var,
+            "Set %s in Windows environment variables, then open a new "
+            "window." % key_var))
+    else:
+        ns = argparse.Namespace(speech="elevenlabs", speech_dry_run=False,
+                                speech_device=None, speech_key_var=key_var)
+        ch = SpeechChannel(config, ns, live=False, transport=transport,
+                           player=lambda *a: None)
+        voice = (ch.voices.get("LEAD") or "")
+        try:
+            pcm, _ = ch._synth("a", voice)
+            rows.append(_check(
+                "ElevenLabs key", GREEN,
+                "key set; one-character test synthesis returned %d bytes"
+                % len(pcm or b"")))
+        except Exception as e:
+            st = _http_status_of(e)
+            if st in (401, 403):
+                rows.append(_check(
+                    "ElevenLabs key", RED, "the API rejected the key (%d)" % st,
+                    "Check the key, or the plan's character quota."))
+            elif st is not None:
+                rows.append(_check(
+                    "ElevenLabs key", RED, "test synthesis failed (HTTP %d)" % st,
+                    "Check the voice ids in the config and the plan quota."))
+            else:
+                rows.append(_check(
+                    "ElevenLabs key", YELLOW,
+                    "key set, untested: %s" % type(e).__name__,
+                    "No connection to ElevenLabs. Check the internet "
+                    "connection, then run the check again."))
+        finally:
+            ch.close()
+
+    code = 1 if any(r["state"] == RED for r in rows) else 0
+    return rows, code
+
+
+def format_check_rows(rows):
+    label = {GREEN: "GREEN ", YELLOW: "YELLOW", RED: "RED   "}
+    out = []
+    for r in rows:
+        out.append("[%s] %s: %s" % (label[r["state"]], r["check"], r["evidence"]))
+        if r["suggestion"]:
+            out.append("         -> %s" % r["suggestion"])
+    return "\n".join(out)
+
+
+# --- the version label and "This Hoover" ----------------------------------------
+def _git(folder, *argv):
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", folder] + list(argv),
+                           capture_output=True, text=True, timeout=3)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _short_hash(path):
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except Exception:
+        return None
+
+
+def build_info(tool_path=None, settings_path=None):
+    """What this Hoover is, reported by the tool itself. The label comes from
+    the constants above, never from the file name (files get copied and
+    renamed; the code can't drift from itself)."""
+    tool_path = os.path.abspath(tool_path or __file__)
+    here = os.path.dirname(tool_path)
+    branch = _git(here, "rev-parse", "--abbrev-ref", "HEAD")
+    commit = _git(here, "rev-parse", "--short", "HEAD")
+    status = _git(here, "status", "--porcelain", "--untracked-files=no")
+    files = {}
+    for role, name in (("config", V3_CONFIG_NAME),
+                       ("words", "hoover_words_v4.json"),
+                       ("stories", STORIES_FILE_NAME),
+                       ("prompts", "hoover_prompts_v3.json"),
+                       ("roster", "hoover_roster_league.json")):
+        p = os.path.join(here, name)
+        files[role] = {"file": name, "present": os.path.isfile(p),
+                       "sha256_12": _short_hash(p)}
+    sp = user_settings_path(settings_path)
+    return {
+        "product": BUILD_PRODUCT,
+        "version": BUILD_VERSION,
+        "build_date": BUILD_DATE,
+        "script_version": SCRIPT_VERSION,
+        "tool_file": os.path.basename(tool_path),
+        "folder": here,
+        "git": {"branch": branch, "commit": commit,
+                "local_changes": (bool(status) if status is not None else None)},
+        "telemetry_format": "F1 25, %d UDP" % TARGET_PACKET_FORMAT,
+        "data_files": files,
+        "settings_file": {"path": sp, "present": os.path.isfile(sp)},
+        "python": sys.version.split()[0],
+        "audio_backend": _sounddevice is not None,
+    }
+
+
+def build_label(info=None):
+    info = info or build_info()
+    g = info["git"]
+    where = ""
+    if g.get("commit"):
+        where = " · %s @ %s%s" % (g.get("branch") or "?", g["commit"],
+                                   " (local changes)" if g.get("local_changes")
+                                   else "")
+    return "%s %s (build %s, script %s)%s" % (
+        info["product"], info["version"], info["build_date"],
+        info["script_version"], where)
+
+
+def format_build_info(info):
+    lines = [build_label(info), ""]
+    lines.append("  Tool file        %s" % info["tool_file"])
+    lines.append("  Folder           %s" % info["folder"])
+    g = info["git"]
+    if g.get("commit"):
+        lines.append("  Git              %s @ %s, %s" % (
+            g.get("branch"), g["commit"],
+            "LOCAL CHANGES not in git" if g.get("local_changes")
+            else "no local changes"))
+    else:
+        lines.append("  Git              not a git checkout (or git not installed)")
+    lines.append("  Telemetry        %s" % info["telemetry_format"])
+    for role, f in info["data_files"].items():
+        lines.append("  %-16s %s %s" % (role.capitalize(), f["file"],
+                                        "ok" if f["present"] else "MISSING"))
+    s = info["settings_file"]
+    lines.append("  Your settings    %s %s" % (
+        s["path"], "" if s["present"] else "(not created yet: run Pick devices)"))
+    lines.append("  Python           %s, audio packages %s" % (
+        info["python"], "loaded" if info["audio_backend"] else "NOT installed"))
+    return "\n".join(lines)
 
 
 # --- Part S: the speech-timing report ----------------------------------------
@@ -10455,7 +11098,29 @@ class BabyHooverV3:
                 raise SystemExit(
                     "STOP: --speech elevenlabs needs the ElevenLabs key in $%s, "
                     "which is unset. Set it, or use --speech-dry-run." % key_var)
-        return SpeechChannel(self.config, self.args, live=live, log=self._log)
+        settings = UserSettings(getattr(self.args, "settings", None))
+        ch = SpeechChannel(self.config, self.args, live=live, log=self._log,
+                           settings=settings)
+        self._log("[speech] cable %r (from %s); monitor %r"
+                  % (ch.device_name, ch.device_source, ch.device_audible_name))
+        # V4.1: prove both devices open BEFORE the session, silently. The 05
+        # OCT failure (a playback ValueError on every line) now stops here.
+        if not dry:
+            res = ch.probe()
+            cable = res.get("cable")
+            if cable is not None and not cable[0]:
+                ch.close()
+                raise SystemExit(
+                    "STOP: the cable device %r failed the start-up sound check: "
+                    "%s\nRun the audio check (--audio-check, or option 1 in "
+                    "Start Hoover) to see why, or Pick devices (--pick-devices)."
+                    % (ch.device_name, cable[1]))
+            if cable is not None:
+                self._log("[speech] start-up check: cable ok (%s)" % cable[1])
+            mon = res.get("monitor")
+            if mon is not None and mon[0]:
+                self._log("[speech] start-up check: monitor ok (%s)" % mon[1])
+        return ch
 
     def _log(self, msg):
         line = "[v3] %s" % msg
@@ -11113,8 +11778,9 @@ def main():
     ap = argparse.ArgumentParser(
         description="Baby Hoover V3 -- F1 25 race model (Pass 1, replay)")
     ap.add_argument("--source", choices=["live", "replay", "fast"],
-                    required=True,
-                    help="declared source (no default): live|replay|fast")
+                    default=None,
+                    help="declared source (no default): live|replay|fast; "
+                         "required for a run")
     ap.add_argument("--replay", default=None, help="path to a captured .bin")
     ap.add_argument("--pace", choices=["real", "fast"], default=None,
                     help="replay pace (default fast for replay)")
@@ -11178,10 +11844,47 @@ def main():
     ap.add_argument("--limit-model-lines", type=int, default=0,
                     help="cap how many lines the model may write (0 = unlimited); "
                          "the rest fall back to the template")
+    # V4.1 -- the audio path as a product (dashboard stage 1)
+    ap.add_argument("--settings", default=None,
+                    help="path to your own Hoover settings file (default "
+                         "%%APPDATA%%\\Hoover\\settings.json on Windows); holds "
+                         "this machine's audio devices, never committed")
+    ap.add_argument("--pick-devices", action="store_true",
+                    help="choose the cable and monitor devices from a numbered "
+                         "list and save them to your settings file, then exit")
+    ap.add_argument("--audio-check", action="store_true",
+                    help="check the cable, the monitor (with a test tone) and "
+                         "the ElevenLabs key, print green/yellow/red, then exit")
+    ap.add_argument("--version", action="store_true",
+                    help="print which Hoover this is (version, git, data "
+                         "files, settings) and exit")
     args = ap.parse_args()
+    if args.version:
+        print(format_build_info(build_info(settings_path=args.settings)))
+        return 0
     if args.list_audio_devices:          # Part R: print devices and exit
         print(list_audio_devices_text())
         return 0
+    if args.pick_devices:
+        return pick_devices(UserSettings(args.settings), _sounddevice)
+    if args.audio_check:
+        cfg_path = args.config or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), V3_CONFIG_NAME)
+        print(build_label())
+        print("Audio check: you should hear a short beep on your speakers.")
+        print("")
+        rows, code = audio_check(
+            Config(cfg_path), UserSettings(args.settings), args, _sounddevice,
+            inp=(input if sys.stdin.isatty() else None))
+        print("")
+        print(format_check_rows(rows))
+        print("")
+        print("All clear." if code == 0 else
+              "Fix the red line(s) above before a race.")
+        return code
+    if args.source is None:
+        ap.error("--source is required for a run (live, replay or fast)")
+    print(build_label(), flush=True)
     if args.pace is None:
         args.pace = "fast"
     if args.source in ("replay", "fast"):
