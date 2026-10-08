@@ -6,3 +6,7 @@ tests/reports/
 tests/fixture_corpus/
 tests/fixture_v3_out/
 tests/pass0_reports_*.zip
+
+# V6: the results store is an artefact of the machine that ran the races, never a repo file
+hoover_archive.json
+hoover_archive.json.tmp
