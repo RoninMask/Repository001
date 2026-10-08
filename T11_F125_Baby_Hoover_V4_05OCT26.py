@@ -3745,6 +3745,557 @@ def decode_car_speeds_v3(data):
     return speeds
 
 
+# =============================================================================
+# SECTION V5 -- EXTENDED DECODE (08 OCT 26)
+# =============================================================================
+# The decode audit of 08 OCT (Hoover_Telemetry_Decode_Audit_V1_08OCT26) found
+# that Hoover read 6 of the 15 packet types and dropped most of Lap Data. This
+# section reads the rest of what the booth can use. Rules:
+#   * every decoder checks the packet length against the F1 25 spec before
+#     reading a field, and returns None on a mismatch (no plausible garbage);
+#   * nothing here runs with --stories off, so V3 behaviour is untouched;
+#   * a restricted car (m_yourTelemetry = 0) never yields a tyre, damage or
+#     status fact -- the game blanks those, and a zero is not "soft tyres";
+#   * nothing below is trusted on air until tests/readback_v5.py has passed on
+#     a real capture.
+
+PID_CARSETUPS = 5
+PID_SESSIONHISTORY = 11
+PID_TYRESETS = 12
+PID_MOTIONEX = 13
+PID_TIMETRIAL = 14
+PID_LAPPOSITIONS = 15
+
+CARSTATUS_LEN = 1239
+CARSTATUS_FMT = "<BBBBBfffHHBBHBBBbfffBfffB"
+CARSTATUS_STRIDE = 55
+assert struct.calcsize(CARSTATUS_FMT) == CARSTATUS_STRIDE
+
+MOTION_LEN = 1349
+MOTION_FMT = "<ffffffhhhhhhffffff"
+MOTION_STRIDE = 60
+assert struct.calcsize(MOTION_FMT) == MOTION_STRIDE
+
+CARDAMAGE_LEN = 1041
+CARDAMAGE_FMT = "<ffff" + "B" * 12 + "B" * 18
+CARDAMAGE_STRIDE = 46
+assert struct.calcsize(CARDAMAGE_FMT) == CARDAMAGE_STRIDE
+
+LAPPOS_LEN = 1131
+LAPPOS_MAX_LAPS = 50
+
+SESSHIST_LEN = 1460
+SESSHIST_LAP_FMT = "<IHBHBHBB"
+SESSHIST_LAP_STRIDE = 14
+assert struct.calcsize(SESSHIST_LAP_FMT) == SESSHIST_LAP_STRIDE
+SESSHIST_MAX_LAPS = 100
+MAX_TYRE_STINTS = 8
+
+LOBBY_LEN = 954
+LOBBY_FMT = "<4B32s3BHB"
+LOBBY_STRIDE = 42
+assert struct.calcsize(LOBBY_FMT) == LOBBY_STRIDE
+
+TYRESETS_LEN = 231
+TYRESET_FMT = "<7BhB"
+TYRESET_STRIDE = 10
+assert struct.calcsize(TYRESET_FMT) == TYRESET_STRIDE
+TYRESETS_MAX = 20
+
+# Session: fields past the ones V3 reads. Offsets computed from the spec's field
+# order; the link identifiers at 670-678 (verified on the corpus) anchor them.
+OFF_S_FORMULA = 37
+OFF_S_PITSPEEDLIMIT = 42
+OFF_S_MARSHALZONES = 48         # 21 x (float start, int8 flag)
+OFF_S_NUMFORECAST = 155
+OFF_S_FORECAST = 156            # 64 x 8 bytes
+FORECAST_FMT = "<BBBbbbbB"
+OFF_S_AIDIFFICULTY = 669
+OFF_S_GAMEMODE = 694
+OFF_S_RULESET = 695
+OFF_S_SESSIONLENGTH = 700
+OFF_S_NUMSC = 705
+OFF_S_NUMVSC = 706
+OFF_S_NUMRED = 707
+OFF_S_EQUALPERF = 708
+OFF_S_RECOVERY = 709
+OFF_S_CARDAMAGE = 716
+OFF_S_CARDAMAGERATE = 717
+OFF_S_COLLISIONS = 718
+OFF_S_COLLISIONS_FIRSTLAP = 719
+OFF_S_CORNERCUTTING = 722
+OFF_S_PARCFERME = 723
+OFF_S_SAFETYCAR_SETTING = 725
+OFF_S_FORMATIONLAP = 727
+OFF_S_REDFLAGS_SETTING = 729
+OFF_S_NUMSESSIONSWEEKEND = 732
+OFF_S_WEEKENDSTRUCTURE = 733    # 12 bytes
+OFF_S_SECTOR2START = 745        # float, metres
+OFF_S_SECTOR3START = 749        # float, metres
+
+VISUAL_COMPOUND = {16: "soft", 17: "medium", 18: "hard", 7: "inter", 8: "wet"}
+ACTUAL_COMPOUND = {16: "C5", 17: "C4", 18: "C3", 19: "C2", 20: "C1",
+                   21: "C0", 22: "C6", 7: "inter", 8: "wet"}
+ERS_MODES = {0: "none", 1: "medium", 2: "hotlap", 3: "overtake"}
+FIA_FLAGS = {1: "green", 2: "blue", 3: "yellow"}
+CAR_DAMAGE_SETTING = {0: "off", 1: "reduced", 2: "standard", 3: "simulation"}
+COLLISIONS_SETTING = {0: "off", 1: "player-to-player off", 2: "on"}
+LEVEL_SETTING = {0: "off", 1: "reduced", 2: "standard", 3: "increased"}
+DRS_DISABLED_REASON = {0: "wet track", 1: "safety car", 2: "red flag",
+                       3: "minimum laps not reached"}
+
+
+def decode_car_status_v5(data):
+    """Car Status ID 7: per car tyres, DRS range, energy, fuel, FIA flag."""
+    if len(data) != CARSTATUS_LEN:
+        return None
+    out = []
+    for i in range(MAX_CARS):
+        v = struct.unpack_from(CARSTATUS_FMT, data, HEADER_SIZE + i * CARSTATUS_STRIDE)
+        (tc, abs_, mix, bias, limiter, fuel, fuelcap, fuel_laps, maxrpm, idlerpm,
+         gears, drs_allowed, drs_dist, actual, visual, age, fia, ice, mguk,
+         ers_store, ers_mode, harv_k, harv_h, ers_deployed, paused) = v
+        out.append({
+            "visual_compound": visual, "actual_compound": actual,
+            "tyre_age_laps": age, "drs_allowed": drs_allowed,
+            "drs_activation_m": drs_dist, "ers_store_j": ers_store,
+            "ers_mode": ers_mode, "ers_deployed_lap_j": ers_deployed,
+            "fuel_laps": fuel_laps, "fia_flag": fia, "pit_limiter": limiter,
+            "max_rpm": maxrpm,
+        })
+    return out
+
+
+def decode_motion_v5(data):
+    """Motion ID 0: world position, velocity, heading, g, yaw for every car."""
+    if len(data) != MOTION_LEN:
+        return None
+    out = []
+    for i in range(MAX_CARS):
+        v = struct.unpack_from(MOTION_FMT, data, HEADER_SIZE + i * MOTION_STRIDE)
+        out.append({
+            "pos": (v[0], v[1], v[2]), "vel": (v[3], v[4], v[5]),
+            "fwd": (v[6] / 32767.0, v[7] / 32767.0, v[8] / 32767.0),
+            "right": (v[9] / 32767.0, v[10] / 32767.0, v[11] / 32767.0),
+            "g_lat": v[12], "g_long": v[13], "g_vert": v[14],
+            "yaw": v[15], "pitch": v[16], "roll": v[17],
+        })
+    return out
+
+
+def decode_car_damage_v5(data):
+    """Car Damage ID 10. The spec file in the repo gives 46 bytes per car
+    (tyre blisters included); the corpus finding was 46 against an older 42.
+    Length-checked like everything else; readback confirms the layout."""
+    if len(data) != CARDAMAGE_LEN:
+        return None
+    out = []
+    for i in range(MAX_CARS):
+        v = struct.unpack_from(CARDAMAGE_FMT, data, HEADER_SIZE + i * CARDAMAGE_STRIDE)
+        out.append({
+            "tyre_wear": list(v[0:4]), "tyre_damage": list(v[4:8]),
+            "brake_damage": list(v[8:12]), "tyre_blisters": list(v[12:16]),
+            "fl_wing": v[16], "fr_wing": v[17], "rear_wing": v[18],
+            "floor": v[19], "diffuser": v[20], "sidepod": v[21],
+            "drs_fault": v[22], "ers_fault": v[23], "gearbox": v[24],
+            "engine": v[25], "engine_blown": v[32], "engine_seized": v[33],
+        })
+    return out
+
+
+def decode_lap_positions_v5(data):
+    """Lap Positions ID 15: every car's position at the start of each lap."""
+    if len(data) != LAPPOS_LEN:
+        return None
+    num_laps = data[HEADER_SIZE]
+    lap_start = data[HEADER_SIZE + 1]
+    base = HEADER_SIZE + 2
+    laps = {}
+    for k in range(min(num_laps, LAPPOS_MAX_LAPS)):
+        row = list(data[base + k * MAX_CARS: base + (k + 1) * MAX_CARS])
+        laps[lap_start + k + 1] = row          # 1-based lap number
+    return {"num_laps": num_laps, "lap_start": lap_start, "laps": laps}
+
+
+def decode_session_history_v5(data):
+    """Session History ID 11: one car per packet, cycling the field."""
+    if len(data) != SESSHIST_LEN:
+        return None
+    b = HEADER_SIZE
+    car, num_laps, num_stints, best_lap, best_s1, best_s2, best_s3 = data[b:b + 7]
+    laps = []
+    off = b + 7
+    for k in range(min(num_laps, SESSHIST_MAX_LAPS)):
+        (lap_ms, s1ms, s1m, s2ms, s2m, s3ms, s3m, valid) = struct.unpack_from(
+            SESSHIST_LAP_FMT, data, off + k * SESSHIST_LAP_STRIDE)
+        laps.append({"lap_ms": lap_ms, "s1_ms": s1m * 60000 + s1ms,
+                     "s2_ms": s2m * 60000 + s2ms, "s3_ms": s3m * 60000 + s3ms,
+                     "valid_flags": valid})
+    soff = b + 7 + SESSHIST_MAX_LAPS * SESSHIST_LAP_STRIDE
+    stints = []
+    for k in range(min(num_stints, MAX_TYRE_STINTS)):
+        end, actual, visual = data[soff + 3 * k: soff + 3 * k + 3]
+        stints.append({"end_lap": end, "actual": actual, "visual": visual})
+    return {"car": car, "num_laps": num_laps, "best_lap_num": best_lap,
+            "best_s1_lap": best_s1, "best_s2_lap": best_s2,
+            "best_s3_lap": best_s3, "laps": laps, "stints": stints}
+
+
+def decode_lobby_info_v5(data):
+    """Lobby Info ID 9: who is in the lobby and who has readied up."""
+    if len(data) != LOBBY_LEN:
+        return None
+    n = data[HEADER_SIZE]
+    players = []
+    for i in range(min(n, MAX_CARS)):
+        v = struct.unpack_from(LOBBY_FMT, data, HEADER_SIZE + 1 + i * LOBBY_STRIDE)
+        (ai, team, nat, plat, raw, carno, ytel, shown, tech, ready) = v
+        players.append({
+            "ai": ai, "team": team, "nationality": nat, "platform": plat,
+            "name": raw.split(b"\x00", 1)[0].decode("utf-8", "replace").strip(),
+            "car_number": carno, "telemetry_public": ytel,
+            "show_online_names": shown, "ready": ready})
+    return {"num_players": n, "players": players}
+
+
+def decode_tyre_sets_v5(data):
+    """Tyre Sets ID 12: one car per packet; 13 dry + 7 wet sets."""
+    if len(data) != TYRESETS_LEN:
+        return None
+    car = data[HEADER_SIZE]
+    sets = []
+    for k in range(TYRESETS_MAX):
+        v = struct.unpack_from(TYRESET_FMT, data, HEADER_SIZE + 1 + k * TYRESET_STRIDE)
+        sets.append({"actual": v[0], "visual": v[1], "wear": v[2],
+                     "available": v[3], "recommended_session": v[4],
+                     "life_laps": v[5], "usable_life": v[6],
+                     "delta_ms": v[7], "fitted": v[8]})
+    fitted = data[HEADER_SIZE + 1 + TYRESETS_MAX * TYRESET_STRIDE]
+    return {"car": car, "sets": sets, "fitted_idx": fitted}
+
+
+def decode_session_ext_v5(data):
+    """Session ID 1: the fields V3 does not read -- settings that decide what is
+    true to say, sector starts, forecast, marshal-zone flags, period counts."""
+    if len(data) != SESSION_LEN:
+        return None
+    zones = []
+    nz = min(data[OFF_S_NUMMARSHAL], 21)
+    for k in range(nz):
+        start, flag = struct.unpack_from("<fb", data, OFF_S_MARSHALZONES + 5 * k)
+        zones.append((round(start, 4), flag))
+    fc = []
+    nf = min(data[OFF_S_NUMFORECAST], 64)
+    for k in range(nf):
+        v = struct.unpack_from(FORECAST_FMT, data, OFF_S_FORECAST + 8 * k)
+        fc.append({"session_type": v[0], "minutes": v[1], "weather": v[2],
+                   "track_temp": v[3], "air_temp": v[5], "rain_pct": v[7]})
+    nsw = min(data[OFF_S_NUMSESSIONSWEEKEND], 12)
+    return {
+        "track_length_m": struct.unpack_from("<H", data, OFF_S_TRACKLENGTH)[0],
+        "formula": data[OFF_S_FORMULA],
+        "pit_speed_limit": data[OFF_S_PITSPEEDLIMIT],
+        "marshal_zones": zones,
+        "forecast": fc,
+        "ai_difficulty": data[OFF_S_AIDIFFICULTY],
+        "game_mode": data[OFF_S_GAMEMODE],
+        "rule_set": data[OFF_S_RULESET],
+        "session_length": data[OFF_S_SESSIONLENGTH],
+        "sc_periods": data[OFF_S_NUMSC],
+        "vsc_periods": data[OFF_S_NUMVSC],
+        "red_flag_periods": data[OFF_S_NUMRED],
+        "equal_car_performance": data[OFF_S_EQUALPERF],
+        "recovery_mode": data[OFF_S_RECOVERY],
+        "car_damage": data[OFF_S_CARDAMAGE],
+        "car_damage_rate": data[OFF_S_CARDAMAGERATE],
+        "collisions": data[OFF_S_COLLISIONS],
+        "collisions_off_first_lap": data[OFF_S_COLLISIONS_FIRSTLAP],
+        "corner_cutting_strict": data[OFF_S_CORNERCUTTING],
+        "parc_ferme": data[OFF_S_PARCFERME],
+        "safety_car_setting": data[OFF_S_SAFETYCAR_SETTING],
+        "formation_lap": data[OFF_S_FORMATIONLAP],
+        "red_flags_setting": data[OFF_S_REDFLAGS_SETTING],
+        "weekend_structure": list(data[OFF_S_WEEKENDSTRUCTURE:
+                                       OFF_S_WEEKENDSTRUCTURE + nsw]),
+        "sector2_start_m": struct.unpack_from("<f", data, OFF_S_SECTOR2START)[0],
+        "sector3_start_m": struct.unpack_from("<f", data, OFF_S_SECTOR3START)[0],
+    }
+
+
+def decode_lap_ext_v5(data):
+    """Lap Data ID 2: the fields the V3 parser unpacks and then drops."""
+    if len(data) != LAPDATA_LEN:
+        return None
+    out = []
+    for i in range(MAX_CARS):
+        v = struct.unpack_from(LAP_FMT, data, HEADER_SIZE + i * LAP_STRIDE)
+        (last_lap, cur_lap, s1ms, s1m, s2ms, s2m, dfms, dfm, dlms, dlm,
+         lap_dist, tot_dist, sc_delta, pos, lapnum, pit, npits, sector,
+         invalid, pen, warn, ccw, udt, usg, grid, dstat, rstat, pl_active,
+         pl_ms, ps_ms, serve_pen, sptrap, sptrap_lap) = v
+        out.append({
+            "s1_ms": s1m * 60000 + s1ms, "s2_ms": s2m * 60000 + s2ms,
+            "current_lap_ms": cur_lap, "lap_distance_m": lap_dist,
+            "sector": sector, "lap_invalid": invalid,
+            "corner_cutting_warnings": ccw, "unserved_drive_through": udt,
+            "unserved_stop_go": usg, "sc_delta_s": sc_delta,
+            "pit_lane_timer_active": pl_active, "pit_lane_ms": pl_ms,
+            "pit_stop_ms": ps_ms, "speed_trap_kph": sptrap,
+            "speed_trap_lap": sptrap_lap, "position": pos})
+    return out
+
+
+def decode_final_class_ext_v5(data):
+    """Final Classification ID 8: points, best lap, penalties, tyre stints."""
+    if len(data) != FINALCLASS_LEN:
+        return None
+    rows = []
+    base = HEADER_SIZE + 1
+    for i in range(MAX_CARS):
+        off = base + i * FC_STRIDE
+        ns = min(data[off + 21], MAX_TYRE_STINTS)
+        stints = [{"actual": data[off + 22 + k], "visual": data[off + 30 + k],
+                   "end_lap": data[off + 38 + k]} for k in range(ns)]
+        rows.append({"idx": i, "position": data[off], "points": data[off + 3],
+                     "best_lap_ms": struct.unpack_from("<I", data, off + 7)[0],
+                     "num_penalties": data[off + 20], "stints": stints})
+    return {"num_cars": data[HEADER_SIZE], "rows": rows}
+
+
+def decode_participants_ext_v5(data):
+    """Participants ID 4: number of active cars and each driver's nationality."""
+    if len(data) != PARTICIPANTS_LEN:
+        return None
+    nat = []
+    for i in range(MAX_CARS):
+        v = struct.unpack_from(PART_FMT, data, HEADER_SIZE + 1 + i * PART_STRIDE)
+        nat.append(v[6])
+    return {"num_active": data[HEADER_SIZE], "nationality": nat}
+
+
+def decode_car_telemetry_ext_v5(data):
+    """Car Telemetry ID 6: driver inputs and tyre temperatures (V4 already reads
+    speed, DRS and surface from the same packet)."""
+    if len(data) != CARTELEMETRY_LEN:
+        return None
+    out = []
+    for i in range(MAX_CARS):
+        off = HEADER_SIZE + i * CARTEL_STRIDE
+        throttle, steer, brake = struct.unpack_from("<fff", data, off + 2)
+        gear = struct.unpack_from("<b", data, off + 15)[0]
+        rpm = struct.unpack_from("<H", data, off + 16)[0]
+        out.append({"throttle": throttle, "steer": steer, "brake": brake,
+                    "gear": gear, "rpm": rpm,
+                    "brake_temp": list(struct.unpack_from("<4H", data, off + 22)),
+                    "tyre_surface_temp": list(data[off + 30:off + 34]),
+                    "tyre_inner_temp": list(data[off + 34:off + 38])})
+    return out
+
+
+EXPECTED_LEN_V5 = {
+    PID_MOTION: MOTION_LEN, PID_SESSION: SESSION_LEN, PID_LAPDATA: LAPDATA_LEN,
+    PID_PARTICIPANTS: PARTICIPANTS_LEN, PID_CARTELEMETRY: CARTELEMETRY_LEN,
+    PID_CARSTATUS: CARSTATUS_LEN, PID_FINALCLASS: FINALCLASS_LEN,
+    PID_LOBBYINFO: LOBBY_LEN, PID_CARDAMAGE: CARDAMAGE_LEN,
+    PID_SESSIONHISTORY: SESSHIST_LEN, PID_TYRESETS: TYRESETS_LEN,
+    PID_LAPPOSITIONS: LAPPOS_LEN, PID_CARSETUPS: 1133, PID_MOTIONEX: 273,
+    PID_TIMETRIAL: 101, PID_EVENT: 45,
+}
+
+
+class ExtState:
+    """Everything the extended decode learns, held beside the World. Built only
+    when the story layer is on. Read by the blob builder; nothing in the V3
+    chain reads it."""
+
+    DECODERS = {
+        PID_CARSTATUS: ("status", decode_car_status_v5),
+        PID_MOTION: ("motion", decode_motion_v5),
+        PID_CARDAMAGE: ("damage", decode_car_damage_v5),
+        PID_LAPDATA: ("lap", decode_lap_ext_v5),
+        PID_CARTELEMETRY: ("inputs", decode_car_telemetry_ext_v5),
+    }
+
+    def __init__(self, world, log=None):
+        self.w = world
+        self.log = log or (lambda m: None)
+        self.status = None
+        self.motion = None
+        self.damage = None
+        self.lap = None
+        self.inputs = None
+        self.session = None
+        self.participants = None
+        self.lobby = None
+        self.final_class = None
+        self.lap_chart = {}            # lap -> [position per car index]
+        self.history = {}              # car -> Session History record
+        self.tyre_sets = {}            # car -> Tyre Sets record
+        self.drs_enabled = None
+        self.drs_disabled_reason = None
+        self.decoded = collections.Counter()
+        self.mismatch = collections.Counter()
+        self._warned = set()
+        self._session_link = None
+
+    # -- intake ----------------------------------------------------------------
+    def _bad(self, pid, n):
+        self.mismatch[pid] += 1
+        if pid not in self._warned:
+            self._warned.add(pid)
+            self.log("[decode-v5] packet %d length %d, expected %s -- field not read"
+                     % (pid, n, EXPECTED_LEN_V5.get(pid)))
+
+    def _new_session(self):
+        self.lap_chart = {}
+        self.history = {}
+        self.tyre_sets = {}
+        self.final_class = None
+        self.drs_enabled = None
+        self.drs_disabled_reason = None
+
+    def feed(self, t, payload, pid):
+        link = getattr(self.w, "session_link", None)
+        if link is not None and link != self._session_link:
+            self._session_link = link
+            self._new_session()
+        try:
+            self._feed(t, payload, pid)
+        except Exception as e:          # never let the extension stop the race
+            self.mismatch[pid] += 1
+            if ("err", pid) not in self._warned:
+                self._warned.add(("err", pid))
+                self.log("[decode-v5] packet %d raised %s -- skipped"
+                         % (pid, type(e).__name__))
+
+    def _feed(self, t, payload, pid):
+        n = len(payload)
+        if pid in self.DECODERS:
+            attr, fn = self.DECODERS[pid]
+            res = fn(payload)
+            if res is None:
+                self._bad(pid, n)
+                return
+            setattr(self, attr, res)
+            self.decoded[pid] += 1
+            return
+        if pid == PID_SESSION:
+            res = decode_session_ext_v5(payload)
+        elif pid == PID_PARTICIPANTS:
+            res = decode_participants_ext_v5(payload)
+        elif pid == PID_LOBBYINFO:
+            res = decode_lobby_info_v5(payload)
+        elif pid == PID_FINALCLASS:
+            res = decode_final_class_ext_v5(payload)
+        elif pid == PID_LAPPOSITIONS:
+            res = decode_lap_positions_v5(payload)
+        elif pid == PID_SESSIONHISTORY:
+            res = decode_session_history_v5(payload)
+        elif pid == PID_TYRESETS:
+            res = decode_tyre_sets_v5(payload)
+        elif pid == PID_EVENT:
+            self._event(payload)
+            return
+        else:
+            return
+        if res is None:
+            self._bad(pid, n)
+            return
+        self.decoded[pid] += 1
+        if pid == PID_SESSION:
+            self.session = res
+        elif pid == PID_PARTICIPANTS:
+            self.participants = res
+        elif pid == PID_LOBBYINFO:
+            self.lobby = res
+        elif pid == PID_FINALCLASS:
+            self.final_class = res
+        elif pid == PID_LAPPOSITIONS:
+            self.lap_chart.update(res["laps"])
+        elif pid == PID_SESSIONHISTORY:
+            if res["car"] < MAX_CARS:
+                self.history[res["car"]] = res
+        elif pid == PID_TYRESETS:
+            if res["car"] < MAX_CARS:
+                self.tyre_sets[res["car"]] = res
+
+    def _event(self, payload):
+        if len(payload) < OFF_E_DETAIL + 1:
+            return
+        code = payload[OFF_E_CODE:OFF_E_CODE + 4].decode("ascii", "replace")
+        if code == "DRSE":
+            self.drs_enabled, self.drs_disabled_reason = True, None
+            self.decoded["DRSE"] += 1
+        elif code == "DRSD":
+            self.drs_enabled = False
+            self.drs_disabled_reason = DRS_DISABLED_REASON.get(payload[OFF_E_DETAIL])
+            self.decoded["DRSD"] += 1
+
+    # -- reads ------------------------------------------------------------------
+    def restricted(self, idx):
+        c = self.w.cars[idx] if idx is not None and 0 <= idx < MAX_CARS else None
+        return c is None or c.telemetry_public == 0
+
+    def tyre(self, idx):
+        """(visual compound word, age in laps) or None. None for a restricted
+        car, an unknown compound, or before the first Car Status packet."""
+        if self.status is None or self.restricted(idx):
+            return None
+        s = self.status[idx]
+        word = VISUAL_COMPOUND.get(s["visual_compound"])
+        if word is None:
+            return None
+        return word, int(s["tyre_age_laps"])
+
+    def gates(self):
+        """Plain-language truth gates from the session settings. Each one stops
+        the writer saying something the settings make false."""
+        s = self.session
+        if not s:
+            return []
+        # A zeroed or misread Session block would read as "everything off" and
+        # silence true lines. Gates need a populated session: a real track
+        # length and ordered sector starts inside it.
+        tl = s.get("track_length_m") or 0
+        if not (tl > 0 and 0 < s.get("sector2_start_m", 0) < s.get("sector3_start_m", 0) < tl):
+            return []
+        g = []
+        if s["equal_car_performance"] == 1:
+            g.append("cars are equal: never credit pace to the car, team or engine")
+        if s["car_damage"] == 0:
+            g.append("car damage is off: never mention damage")
+        if s["collisions"] == 0:
+            g.append("collisions are off: cars cannot make contact")
+        elif s["collisions"] == 1:
+            g.append("player-to-player collisions are off")
+        if s["collisions_off_first_lap"] == 1:
+            g.append("collisions are off on the first lap")
+        if s["safety_car_setting"] == 0:
+            g.append("safety car is off: never predict one")
+        if s["red_flags_setting"] == 0:
+            g.append("red flags are off: never predict one")
+        if self.drs_enabled is False and self.drs_disabled_reason:
+            g.append("DRS is disabled (%s)" % self.drs_disabled_reason)
+        return g
+
+    def summary(self):
+        s = self.session or {}
+        return {
+            "decoded": {str(k): v for k, v in sorted(self.decoded.items(), key=str)},
+            "length_mismatch": {str(k): v for k, v in sorted(self.mismatch.items(), key=str)},
+            "settings": {k: s.get(k) for k in (
+                "equal_car_performance", "car_damage", "collisions",
+                "collisions_off_first_lap", "corner_cutting_strict",
+                "safety_car_setting", "red_flags_setting", "recovery_mode",
+                "formation_lap", "rule_set", "session_length")} if s else {},
+            "sector_starts_m": [s.get("sector2_start_m"), s.get("sector3_start_m")] if s else [],
+            "track_length_m": s.get("track_length_m"),
+            "gates": self.gates(),
+            "lap_chart_laps": len(self.lap_chart),
+            "history_cars": len(self.history),
+        }
+
+
 RESULT_FINISHED_V3 = 3
 RESULT_RETIRED_SET_V3 = (4, 5, 7)
 FC_REASON_NAMES = {
@@ -6012,6 +6563,22 @@ def build_state_blob(claim, model):
         }
         if anchor_say and anchor_say not in blob["allowed_words"]:
             blob["allowed_words"].append(anchor_say)
+    # V5 (08 OCT): tyres per subject and the session's truth gates, from the
+    # extended decode. Absent unless the story layer built it; a restricted car
+    # or an unknown compound contributes nothing rather than a guessed tyre.
+    ext = getattr(world, "ext", None) if world is not None else None
+    if ext is not None:
+        for s in subs:
+            ty = ext.tyre(s.get("car_index"))
+            if ty is None:
+                continue
+            s["tyre"], s["tyre_age_laps"] = ty
+            for w in (ty[0], speech_normalise(str(ty[1]))):
+                if w and w not in blob["allowed_words"]:
+                    blob["allowed_words"].append(w)
+        gates = ext.gates()
+        if gates:
+            blob["session"]["gates"] = gates
     return blob
 
 
@@ -6061,7 +6628,10 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
         # number-word check (no sentence-initial exemption: every number must
         # have been given). Composed forms ("twenty-five") split on the hyphen.
         if any(p in NUMBER_WORDS for p in parts):
-            if low not in allowed and not all(p in allowed for p in parts):
+            # V5 (08 OCT): every NUMBER part must have been given; the other
+            # parts of a compound ("one-lap-old") are ordinary words.
+            if low not in allowed and not all(p in allowed for p in parts
+                                              if p in NUMBER_WORDS):
                 return (False, "number_word:%s" % tok)
             continue
         # name / capitalised-token check -- the one that matters
@@ -11556,6 +12126,9 @@ class BabyHooverV3:
             self.stories = StoryEngine(self.model, self.world, self.config,
                                        StoriesConfig(spath), self._log)
             self.booth.stories = self.stories
+            # V5 decode (08 OCT): the extended read rides with the story layer,
+            # so --stories off never builds it and stays V3 byte-for-byte.
+            self.world.ext = ExtState(self.world, self._log)
         # Part L: select the writer. template is inert and the default; model /
         # hybrid replace the seam's writer so no other call site changes.
         self.booth.writer = self._make_writer()
@@ -11762,6 +12335,9 @@ class BabyHooverV3:
         if len(payload) < HEADER_SIZE:
             return
         pid = payload[6]     # m_packetId is the 7th header byte (offset 6)
+        ext = getattr(self.world, "ext", None)
+        if ext is not None:
+            ext.feed(t, payload, pid)
         if pid == PID_CARTELEMETRY:
             if self.stories is not None:
                 tel = decode_car_telemetry_v4(payload)
@@ -11949,6 +12525,8 @@ class BabyHooverV3:
         if self.stories is not None:
             manifest["stories"] = self.stories.summary()
             manifest["stories"]["metrics"] = self._story_metrics(t)
+            if getattr(self.world, "ext", None) is not None:
+                manifest["decode_v5"] = self.world.ext.summary()
             with open(p + "_stories.jsonl", "w", encoding="utf-8") as f:
                 for ev in self.stories.store.events:
                     f.write(json.dumps(ev, sort_keys=True, default=str) + "\n")
