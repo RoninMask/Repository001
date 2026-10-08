@@ -284,8 +284,13 @@ class BlobOnReplay(unittest.TestCase):
         assert os.path.exists(FIXTURE), "run tests/make_fixture_corpus.py first"
         cls.d = tempfile.mkdtemp()
         cls.archive = os.path.join(cls.d, "archive.json")
+        # a fixture under tests/ is never filed in the archive; file a copy
+        # under a neutral name the way a real league capture would be
+        import shutil
+        cls.bin = os.path.join(cls.d, "league_night_s03.bin")
+        shutil.copy(FIXTURE, cls.bin)
         for k in (1, 2):
-            rc, out = _run(FIXTURE, os.path.join(cls.d, "run%d" % k),
+            rc, out = _run(cls.bin, os.path.join(cls.d, "run%d" % k),
                            ["--stories", "on", "--log-blobs", "--archive", cls.archive,
                             "--night-id", "t"])
             assert rc == 0, out
@@ -331,12 +336,21 @@ class BlobOnReplay(unittest.TestCase):
         self.assertTrue(any((r["blob"].get("story") or {}).get("opened_lap") is not None
                             for r in self.rows))
 
+    def test_fixture_never_filed(self):
+        with tempfile.TemporaryDirectory() as d:
+            arch = os.path.join(d, "a.json")
+            rc, out = _run(FIXTURE, os.path.join(d, "run"), ["--stories", "on", "--archive", arch])
+            self.assertEqual(rc, 0, out)
+            self.assertFalse(os.path.exists(arch))
+
     def test_second_session_reads_tonight(self):
         self.assertFalse(any(r["blob"]["stakes"].get("tonight") for r in self.rows1))
         self.assertTrue(any(r["blob"]["stakes"].get("tonight") for r in self.rows))
         self.assertTrue(any("tonight" in n["text"] for r in self.rows for n in r["blob"]["notes"]))
         a = json.load(open(self.archive))
-        self.assertEqual(len(a["nights"]["t"]["sessions"]), 2)
+        # the same capture replayed twice is filed ONCE (deduped by sha256)
+        self.assertEqual(len(a["nights"]["t"]["sessions"]), 1)
+        self.assertTrue(a["nights"]["t"]["sessions"][0]["capture_sha256"])
         self.assertEqual(a["nights"]["t"]["label"], "practice")
 
     def test_manifest_summary(self):

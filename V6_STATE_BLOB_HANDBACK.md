@@ -27,7 +27,7 @@ The State Blob White Paper, coded. The claim is now a **pointer**: one builder, 
 
 | File | Role | State |
 |---|---|---|
-| `hoover_archive.json` | **The results store.** Written at every session close that has a classification (Final Classification packet, or Lap Data if the leader finished without one); read at start. Keyed by league night (`--night-id`, default today's date) with a label (`--night-label practice|official`, default practice). Practice never counts as season record. | Created on first run |
+| `hoover_archive.json` | **The results store.** Written at every session close that has a classification (Final Classification packet, or Lap Data if the leader finished without one); read at start. Keyed by league night (`--night-id`, default today's date) with a label (`--night-label practice|official`, default practice). Practice never counts as season record. A capture replayed twice is filed once (deduped by its sha256); test fixtures and synthetic races are never filed. Git-ignored: it belongs to the machine that ran the races. | Created on first real run |
 | `hoover_tracks.json` | Track reference: Abu Dhabi and Austria with corner names, character and overtaking spots. **Corner distances are null and `calibrated` is false**, so location is sector-level until calibrated. | Authored, uncalibrated |
 | `tests/calibrate_track.py` | Fits corner distances from a real capture's braking zones; prints JSON to paste in | Written, unrun on a real bin |
 | `hoover_dossier.json` | Hand-written facts per driver (roster `driver_id`), with armed facts (on_podium, on_lead, on_win, on_retire) | Skeleton, empty |
@@ -68,7 +68,7 @@ The model prompt (`hoover_prompts_v3.json`, version `hoover-v6-blob-1.0`, system
 
 ## Gates passed here (cloud, synthetic and fixtures)
 
-- New suite `tests/test_state_blob_v6.py`: **15/15** — chapters and arc; chapter cap folds; LEAD-01 history and `laps_led`; said ledger; prediction ledger (plant, revise, confirm, miss by the clock, payoff once); archive tonight vs season, practice excluded from season, pair record, atomic write; track reference calibrated gate; dossier armed facts; affect emotions and surprise; the blob on a real replay (seven layers, angle in the set, lane set, **every note passes the checker against its own blob**, projection lap sayable, a second session reads tonight's record); the prompt carries angle, notes and gates.
+- New suite `tests/test_state_blob_v6.py`: **16/16** — chapters and arc; chapter cap folds; LEAD-01 history and `laps_led`; said ledger; prediction ledger (plant, revise, confirm, miss by the clock, payoff once); archive tonight vs season, practice excluded from season, pair record, atomic write; track reference calibrated gate; dossier armed facts; affect emotions and surprise; the blob on a real replay (seven layers, angle in the set, lane set, **every note passes the checker against its own blob**, projection lap sayable, a second session reads tonight's record); the prompt carries angle, notes and gates.
 - V4 suite **19/19** (incl. `--stories off` byte identity on every fixture) · V5 decode **23/23** · audio **31/31** · V3 suite against V4 **138/138** · harness **102/102**.
 - Stories-on replays of every fixture and the scripted race: no processor raises; `--writer model --cache-only` runs the enqueue-time builder on every claim and falls back cleanly.
 - Blob-build cost: not measured separately; the whole stories-on fixture run is unchanged in wall time to the eye.

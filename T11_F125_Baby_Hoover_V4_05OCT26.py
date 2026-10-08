@@ -4583,6 +4583,12 @@ class Archive:
     def add_session(self, session):
         night = self.data["nights"].setdefault(self.night_id,
                                                {"label": self.label, "sessions": []})
+        # a replay of a capture already filed replaces its record (same
+        # sha256), so running a bin twice never files a race twice
+        sha = session.get("capture_sha256")
+        if sha:
+            night["sessions"] = [x for x in night["sessions"]
+                                 if x.get("capture_sha256") != sha]
         night["sessions"].append(session)
         if not self.path:
             return
@@ -13531,6 +13537,12 @@ class BabyHooverV3:
         """One record per captured session with a final classification: the
         results store the next race's booth reads (paper layer 6)."""
         m = self.model
+        # synthetic captures and test fixtures never reach the results store
+        rp = os.path.abspath(self.args.replay) if getattr(self.args, "replay", None) else None
+        here_ = os.path.dirname(os.path.abspath(__file__))
+        if rp and (rp.startswith(os.path.join(here_, "tests") + os.sep)
+                   or os.path.basename(rp).startswith(("FIXTURE_", "story_race", "fx_", "synthetic"))):
+            return
         fc = m.final_classification
         w = self.world
         source = "final_classification"
@@ -13585,6 +13597,7 @@ class BabyHooverV3:
             "total_laps": w.total_laps, "started_unix": round(t, 3),
             "classification": rows, "fastest_lap_key": fastest_key,
             "lead_changes": lead_changes, "arcs": arcs, "source": source,
+            "capture_sha256": ((manifest.get("source_capture") or {}).get("sha256")),
             "lines_aired": len(self.booth.emitted)})
 
     def _route_claims(self, t):
