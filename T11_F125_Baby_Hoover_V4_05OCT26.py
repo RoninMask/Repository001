@@ -468,7 +468,9 @@ class Car:
                  # --- V2 identity (resolved once, then frozen: Naming V1 N3/N4)
                  "driver_id", "spoken_short", "spoken_full", "spoken_rung",
                  "level", "possessive_ok", "name_resolved", "show_online_names",
-                 "participated")
+                 "participated",
+                 # --- V7 naming uniqueness (08 OCT): a shared name is never spoken
+                 "spoken_dynamic", "unique_fallback", "spoken_frozen")
 
     def __init__(self, idx):
         self.idx = idx
@@ -508,6 +510,9 @@ class Car:
         self.name_resolved = False
         self.show_online_names = None
         self.participated = False    # G6: the Participants packet named this car
+        self.spoken_dynamic = False  # V7: name is "the car running <nth>"
+        self.unique_fallback = None  # V7: None | "team" | "position"
+        self.spoken_frozen = None    # V7: the resolved name before any fallback
 
     @property
     def participation(self):
@@ -518,7 +523,10 @@ class Car:
     def spoken(self):
         """The name a line uses. Falls back to the raw label until resolved,
         but a raw handle reaching the script is detector A7 -- resolution runs
-        in pre-flight so this fallback should never air."""
+        in pre-flight so this fallback should never air. V7: a car whose name
+        collided and had no unique team is named by its running position."""
+        if self.spoken_dynamic:
+            return position_label(self.position)
         return self.spoken_short or self.label
 
     @property
@@ -892,6 +900,76 @@ def _fallback6(team, race_number, fallback_order, team_ambiguous):
         if rung == "generic":
             return "the car"
     return "the car"
+
+
+def position_label(position):
+    """V7: the last rung of the naming ladder. Positions are unique while a
+    car is running, so this label can never collide with a running car's."""
+    if position and position > 0:
+        return "the car running %s" % _ordinal_word(int(position))
+    return "the stopped car"
+
+
+UNUSABLE_HANDLES = ("", "player")
+
+
+def enforce_unique_spoken(world, log=None):
+    """V7 naming uniqueness rule (08 OCT 26, from the live runs of that day
+    where eleven cars aired as 'the number 2 car'). No two cars on track may
+    share a spoken name. Blank or 'Player' handles are unusable; a race number
+    carried by more than one car is unusable; a team name is usable only when
+    one car on track carries it. Order: resolved name -> team (unique) ->
+    'the car running <nth>'. Monotone: a car given a fallback keeps it unless
+    it collides again. Returns the number of cars changed this pass."""
+    cars = [c for c in world.cars if c.seen and c.name_resolved]
+    if len(cars) < 2:
+        return 0
+    changed = 0
+    numbers = collections.Counter(c.race_number for c in cars if c.race_number)
+    for c in cars:
+        if c.spoken_frozen is None:
+            c.spoken_frozen = c.spoken_short
+    def spoken_of(c):
+        return c.spoken.lower() if c.spoken else ""
+    # a number-rung name whose number is shared is unusable even before any
+    # collision shows up in the spoken forms
+    for c in cars:
+        if (c.spoken_rung == 6 and c.unique_fallback is None and c.race_number
+                and numbers[c.race_number] > 1
+                and (c.spoken_short or "").startswith("the number ")):
+            c.spoken_short = None       # forces the collision path below
+    groups = collections.defaultdict(list)
+    for c in cars:
+        key = spoken_of(c) if (c.spoken_short or c.spoken_dynamic) else "__none__%d" % c.idx
+        groups[key].append(c)
+    team_counts = collections.Counter(c.team for c in cars if c.team is not None)
+    taken = {spoken_of(c) for c in cars if c.spoken_short and not c.spoken_dynamic}
+    for key, group in groups.items():
+        if len(group) < 2 and not key.startswith("__none__"):
+            continue
+        for c in group:
+            if c.unique_fallback == "position":
+                continue                    # already unique by construction
+            tname = team_name(c.team) if c.team is not None else None
+            team_ok = (tname and tname != "the car" and team_counts.get(c.team, 0) == 1
+                       and ("the %s" % tname).lower() not in taken)
+            if team_ok and c.unique_fallback != "team":
+                c.spoken_short = c.spoken_full = "the %s" % tname
+                c.spoken_dynamic = False
+                c.unique_fallback = "team"
+                taken.add(c.spoken_short.lower())
+                changed += 1
+            elif not team_ok:
+                if not c.spoken_dynamic:
+                    changed += 1
+                c.spoken_short = c.spoken_full = None
+                c.spoken_dynamic = True
+                c.unique_fallback = "position"
+    if changed and log is not None:
+        log("[naming] uniqueness rule renamed %d car(s): %s" % (
+            changed, ", ".join("car %d -> %s" % (c.idx, c.spoken)
+                               for c in cars if c.unique_fallback)))
+    return changed
 
 
 def resolve_name(handle, confirmed=None, race_number=None, team=None,
@@ -6715,6 +6793,13 @@ class V3Booth:
     # ---- air-time validity against the model -------------------------------
     def _validate(self, claim, t):
         m = self.model
+        # V7 backstop: a claim whose spoken names are not all distinct is never
+        # aired (story layer on). The uniqueness pass should make this
+        # unreachable; the count in the manifest says whether it was.
+        if self.stories is not None and claim.names:
+            names = [n for n in claim.names if n]
+            if len(set(n.lower() for n in names)) < len(names):
+                return "drop:name_collision"
         if claim.kind.startswith(STORY_KIND_PREFIX):
             return self._validate_story(claim, t)
         # retired-subject guard (except its own retirement/result claim)
@@ -13486,6 +13571,12 @@ class BabyHooverV3:
                 resolve_car_identity(c, self.roster,
                                      fallback_order=self._fallback_order,
                                      world=self.world)
+        # V7: no two cars may share a spoken name (story layer on; the V3
+        # path is untouched so its byte identity holds)
+        if self.stories is not None:
+            n = enforce_unique_spoken(self.world, self._log)
+            if n:
+                self._naming_renames = getattr(self, "_naming_renames", 0) + n
         # session guard: open once enough cars seen
         if not self.session_opened:
             self._maybe_open(t)
@@ -13751,6 +13842,17 @@ class BabyHooverV3:
             if getattr(self.world, "ext", None) is not None:
                 manifest["decode_v5"] = self.world.ext.summary()
             manifest["blob_v6"] = self._blob_summary()
+            manifest["naming_v7"] = {
+                "renames": getattr(self, "_naming_renames", 0),
+                "fallbacks": {c.idx: {"from": c.spoken_frozen, "to": c.spoken,
+                                      "via": c.unique_fallback}
+                              for c in self.world.cars if c.unique_fallback},
+                "collisions_at_close": [
+                    [c.idx for c in self.world.cars if c.seen and c.spoken.lower() == k]
+                    for k, n in collections.Counter(
+                        c.spoken.lower() for c in self.world.cars if c.seen).items()
+                    if n > 1],
+            }
             if self.booth.blob_log:
                 with open(p + "_blobs.jsonl", "w", encoding="utf-8") as f:
                     for row in self.booth.blob_log:

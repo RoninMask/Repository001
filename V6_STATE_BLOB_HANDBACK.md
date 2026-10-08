@@ -93,6 +93,17 @@ The model prompt (`hoover_prompts_v3.json`, version `hoover-v6-blob-1.0`, system
 - **Cache keys change** (the blob is in the key and the prompt version moved), so any warm completion cache misses once.
 - **`story.arc` numbers are rounded to 2 dp** in chapters; speech uses the gap-word forms.
 
+## Added later the same day: the naming uniqueness rule (V7, 08 OCT, after Mike's live runs)
+
+Mike's two runs on V4.2 aired "the number 2 car took ninth from the number 2 car": every car but one came through as "Player", and eleven of twenty shared race number 2. The rule that had been open since September is now code:
+
+- **No two cars on track may share a spoken name.** `enforce_unique_spoken()` runs every packet with the story layer on. Blank or "Player" handles are unusable; a race number carried by more than one car is unusable; a team name is used only when exactly one car on track carries it; otherwise the car is **"the car running <nth>"**, a label that follows its position and cannot collide with another running car. A car given a fallback keeps it unless it collides again.
+- **Booth backstop:** a claim whose spoken names are not all distinct is dropped (`name_collision`) and never aired. The uniqueness pass should make that unreachable; the manifest's `naming_v7` block (renames, fallbacks per car, collisions at close) says whether it was.
+- The blob, `allowed_words`, the template writer and the lexicon all read `car.spoken`, so they agree by construction; tested.
+- `--stories off` is untouched. Tests: `tests/test_naming_v7.py` (8).
+
+Not fixed here: *why* the names were blank (lobby setting or packet) and the mid-race human→AI flips. Both need the capture (`readback_v5.py`); the driver-left story is the next item.
+
 ## Files touched
 
-`T11_F125_Baby_Hoover_V4_05OCT26.py` (SECTION V6 ≈ 900 lines + wiring), `hoover_config_v4.json` (`v3.blob`), `hoover_prompts_v3.json` (version + about), `hoover_tracks.json`, `hoover_dossier.json`, `hoover_rules_league.json` (new), `tests/test_state_blob_v6.py`, `tests/calibrate_track.py` (new), this hand-back.
+`T11_F125_Baby_Hoover_V4_05OCT26.py` (SECTION V6 ≈ 900 lines + wiring), `hoover_config_v4.json` (`v3.blob`), `hoover_prompts_v3.json` (version + about), `hoover_tracks.json`, `hoover_dossier.json`, `hoover_rules_league.json` (new), `tests/test_state_blob_v6.py`, `tests/calibrate_track.py`, `tests/test_naming_v7.py` (new), this hand-back.
