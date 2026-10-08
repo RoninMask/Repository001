@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "4.2.0"
+SCRIPT_VERSION = "4.3.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -4296,6 +4296,993 @@ class ExtState:
         }
 
 
+# =============================================================================
+# SECTION V6 -- THE STATE BLOB (08 OCT 26)
+# =============================================================================
+# Codes the State Blob White Paper V1 (08 OCT 26). The claim is a POINTER: it
+# names its story and subjects, and one builder assembles what the writer is
+# handed from the world -- race model, story store, the booth's own ledgers,
+# the camera, the extended decode, the archive and the reference files -- in
+# seven layers: spine, story, race picture, shot, booth memory, stakes and
+# colour, licence. The blob offers NOTES ranked by story, angle and whether
+# they have been said, cut to the slot's budget; the line spends one or two.
+# The truth contract widens (every layer contributes its own allowed words)
+# and never loosens. Nothing here runs with --stories off.
+
+F1_POINTS = {1: 25, 2: 18, 3: 15, 4: 12, 5: 10, 6: 8, 7: 6, 8: 4, 9: 2, 10: 1}
+ANGLES = ("what", "why", "means", "next", "feel")
+
+# Beat kinds that are sudden (an interjection may precede the line) versus
+# ones that build. Story rows by prefix: INC incidents, REL retirements.
+SUDDEN_PREFIXES = ("INC", "REL", "RC")
+
+
+def _blob_cfg(cfg, key, default):
+    b = cfg.get("v3", "blob", default={}) if cfg is not None else {}
+    return (b or {}).get(key, default)
+
+
+def _trend_word(hist, now_t, window_s=20.0, thresh=0.15):
+    """'closing' / 'stretching' / 'steady' / None from a (t, gap) history."""
+    pts = [(t, g) for t, g in hist if g is not None and 0.0 < g < 900.0
+           and now_t - t <= window_s]
+    if len(pts) < 2:
+        return None
+    d = pts[-1][1] - pts[0][1]
+    if d <= -thresh:
+        return "closing"
+    if d >= thresh:
+        return "stretching"
+    return "steady"
+
+
+def _gap_words(g):
+    return _fmt_gap(g)
+
+
+def _lap_word(n):
+    return _num_word(int(n)) if n is not None else None
+
+
+# ---- story memory: chapters and the arc -------------------------------------
+
+def story_chapter(rec, t, lap, kind, name, display=None, numbers=None,
+                  participants=None, cap=24):
+    """Append a chapter row (measured facts, no prose). Older rows fold into
+    the arc's counts so the record stays bounded."""
+    row = {"lap": lap, "t": round(t, 3), "kind": kind, "name": name,
+           "phase": rec.phase}
+    if display:
+        row["display"] = {k: v for k, v in display.items() if v is not None}
+    if numbers:
+        row["numbers"] = {k: (round(v, 2) if isinstance(v, float) else v)
+                          for k, v in numbers.items() if v is not None}
+    if participants is not None:
+        row["participants"] = list(participants)
+    rec.chapters.append(row)
+    if len(rec.chapters) > cap:
+        dropped = rec.chapters.pop(0)
+        rec.arc_counts["folded"] = rec.arc_counts.get("folded", 0) + 1
+        rec.arc_counts[dropped["kind"]] = rec.arc_counts.get(dropped["kind"], 0) + 1
+    return row
+
+
+def story_arc(rec, lap_now=None):
+    """The arc: a deterministic compression of the chapters, built by code.
+    Counts, first and last, the turning point, the gap range, and for the lead
+    story the leader sequence. Facts only; the writer makes the prose."""
+    ch = rec.chapters
+    arc = {"beats": len(ch) + rec.arc_counts.get("folded", 0),
+           "opened_lap": rec.opened_lap, "phase": rec.phase,
+           "live": rec.live, "outcome": rec.outcome}
+    if lap_now is not None and rec.opened_lap is not None:
+        arc["laps_live"] = max(0, (rec.closed_lap or lap_now) - rec.opened_lap)
+    phases = []
+    for row in ch:
+        if row["kind"] == "transition" and (not phases or phases[-1] != row["name"]):
+            phases.append(row["name"])
+    if phases:
+        arc["phases"] = phases
+    gaps = [(row["lap"], row["numbers"]["gap"]) for row in ch
+            if row.get("numbers") and row["numbers"].get("gap") is not None]
+    if gaps:
+        arc["gap_first"] = gaps[0][1]
+        arc["gap_last"] = gaps[-1][1]
+        arc["gap_max"] = max(g for _, g in gaps)
+        arc["gap_min"] = min(g for _, g in gaps)
+        if len(gaps) >= 2:
+            d = gaps[-1][1] - gaps[0][1]
+            arc["trend"] = "closing" if d < -0.15 else ("stretching" if d > 0.15 else "steady")
+    # turning point: the biggest single change of gap, else the first
+    # transition into an attacking phase
+    tp = None
+    best = 0.0
+    for a, b in zip(gaps, gaps[1:]):
+        if abs(b[1] - a[1]) > best:
+            best = abs(b[1] - a[1])
+            tp = {"lap": b[0], "gap_from": a[1], "gap_to": b[1]}
+    if tp is None:
+        for row in ch:
+            if row["kind"] == "transition" and row["name"] in (
+                    "attack_range", "big_catch", "under_threat", "contested"):
+                tp = {"lap": row["lap"], "phase": row["name"]}
+                break
+    if tp:
+        arc["turning_point"] = tp
+    leaders = rec.fields.get("leaders")
+    if leaders:
+        arc["leaders"] = [{"idx": l[0], "from_lap": l[1]} for l in leaders]
+        arc["lead_changes"] = max(0, len(leaders) - 1)
+    if rec.fields.get("laps_led") is not None:
+        arc["laps_led"] = rec.fields.get("laps_led")
+    if ch:
+        arc["first"] = {k: ch[0][k] for k in ("lap", "kind", "name")}
+        arc["last"] = {k: ch[-1][k] for k in ("lap", "kind", "name")}
+    return arc
+
+
+# ---- booth memory: the said ledger and the prediction ledger -----------------
+
+class SaidLedger:
+    """What the booth has said, by story and by driver (paper layer 5)."""
+
+    def __init__(self, keep=400):
+        self.lines = []
+        self.by_story = collections.defaultdict(list)
+        self.by_driver = collections.defaultdict(list)
+        self.by_speaker = {}
+        self.angles = collections.defaultdict(list)   # story_id -> [angle]
+        self.keep = keep
+
+    def record(self, rec, story_id=None, angle=None):
+        row = {"line_id": rec.get("line_id"), "t": rec.get("t_unix"),
+               "kind": rec.get("kind"), "speaker": rec.get("speaker"),
+               "text": rec.get("text"), "subjects": list(rec.get("subjects") or []),
+               "story_id": story_id, "angle": angle}
+        self.lines.append(row)
+        if len(self.lines) > self.keep:
+            self.lines.pop(0)
+        if story_id:
+            self.by_story[story_id].append(row)
+            if angle:
+                self.angles[story_id].append(angle)
+        for i in row["subjects"]:
+            self.by_driver[i].append(row)
+        if row["speaker"]:
+            self.by_speaker[row["speaker"]] = row
+        return row
+
+    def last_on_story(self, sid):
+        L = self.by_story.get(sid)
+        return L[-1] if L else None
+
+    def count_on_story(self, sid):
+        return len(self.by_story.get(sid, ()))
+
+    def last_on_driver(self, idx):
+        L = self.by_driver.get(idx)
+        return L[-1] if L else None
+
+    def angles_on(self, sid):
+        return list(self.angles.get(sid, ()))
+
+    def other_voice_last(self, speaker):
+        other = "ANALYST" if speaker == "LEAD" else "LEAD"
+        return self.by_speaker.get(other)
+
+
+class PredictionLedger:
+    """Predictions the booth owns (paper section 07, DEV-07 minimal): planted
+    from a story's projection, resolved by the story's outcome or the clock,
+    and paid off once on air."""
+
+    def __init__(self):
+        self.items = []
+        self._seq = 0
+        self.by_story = {}
+
+    def plant(self, t, lap, rec, proj, chaser_idx, target_idx, say_a, say_b,
+              min_feas=1.0):
+        if not proj or proj.get("lap") is None or proj.get("confidence") != "H":
+            return None
+        if proj.get("feasibility", 0.0) < min_feas:
+            return None
+        if rec.id in self.by_story and self.by_story[rec.id]["status"] == "open":
+            cur = self.by_story[rec.id]
+            if cur["deadline_lap"] != proj["lap"]:
+                cur["deadline_lap"] = proj["lap"]
+                cur["revised"] = cur.get("revised", 0) + 1
+            return cur
+        self._seq += 1
+        item = {"id": "P%03d" % self._seq, "story_id": rec.id,
+                "story_type": rec.row_id, "planted_t": round(t, 3),
+                "planted_lap": lap, "deadline_lap": proj["lap"],
+                "chaser": chaser_idx, "target": target_idx,
+                "say": {"chaser": say_a, "target": say_b},
+                "claim": "%s catches %s by lap %s" % (say_a, say_b, proj["lap"]),
+                "status": "open", "spoken": False, "resolved_lap": None,
+                "paid": False}
+        self.items.append(item)
+        self.by_story[rec.id] = item
+        return item
+
+    def open_for(self, sid):
+        it = self.by_story.get(sid)
+        return it if it and it["status"] == "open" else None
+
+    def resolve_story(self, rec, lap):
+        it = self.by_story.get(rec.id)
+        if not it or it["status"] != "open":
+            return None
+        if rec.outcome in ("passed", "picked_off", "cleared"):
+            it["status"] = "confirmed" if lap <= it["deadline_lap"] else "late"
+        elif rec.outcome in ("failed", "lost", "separated", "idle",
+                             "no_chaser", "restarted", "out", "pit_cycle"):
+            it["status"] = "missed"
+        else:
+            it["status"] = "void"
+        it["resolved_lap"] = lap
+        return it
+
+    def tick(self, lap):
+        """A prediction past its deadline with the story still live is missed."""
+        for it in self.items:
+            if it["status"] == "open" and lap > it["deadline_lap"]:
+                it["status"] = "missed"
+                it["resolved_lap"] = lap
+
+    def payoff_owed(self, sid):
+        it = self.by_story.get(sid)
+        if it and it["status"] in ("confirmed", "missed", "late") and not it["paid"] \
+                and it["spoken"]:
+            return it
+        return None
+
+    def mark_spoken(self, sid):
+        it = self.by_story.get(sid)
+        if it and it["status"] == "open":
+            it["spoken"] = True
+
+    def mark_paid(self, sid):
+        it = self.by_story.get(sid)
+        if it:
+            it["paid"] = True
+
+    def summary(self):
+        c = collections.Counter(it["status"] for it in self.items)
+        return {"planted": len(self.items), "by_status": dict(c),
+                "spoken": sum(1 for it in self.items if it["spoken"]),
+                "paid": sum(1 for it in self.items if it["paid"])}
+
+
+# ---- stakes and colour: archive, track reference, dossier, rules --------------
+
+class Archive:
+    """Hoover's own results store (paper layer 6): every captured session's
+    classification, grid, fastest lap, lead changes and story arcs, keyed by
+    league night. Read at start, written at session close. Practice nights are
+    labelled and never count as season record."""
+
+    def __init__(self, path, night_id=None, label="practice", log=None):
+        self.path = path
+        self.log = log or (lambda m: None)
+        self.night_id = night_id or datetime.now().strftime("%Y-%m-%d")
+        self.label = label
+        self.data = {"format": "hoover_archive_v1", "nights": {}}
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    d = json.load(f)
+                if isinstance(d, dict) and "nights" in d:
+                    self.data = d
+            except Exception as e:
+                self.log("[archive] could not read %s: %s" % (path, type(e).__name__))
+        self.data["nights"].setdefault(self.night_id, {"label": label, "sessions": []})
+
+    # -- write ----------------------------------------------------------------
+    def add_session(self, session):
+        night = self.data["nights"].setdefault(self.night_id,
+                                               {"label": self.label, "sessions": []})
+        night["sessions"].append(session)
+        if not self.path:
+            return
+        tmp = self.path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, indent=1, sort_keys=True)
+            os.replace(tmp, self.path)
+        except Exception as e:
+            self.log("[archive] could not write %s: %s" % (self.path, type(e).__name__))
+
+    # -- read -----------------------------------------------------------------
+    def _sessions(self, tonight_only):
+        out = []
+        for nid, night in self.data["nights"].items():
+            if tonight_only and nid != self.night_id:
+                continue
+            if not tonight_only and night.get("label") != "official":
+                continue
+            for s in night.get("sessions", []):
+                out.append((nid, night.get("label"), s))
+        return out
+
+    def driver_record(self, key, tonight=True):
+        """Wins, podiums, races, best finish, poles and the previous finish for
+        one driver key, tonight (any label) or across official nights."""
+        rec = {"races": 0, "wins": 0, "podiums": 0, "points": 0, "poles": 0,
+               "best": None, "previous_finish": None, "fastest_laps": 0,
+               "scope": "tonight" if tonight else "season"}
+        for nid, label, s in self._sessions(tonight):
+            if s.get("session_kind") != "RACE":
+                continue
+            for row in s.get("classification", []):
+                if row.get("key") != key:
+                    continue
+                pos = row.get("position")
+                if not pos:
+                    continue
+                rec["races"] += 1
+                rec["wins"] += pos == 1
+                rec["podiums"] += pos <= 3
+                rec["points"] += row.get("points") or F1_POINTS.get(pos, 0)
+                rec["poles"] += (row.get("grid") == 1)
+                rec["best"] = pos if rec["best"] is None else min(rec["best"], pos)
+                rec["previous_finish"] = pos
+                if s.get("fastest_lap_key") == key:
+                    rec["fastest_laps"] += 1
+        return rec
+
+    def pair_record(self, a, b, tonight=True):
+        """How many times two drivers have fought for a place tonight (from
+        stored battle arcs) and who finished ahead in each race."""
+        fights = 0
+        ahead = {a: 0, b: 0}
+        for nid, label, s in self._sessions(tonight):
+            for arc in s.get("arcs", []):
+                ps = set(arc.get("participants") or [])
+                if a in ps and b in ps and arc.get("type") in ("BAT-01", "LEAD-03"):
+                    fights += 1
+            posn = {row.get("key"): row.get("position") for row in s.get("classification", [])}
+            if posn.get(a) and posn.get(b):
+                ahead[a if posn[a] < posn[b] else b] += 1
+        return {"fights": fights, "ahead": ahead}
+
+    def tonight_count(self):
+        return sum(1 for _, _, s in self._sessions(True) if s.get("session_kind") == "RACE")
+
+
+class TrackReference:
+    """hoover_tracks.json: per track, corner map by lap distance, overtaking
+    spots, DRS zones and character. Sector-level location needs only the wire
+    (sector starts come from the Session packet); corner-level location is used
+    only when the track is marked calibrated against a real capture."""
+
+    def __init__(self, path, log=None):
+        self.log = log or (lambda m: None)
+        self.tracks = {}
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    d = json.load(f)
+                self.tracks = d.get("tracks", {})
+            except Exception as e:
+                self.log("[tracks] could not read %s: %s" % (path, type(e).__name__))
+
+    def track(self, track_id):
+        return self.tracks.get(str(track_id)) or self.tracks.get(TRACK_NAMES.get(track_id, ""))
+
+    def corner_at(self, track_id, lap_distance_m):
+        tr = self.track(track_id)
+        if not tr or not tr.get("calibrated") or lap_distance_m is None:
+            return None
+        best = None
+        for c in tr.get("corners", []):
+            d = c.get("dist_m")
+            if d is None:
+                continue
+            if lap_distance_m >= d - c.get("approach_m", 120) and \
+                    lap_distance_m <= d + c.get("exit_m", 80):
+                if best is None or abs(lap_distance_m - d) < abs(lap_distance_m - best["dist_m"]):
+                    best = c
+        return best
+
+    def facts(self, track_id):
+        tr = self.track(track_id)
+        if not tr:
+            return []
+        out = []
+        if tr.get("character"):
+            out.append(tr["character"])
+        for s in tr.get("overtaking_spots", [])[:3]:
+            out.append("overtaking spot: %s" % s)
+        return out
+
+    def names(self, track_id):
+        tr = self.track(track_id)
+        if not tr:
+            return []
+        words = [tr.get("name", "")]
+        for c in tr.get("corners", []):
+            if c.get("name"):
+                words.append(c["name"])
+        return [w for w in words if w]
+
+
+class Dossier:
+    """hoover_dossier.json: hand-written facts per driver key, plus facts armed
+    on a condition (on_podium, on_lead, on_retire, on_win). Optional."""
+
+    def __init__(self, path, log=None):
+        self.log = log or (lambda m: None)
+        self.drivers = {}
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    self.drivers = json.load(f).get("drivers", {})
+            except Exception as e:
+                self.log("[dossier] could not read %s: %s" % (path, type(e).__name__))
+
+    def facts(self, key, conditions=()):
+        d = self.drivers.get(key) or {}
+        out = list(d.get("facts", []))[:3]
+        armed = d.get("armed", {}) or {}
+        for c in conditions:
+            if armed.get(c):
+                out.append(armed[c])
+        return out
+
+
+# ---- affect: what the moment should feel like ---------------------------------
+
+def story_affect(rec, claim, engine, lap_now):
+    """Appraisal of the beat: emotion, intensity, onset and whose moment it is.
+    Data, not performance -- the speech layer decides the sound."""
+    f = claim.facts or {}
+    beat = f.get("beat") or ""
+    valence = f.get("valence") or rec.valence
+    energy = f.get("energy") or rec.energy or 2
+    anchor = (rec.anchor or {}).get("human")
+    whose = engine.name(anchor) if anchor is not None else None
+    humans_in = [i for i in rec.participants if engine.is_human(i)]
+    sudden = rec.row_id.startswith(SUDDEN_PREFIXES) or beat in (
+        "contact", "off", "spin", "out", "resolved", "passed", "lights")
+    emotion = "neutral"
+    if rec.row_id.startswith(("INC", "REL")):
+        emotion = "dread" if humans_in else "shock"
+        if beat in ("out", "retired") and humans_in:
+            emotion = "disappointment"
+    elif rec.row_id.startswith(("BAT", "POS", "HUM", "LEAD")):
+        if beat in ("resolved", "passed", "cleared"):
+            emotion = "delight" if humans_in else "neutral"
+            if f.get("view", {}).get("outcome") == "failed":
+                emotion = "disappointment"
+        elif rec.phase in ("attack_range", "big_catch", "under_threat", "contested"):
+            emotion = "tension"
+    elif rec.row_id.startswith("SF") and beat in ("flag", "winner", "result"):
+        emotion = "delight" if humans_in else "neutral"
+    if beat in ("arrested", "held", "rejoined", "survived") and humans_in:
+        emotion = "relief"
+    if valence == "bad" and emotion in ("neutral", "tension"):
+        emotion = "dread"
+    # intensity: energy scaled by stakes (front of the field, late race)
+    inten = {1: 0.25, 2: 0.45, 3: 0.7, 4: 0.9}.get(int(energy), 0.45)
+    pos = engine.pos(rec.participants[0]) if rec.participants else None
+    if pos is not None and pos <= 3:
+        inten = min(1.0, inten + 0.15)
+    rem = engine.laps_remaining()
+    if rem is not None and rem <= 1:
+        inten = min(1.0, inten + 0.1)
+    if not humans_in and anchor is None:
+        inten *= 0.6
+    surprise = None
+    leaders = rec.fields.get("leaders")
+    if rec.row_id.startswith("LEAD") and leaders:
+        gidx = leaders[-1][0]
+        grid = engine.w.cars[gidx].grid if gidx is not None else 0
+        if grid and grid >= 6:
+            surprise = "leader started %s" % _ordinal(grid)
+    return {"emotion": emotion, "intensity": round(inten, 2),
+            "onset": "instant" if sudden else "building",
+            "whose": whose, "surprise": surprise}
+
+
+# ---- the builder --------------------------------------------------------------
+
+class BlobContext:
+    """Everything the builder reads besides the claim and the race model. Set
+    on the booth by the run loop when the story layer is on."""
+
+    def __init__(self, stories=None, gallery=None, said=None, predictions=None,
+                 archive=None, tracks=None, dossier=None, rules=None, cfg=None):
+        self.stories = stories
+        self.gallery = gallery
+        self.said = said
+        self.predictions = predictions
+        self.archive = archive
+        self.tracks = tracks
+        self.dossier = dossier
+        self.rules = rules or []
+        self.cfg = cfg
+        self.last_interjection_t = None
+
+
+def _driver_key(car):
+    """The archive key for a driver. A human keeps the roster's driver_id (it
+    survives a car-index change between sessions); an AI car, whose index does
+    change, is keyed by its spoken name."""
+    did = car.driver_id
+    if car.is_human and did and not str(did).startswith("car_"):
+        return did
+    return car.spoken or did or ("car_%02d" % car.idx)
+
+
+def lull_now(eng):
+    return bool(getattr(eng, "lull_active", False)) if eng is not None else False
+
+
+def classify_rejection(reason, world, tracks=None):
+    """Which layer a rejected completion was reaching for (paper section 08):
+    a rejected 'Parabolica' means the track layer was missing, not that the
+    model misbehaved. Returns (reason_kind, layer)."""
+    if not reason:
+        return (None, None)
+    kind, _, tok = reason.partition(":")
+    if kind == "unknown_name" and tok:
+        low = tok.lower().rstrip("'s")
+        if world is not None:
+            for c in world.cars:
+                if c.spoken and low == c.spoken.lower():
+                    return (kind, "race")
+        try:
+            teams = {team_name(i).lower() for i in range(0, 12)}
+        except Exception:
+            teams = set()
+        if any(low == t or low in t.split() for t in teams):
+            return (kind, "roster")
+        if tracks is not None and world is not None:
+            names = {w.lower() for w in tracks.names(world.track_id)}
+            if any(low == n or low in n.split() for n in names):
+                return (kind, "track")
+        return (kind, "unknown")
+    if kind == "number_word":
+        return (kind, "numbers")
+    if kind in ("cache_miss", "over_limit", "late", "timeout", "error", "no_key",
+                "deadline", "socket", "empty"):
+        return (kind, "transport")
+    return (kind, "format")
+
+
+def _caps_words(text):
+    """Capitalised tokens in a fact string, for the licence."""
+    return [w.strip(".,;:!?'\"") for w in text.split()
+            if w[:1].isupper() and len(w.strip(".,;:!?'\"")) > 1]
+
+
+def _pick_angle(rec, ctx, affect, licence, has_cause, has_relate):
+    """The angle comes from the ledger: what the story has already said decides
+    what comes next. No genre is chosen."""
+    if rec is None:
+        return "what"
+    said = ctx.said.angles_on(rec.id) if ctx.said else []
+    n = len(said)
+    last = said[-1] if said else None
+    owed = ctx.predictions.payoff_owed(rec.id) if ctx.predictions else None
+    if owed:
+        return "means"
+    if n == 0:
+        return "what"
+    if last == "what" and has_cause and "why" not in said:
+        return "why"
+    if has_relate and "means" not in said:
+        return "means"
+    if licence.get("prediction_allowed") and "next" not in said[-2:]:
+        return "next"
+    if licence.get("feel_allowed") and "feel" not in said and affect["intensity"] >= 0.6:
+        return "feel"
+    if rec.phase in ("procession", "catching", "cooling") and last != "next":
+        return "next"
+    return "what"
+
+
+def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
+                        deadline=None):
+    """The seven-layer blob. Starts from the V3/V4/V5 builder so every field
+    the checker and the prompt already use is still there, then adds the
+    layers, the angle, the lane and the ranked notes."""
+    blob = build_state_blob(claim, model)
+    world = getattr(model, "w", None)
+    eng = ctx.stories
+    cfg = ctx.cfg
+    rec = getattr(claim, "story", None)
+    now = t if t is not None else claim.t_create
+    lap_now = eng.lap_now() if eng is not None else None
+    layers = ["spine"]
+    notes = []           # (rank_tuple, text, layer, tags)
+    allowed = blob["allowed_words"]
+
+    def allow(*ws):
+        for w in ws:
+            if w and w not in allowed:
+                allowed.append(w)
+
+    def note(text, layer, story=None, angles=("what",), said=False, importance=0.5):
+        # words only (the checker rejects digits), and every number word a
+        # note contains is licensed by the layer that wrote it
+        text = speech_normalise(text)
+        allow(*[w.strip(".,;") for w in text.replace("-", " ").split()
+                if w.strip(".,;") in NUMBER_WORDS])
+        notes.append({"text": text, "layer": layer, "story": story,
+                      "angles": list(angles), "said": said,
+                      "importance": round(importance, 2)})
+
+    # ---- spine ---------------------------------------------------------------
+    blob["spine"] = {"claim_id": claim.claim_id, "kind": claim.kind,
+                     "outcome": blob["outcome"], "lap": lap_now,
+                     "laps_total": eng.laps_total() if eng is not None else None,
+                     "laps_remaining": eng.laps_remaining() if eng is not None else None,
+                     "phase": blob["session"].get("phase"),
+                     "speaker": speaker, "word_budget": word_budget}
+    if lap_now:
+        allow(_num_word(lap_now))
+    rem = blob["spine"]["laps_remaining"]
+    if rem is not None:
+        allow(_num_word(rem))
+    subj_idx = list(claim.subjects)
+    subj_say = {i: (claim.names[k] if k < len(claim.names) else None)
+                for k, i in enumerate(subj_idx)}
+
+    # ---- story layer ---------------------------------------------------------
+    has_cause = False
+    has_relate = False
+    if rec is not None and eng is not None:
+        layers.append("story")
+        arc = story_arc(rec, lap_now)
+        st = blob.setdefault("story", {})
+        st["arc"] = arc
+        st["chapters_recent"] = rec.chapters[-4:]
+        last_said = ctx.said.last_on_story(rec.id) if ctx.said else None
+        st["last_said"] = ({"text": last_said["text"], "t": last_said["t"],
+                            "angle": last_said.get("angle"),
+                            "ago_s": round(now - last_said["t"], 1) if last_said.get("t") else None}
+                           if last_said else None)
+        st["lines_aired"] = ctx.said.count_on_story(rec.id) if ctx.said else 0
+        st["angles_said"] = ctx.said.angles_on(rec.id) if ctx.said else []
+        st["relate"] = ((rec.anchor or {}).get("input")) if rec.anchor else None
+        has_cause = bool(st.get("cause"))
+        has_relate = bool(st["relate"] and st["relate"] != "none")
+        # the paper's defect 2: projection and opened lap are sayable
+        pj = rec.projection or {}
+        if pj.get("lap") is not None:
+            allow(_num_word(pj["lap"]))
+        if rec.opened_lap is not None:
+            allow(_num_word(rec.opened_lap))
+        rel = [r for r in eng.store.live.values() if r.id != rec.id
+               and set(r.participants) & set(rec.participants)]
+        st["related_live"] = [{"id": r.id, "type": r.row_id, "phase": r.phase}
+                              for r in rel[:3]]
+        # notes from the arc
+        sid = rec.id
+        said_n = st["lines_aired"]
+        a_say = subj_say.get(rec.participants[0]) if rec.participants else None
+        if arc.get("lead_changes"):
+            allow(_num_word(arc["lead_changes"]))
+            note("the lead has changed %s times" % _num_word(arc["lead_changes"]),
+                 "story", sid, ("what", "means"), said_n > 0, 0.9)
+            for l in arc.get("leaders", []):
+                nm = eng.name(l["idx"])
+                allow(nm, _num_word(l["from_lap"]))
+                note("%s led from lap %s" % (nm, _num_word(l["from_lap"])),
+                     "story", sid, ("means", "next"), False, 0.6)
+        if arc.get("laps_led"):
+            allow(_num_word(arc["laps_led"]))
+            note("%s has led %s laps" % (a_say or eng.name(rec.participants[0]),
+                                          _num_word(arc["laps_led"])),
+                 "story", sid, ("means",), False, 0.5)
+        if arc.get("gap_first") is not None and arc.get("gap_last") is not None \
+                and arc.get("beats", 0) >= 2:
+            gf, gl = _gap_words(arc["gap_first"]), _gap_words(arc["gap_last"])
+            if gf and gl and gf != gl:
+                allow(*gf.split(), *gl.split())
+                note("the gap was %s when this started, it is %s now" % (gf, gl),
+                     "story", sid, ("means", "next"), False, 0.8)
+        if arc.get("laps_live") and arc["laps_live"] >= 2:
+            allow(_num_word(arc["laps_live"]))
+            note("this has been going on for %s laps" % _num_word(arc["laps_live"]),
+                 "story", sid, ("means", "feel"), False, 0.5)
+        if st.get("cause"):
+            note("cause: %s" % st["cause"], "story", sid, ("why",),
+                 "why" in st["angles_said"], 0.9)
+        if pj.get("lap") is not None and pj.get("confidence") == "H" and rec.live:
+            note("at this rate the catch comes by lap %s" % _num_word(pj["lap"]),
+                 "story", sid, ("next",), "next" in st["angles_said"], 0.85)
+
+    # ---- race picture --------------------------------------------------------
+    ext = getattr(world, "ext", None) if world is not None else None
+    race = {}
+    if eng is not None and world is not None:
+        layers.append("race")
+        order = [c for c in world.by_position() if eng.running(c.idx)]
+        top = []
+        for c in order[:3]:
+            top.append({"say": c.spoken, "position": c.position})
+            allow(c.spoken, _ordinal_word(c.position))
+        race["top_three"] = top
+        li = model.leader_idx
+        if li is not None:
+            second = eng.car_behind(li)
+            lg = eng.gap_ahead(second) if second is not None else None
+            race["leader"] = {"say": eng.name(li),
+                              "gap_to_second": round(lg, 1) if lg is not None else None}
+        humans = []
+        for i in eng.humans():
+            c = world.cars[i]
+            ga = eng.gap_ahead(i)
+            tr = _trend_word(list(c.gap_hist), now)
+            h = {"say": c.spoken, "position": c.position,
+                 "gap_ahead": round(ga, 1) if ga is not None else None,
+                 "trend": tr, "grid": c.grid or None}
+            if ext is not None:
+                ty = ext.tyre(i)
+                if ty:
+                    h["tyre"], h["tyre_age_laps"] = ty
+            humans.append(h)
+            allow(c.spoken, _ordinal_word(c.position) if c.position else None)
+        race["humans"] = humans
+        subjects = []
+        for i in subj_idx:
+            c = world.cars[i]
+            ahead = eng.car_ahead(i)
+            behind = eng.car_behind(i)
+            ga = eng.gap_ahead(i)
+            gb = eng.gap_ahead(behind) if behind is not None else None
+            s = {"say": subj_say.get(i) or c.spoken, "position": c.position,
+                 "grid": c.grid or None,
+                 "ahead": {"say": eng.name(ahead), "gap": round(ga, 1) if ga is not None else None,
+                           "trend": _trend_word(list(c.gap_hist), now)} if ahead is not None else None,
+                 "behind": {"say": eng.name(behind), "gap": round(gb, 1) if gb is not None else None,
+                            "trend": _trend_word(list(world.cars[behind].gap_hist), now)}
+                 if behind is not None else None}
+            if ext is not None:
+                ty = ext.tyre(i)
+                if ty:
+                    s["tyre"], s["tyre_age_laps"] = ty
+                    allow(ty[0], _num_word(ty[1]))
+                if ext.lap is not None and ext.session:
+                    row = ext.lap[i]
+                    sec = row.get("sector")
+                    s["sector"] = sec + 1 if sec is not None else None
+                    corner = ctx.tracks.corner_at(world.track_id, row.get("lap_distance_m")) \
+                        if ctx.tracks else None
+                    if corner:
+                        s["corner"] = corner.get("name") or ("turn %d" % corner.get("n", 0))
+                        allow(*_caps_words(s["corner"]))
+                        if corner.get("n"):
+                            allow(_num_word(corner["n"]))
+                if ext.status is not None and not ext.restricted(i):
+                    stt = ext.status[i]
+                    s["drs"] = "available" if stt["drs_allowed"] else (
+                        "in %d metres" % stt["drs_activation_m"] if stt["drs_activation_m"] else None)
+                    s["ers_mode"] = ERS_MODES.get(stt["ers_mode"])
+            subjects.append(s)
+            if c.grid and c.position and abs(c.grid - c.position) >= 3:
+                allow(_ordinal_word(c.grid), _ordinal_word(c.position))
+                note("%s started %s and is %s" % (s["say"], _ordinal_word(c.grid),
+                                                    _ordinal_word(c.position)),
+                     "race", rec.id if rec else None, ("means", "feel"), False, 0.7)
+            if s.get("ahead") and s["ahead"].get("gap") is not None and s["ahead"].get("trend"):
+                gw = _gap_words(s["ahead"]["gap"])
+                if gw:
+                    allow(*gw.split(), s["ahead"]["say"])
+                    note("%s is %s behind %s and %s" % (s["say"], gw, s["ahead"]["say"],
+                                                        s["ahead"]["trend"]),
+                         "race", rec.id if rec else None, ("what", "next"), False, 0.6)
+            if s.get("tyre"):
+                age = s.get("tyre_age_laps")
+                note("%s is on %s-lap-old %ss" % (s["say"], _num_word(age), s["tyre"]) if age is not None
+                     else "%s is on %ss" % (s["say"], s["tyre"]),
+                     "race", rec.id if rec else None, ("why", "next"), False, 0.65)
+            if s.get("ers_mode") == "overtake":
+                note("%s has overtake mode on" % s["say"], "race",
+                     rec.id if rec else None, ("what", "why"), False, 0.6)
+        race["subjects"] = subjects
+        blob["race"] = race
+
+    # ---- shot ----------------------------------------------------------------
+    g = ctx.gallery
+    if g is not None and world is not None:
+        layers.append("shot")
+        cur = g.current
+        held = (now - g.hold_since) if (cur is not None and g.hold_since is not None) else None
+        prot = getattr(g, "_prot", None)
+        remaining = None
+        if prot and cur is not None and prot.get("car") == cur and prot.get("until"):
+            remaining = max(0.0, prot["until"] - now)
+        elif held is not None:
+            st_ = getattr(model, "state", None)
+            floor = getattr(g, "floor_incident", 2.5) if st_ in ("safety_car", "vsc", "red_flag") \
+                else getattr(g, "floor_normal", 4.0)
+            if lull_now(eng):
+                floor = getattr(g, "floor_lull", 7.0)
+            remaining = max(0.0, floor - held)
+        shot = {"on_screen": eng.name(cur) if (cur is not None and eng is not None) else None,
+                "on_screen_human": bool(world.cars[cur].is_human) if cur is not None else None,
+                "held_s": round(held, 1) if held is not None else None,
+                "hold_remaining_s": round(remaining, 1) if remaining is not None else None,
+                "subject_on_screen": (cur in subj_idx) if cur is not None else None}
+        blob["shot"] = shot
+        if shot["on_screen"] and not shot["subject_on_screen"]:
+            allow(shot["on_screen"])
+            note("the camera is on %s, not on this" % shot["on_screen"], "shot",
+                 None, ("what",), False, 0.7)
+
+    # ---- booth memory --------------------------------------------------------
+    mem = {}
+    if ctx.said is not None:
+        layers.append("memory")
+        ov = ctx.said.other_voice_last(speaker) if speaker else None
+        mem["other_voice_last"] = ov["text"] if ov else None
+        for i in subj_idx:
+            ld = ctx.said.last_on_driver(i)
+            if ld and ld.get("t") is not None:
+                mem.setdefault("last_on_subject", {})[subj_say.get(i) or str(i)] = {
+                    "text": ld["text"], "ago_s": round(now - ld["t"], 1)}
+        if rec is not None and ctx.predictions is not None:
+            op = ctx.predictions.open_for(rec.id)
+            if op:
+                mem["prediction_open"] = {"claim": op["claim"], "deadline_lap": op["deadline_lap"],
+                                          "spoken": op["spoken"]}
+                allow(_num_word(op["deadline_lap"]))
+                if op["spoken"]:
+                    note("we said %s" % op["claim"], "memory", rec.id, ("next", "means"), True, 0.6)
+            owed = ctx.predictions.payoff_owed(rec.id)
+            if owed:
+                mem["prediction_resolved"] = {"claim": owed["claim"], "status": owed["status"],
+                                              "resolved_lap": owed["resolved_lap"]}
+                allow(_num_word(owed["deadline_lap"]))
+                verb = {"confirmed": "and there it is", "missed": "and it has not come",
+                        "late": "and it came late"}.get(owed["status"], "")
+                note("we said %s, %s" % (owed["claim"], verb), "memory", rec.id,
+                     ("means",), False, 0.95)
+        blob["memory"] = mem
+
+    # ---- stakes and colour ---------------------------------------------------
+    stakes = {"in_race": []}
+    if world is not None:
+        layers.append("stakes")
+        for i in subj_idx:
+            c = world.cars[i]
+            if c.position:
+                pts = F1_POINTS.get(c.position, 0)
+                entry = {"say": subj_say.get(i) or c.spoken, "position": c.position,
+                         "podium": c.position <= 3, "points": pts}
+                stakes["in_race"].append(entry)
+                if c.position <= 3:
+                    note("%s is in a podium place" % entry["say"], "stakes",
+                         rec.id if rec else None, ("means",), False, 0.6)
+        if ctx.archive is not None:
+            tonight = {}
+            for i in subj_idx:
+                c = world.cars[i]
+                key = _driver_key(c)
+                r = ctx.archive.driver_record(key, tonight=True)
+                if r["races"]:
+                    tonight[subj_say.get(i) or c.spoken] = r
+                    say = subj_say.get(i) or c.spoken
+                    allow(_num_word(r["wins"]), _num_word(r["races"]),
+                          _num_word(r["podiums"]))
+                    if r["wins"] and r["races"] == 1:
+                        note("%s won the first race tonight" % say,
+                             "stakes", rec.id if rec else None, ("means", "feel"), False, 0.7)
+                    elif r["wins"]:
+                        note("%s has won %s of tonight's %s races" % (
+                            say, _num_word(r["wins"]), _num_word(r["races"])),
+                            "stakes", rec.id if rec else None, ("means", "feel"), False, 0.7)
+                    elif r["previous_finish"]:
+                        allow(_ordinal_word(r["previous_finish"]))
+                        note("%s finished %s in the previous race tonight" % (
+                            say, _ordinal_word(r["previous_finish"])),
+                            "stakes", rec.id if rec else None, ("means",), False, 0.55)
+            if tonight:
+                stakes["tonight"] = tonight
+            if len(subj_idx) >= 2:
+                ka, kb = _driver_key(world.cars[subj_idx[0]]), _driver_key(world.cars[subj_idx[1]])
+                pr = ctx.archive.pair_record(ka, kb, tonight=True)
+                if pr["fights"]:
+                    stakes["pair"] = pr
+                    allow(_num_word(pr["fights"] + 1))
+                    note("the %s time tonight these two have fought for a place" %
+                         _ordinal_word(pr["fights"] + 1), "stakes", rec.id if rec else None,
+                         ("means", "feel"), False, 0.8)
+            stakes["night_label"] = ctx.archive.label
+        if ctx.tracks is not None:
+            tf = ctx.tracks.facts(world.track_id)
+            if tf:
+                stakes["track"] = tf
+                for s in tf:
+                    allow(*_caps_words(s))
+                    note(s, "track", None, ("why", "next"), False, 0.4)
+        if ctx.dossier is not None:
+            for i in subj_idx:
+                c = world.cars[i]
+                conds = []
+                if c.position and c.position <= 3:
+                    conds.append("on_podium")
+                if c.position == 1:
+                    conds.append("on_lead")
+                df = ctx.dossier.facts(_driver_key(c), conds)
+                if df:
+                    stakes.setdefault("dossier", {})[subj_say.get(i) or c.spoken] = df
+                    for s in df:
+                        allow(*_caps_words(s))
+                        note(s, "dossier", rec.id if rec else None, ("feel", "means"), False, 0.45)
+        gates = list(blob["session"].get("gates", []))
+        if ctx.rules:
+            gates.extend(ctx.rules)
+        if gates:
+            blob["session"]["gates"] = gates
+    blob["stakes"] = stakes
+
+    # ---- affect --------------------------------------------------------------
+    affect = None
+    if rec is not None and eng is not None:
+        affect = story_affect(rec, claim, eng, lap_now)
+        blob["affect"] = affect
+        if affect["surprise"]:
+            allow(*_caps_words(affect["surprise"]), *[w for w in affect["surprise"].split()
+                                                       if w in NUMBER_WORDS])
+            note(affect["surprise"], "story", rec.id, ("means", "feel"), False, 0.8)
+
+    # ---- licence -------------------------------------------------------------
+    lane_slow_s = _blob_cfg(cfg, "slow_lane_min_s", 2.5)
+    time_to_air = (deadline - now) if deadline is not None else None
+    lull = bool(getattr(eng, "lull_active", False)) if eng is not None else False
+    lane = "slow"
+    if time_to_air is not None and time_to_air < lane_slow_s:
+        lane = "fast"
+    if claim.hard or (rec is not None and rec.row_id.startswith(SUDDEN_PREFIXES)
+                      and not lull):
+        lane = "fast"
+    feel_ok = bool(affect and affect["whose"] and affect["intensity"] >= _blob_cfg(cfg, "feel_min_intensity", 0.6))
+    pred_ok = bool(rec is not None and (rec.projection or {}).get("confidence") == "H"
+                   and (rec.projection or {}).get("feasibility", 0) >= 1.0 and rec.live)
+    inter_gap = _blob_cfg(cfg, "interjection_min_gap_s", 120.0)
+    inter_ok = bool(affect and affect["onset"] == "instant"
+                    and affect["intensity"] >= _blob_cfg(cfg, "interjection_min_intensity", 0.8)
+                    and (ctx.last_interjection_t is None or now - ctx.last_interjection_t >= inter_gap))
+    licence = {"feel_allowed": feel_ok, "prediction_allowed": pred_ok,
+               "humour_allowed": False, "interjection_allowed": inter_ok,
+               "lane": lane, "time_to_air_s": round(time_to_air, 2) if time_to_air is not None else None}
+    if inter_ok:
+        licence["interjection"] = {"shock": "Whoa!", "dread": "Oh no.", "delight": "Oh, yes!",
+                                   "disappointment": "Oh no.", "tension": "Here we go.",
+                                   "neutral": "Oh!"}.get(affect["emotion"], "Oh!")
+    layers.append("licence")
+    blob["licence"] = licence
+
+    # ---- angle, selection, budget -------------------------------------------
+    angle = _pick_angle(rec, ctx, affect or {"intensity": 0.0}, licence, has_cause, has_relate)
+    blob["angle"] = angle
+    fast_n = _blob_cfg(cfg, "notes_fast", 4)
+    slow_n = _blob_cfg(cfg, "notes_slow", 12)
+    budget = fast_n if lane == "fast" else slow_n
+    if lull:
+        budget += _blob_cfg(cfg, "notes_lull_bonus", 3)
+    sid = rec.id if rec is not None else None
+
+    def rank(n):
+        return (0 if (n["story"] == sid and sid) else 1,
+                0 if angle in n["angles"] else 1,
+                0 if not n["said"] else 1,
+                -n["importance"])
+    notes.sort(key=rank)
+    blob["notes"] = [{"text": n["text"], "layer": n["layer"], "angles": n["angles"],
+                      "said": n["said"]} for n in notes[:budget]]
+    blob["spend"] = _blob_cfg(cfg, "spend_fast", 1) if lane == "fast" else _blob_cfg(cfg, "spend_slow", 2)
+    blob["layers"] = layers
+    blob["allowed_words"] = [w for w in allowed if w]
+    return blob
+
+
 RESULT_FINISHED_V3 = 3
 RESULT_RETIRED_SET_V3 = (4, 5, 7)
 FC_REASON_NAMES = {
@@ -5630,6 +6617,13 @@ class V3Booth:
         self.queue = []
         self.emitted = []
         self.claim_records = []
+        # V6 (08 OCT): the said ledger, the blob context (set by the run loop
+        # when the story layer is on) and the optional blob log
+        self.said = SaidLedger()
+        self.blobctx = None
+        self.log_blobs = False
+        self.blob_log = []
+        self._blob_by_claim = {}
         self.channel_busy_until = 0.0
         self.rate = (config.get("booth", "speech_rate_wps", default=None)
                      or 2.6)
@@ -5927,6 +6921,17 @@ class V3Booth:
         self._last_template = tmpl_key
         return speaker, text
 
+    # ---- V6: one builder, the claim as a pointer ----------------------------
+    def _build_blob(self, claim, t, speaker, word_budget, deadline):
+        if self.blobctx is not None:
+            blob = build_state_blob_v6(claim, self.model, self.blobctx, t=t,
+                                       speaker=speaker, word_budget=word_budget,
+                                       deadline=deadline)
+        else:
+            blob = build_state_blob(claim, self.model)
+        self._blob_by_claim[claim.claim_id] = blob
+        return blob
+
     # ---- Part L: the writer seam -------------------------------------------
     def _line_request(self, claim, past, t):
         """Assemble a LineRequest. The heavy state blob and recent-line snapshot
@@ -5936,7 +6941,6 @@ class V3Booth:
         word_budget = 0
         recent = ()
         if self.writer.needs_blob:
-            blob = build_state_blob(claim, self.model)
             speaker = self._model_speaker(claim)
             word_budget = self._word_budget_words(claim)
             recent = tuple((r["speaker"], r["text"])
@@ -5945,6 +6949,7 @@ class V3Booth:
             # latest the claim could still air before it expires. The call site
             # converts it to a wall-clock socket timeout using the replay rate.
             deadline = claim.t_create + self._max_age_for(claim)
+            blob = self._build_blob(claim, t, speaker, word_budget, deadline)
         return LineRequest(claim, past, self._avoid_templates(t),
                            blob=blob, speaker=speaker, register=None,
                            word_budget=word_budget, recent=recent,
@@ -6342,6 +7347,39 @@ class V3Booth:
                 self.channel_busy_until = measured_end
                 self._last_air_end = measured_end
                 rec["duration_source"] = "measured"
+        # V6 (08 OCT): the said ledger, the prediction marks, the blob log
+        blob = self._blob_by_claim.pop(claim.claim_id, None)
+        if blob is None and (self.log_blobs or self.blobctx is not None) \
+                and not self.writer.needs_blob:
+            blob = self._build_blob(claim, t, speaker, self._word_budget_words(claim),
+                                    claim.t_create + self._max_age_for(claim))
+            self._blob_by_claim.pop(claim.claim_id, None)
+        story_id = (claim.facts or {}).get("story_id")
+        angle = blob.get("angle") if blob else None
+        if angle is None and story_id:
+            angle = {"open": "what", "transition": "what", "threshold": "what",
+                     "revisit": "next", "collision": "means", "relate": "means",
+                     "close": "means"}.get((claim.facts or {}).get("beat_kind"), "what")
+        self.said.record(rec, story_id=story_id, angle=angle)
+        if self.blobctx is not None:          # V3 line records stay byte-identical
+            rec["angle"] = angle
+        if blob is not None:
+            lic = blob.get("licence") or {}
+            rec["lane"] = lic.get("lane")
+            if lic.get("interjection_allowed") and self.blobctx is not None:
+                rec["interjection"] = lic.get("interjection")
+                self.blobctx.last_interjection_t = air_t
+            if self.blobctx is not None and self.blobctx.predictions is not None and story_id:
+                pl = self.blobctx.predictions
+                if angle == "next" and (blob.get("memory") or {}).get("prediction_open"):
+                    pl.mark_spoken(story_id)
+                if (blob.get("memory") or {}).get("prediction_resolved"):
+                    pl.mark_paid(story_id)
+            if self.log_blobs:
+                self.blob_log.append({"line_id": line_id, "claim_id": claim.claim_id,
+                                      "t_unix": round(air_t, 6), "speaker": speaker,
+                                      "text": text, "writer": getattr(result, "writer", None)
+                                      if result is not None else None, "blob": blob})
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -6749,6 +7787,10 @@ class TemplateWriter(Writer):
 
 
 V3_PROMPTS_NAME = "hoover_prompts_v3.json"
+ARCHIVE_FILE_NAME = "hoover_archive.json"      # V6: the results store
+TRACKS_FILE_NAME = "hoover_tracks.json"        # V6: track reference
+DOSSIER_FILE_NAME = "hoover_dossier.json"      # V6: hand-written driver facts
+RULES_FILE_NAME = "hoover_rules_league.json"   # V6: league rules as gates
 
 
 def _find_prompts_file(config):
@@ -7037,10 +8079,29 @@ class ModelWriter(Writer):
                                separators=(",", ": "))
         recent = "\n".join("%s: %s" % (sp, tx)
                            for sp, tx in request.recent) or "(none)"
+        b = request.blob or {}
+        extra = ""
+        if b.get("angle"):
+            extra += ("\n\nANGLE: %s (what = call it; why = the cause; means = the "
+                      "consequence for the people in it; next = what happens if this "
+                      "holds; feel = what the driver must be feeling)." % b["angle"])
+        if b.get("notes"):
+            extra += "\n\nNOTES (use at most %s, prefer the ones not yet said):\n%s" % (
+                b.get("spend", 1),
+                "\n".join("- %s%s" % (n["text"], " [said]" if n.get("said") else "")
+                           for n in b["notes"]))
+        gates = (b.get("session") or {}).get("gates")
+        if gates:
+            extra += "\n\nNEVER contradict these: " + "; ".join(gates) + "."
+        lic = b.get("licence") or {}
+        if lic.get("feel_allowed"):
+            extra += "\nYou may say what %s must be feeling." % ((b.get("affect") or {}).get("whose") or "the driver")
+        if lic.get("interjection_allowed") and lic.get("interjection"):
+            extra += "\nYou may open with a short exclamation such as '%s'." % lic["interjection"]
         return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
-                "(most recent last):\n%s\n\nWrite the single next line for the "
+                "(most recent last):\n%s%s\n\nWrite the single next line for the "
                 "%s voice, at most %d words." %
-                (self.user_preamble, blob_json, recent,
+                (self.user_preamble, blob_json, recent, extra,
                  request.speaker or "LEAD", request.word_budget or 24))
 
     def _http_post(self, user_message):
@@ -7789,8 +8850,8 @@ class SpeechChannel:
 # stays byte-identical to V4.0.
 
 BUILD_PRODUCT = "Baby Hoover"
-BUILD_VERSION = "V4.2"
-BUILD_DATE = "07OCT26"
+BUILD_VERSION = "V4.3"
+BUILD_DATE = "08OCT26"
 SETTINGS_ENV = "HOOVER_SETTINGS"
 SETTINGS_FILE_VERSION = 1
 
@@ -9288,6 +10349,8 @@ class StoryRecord:
         self.parent = parent
         self.relations = []
         self.beats = []                 # (t, kind, name)
+        self.chapters = []              # V6: fact rows, one per beat (08 OCT)
+        self.arc_counts = {}            # V6: folded chapter counts
         self.energy = row.get("energy", 2)
         self.valence = row.get("valence", "neutral")
         self.humans = []
@@ -9327,6 +10390,9 @@ class StoryStore:
         rec.humans = [i for i in participants if self.eng.is_human(i)]
         self.live[rec.id] = rec
         self._event(t, "open", rec, {"phase": phase})
+        story_chapter(rec, t, rec.opened_lap, "open", phase,
+                      participants=[self.eng.name(i) for i in participants],
+                      cap=self.eng.scfg.e("chapters_max", 24))
         return rec
 
     def close(self, t, rec, outcome):
@@ -9338,6 +10404,11 @@ class StoryStore:
         self.live.pop(rec.id, None)
         self.closed.append(rec)
         self._event(t, "close", rec, {"outcome": outcome})
+        story_chapter(rec, t, rec.closed_lap, "close", outcome,
+                      cap=self.eng.scfg.e("chapters_max", 24))
+        pl = getattr(self.eng, "predictions", None)
+        if pl is not None:
+            pl.resolve_story(rec, rec.closed_lap)
 
     def find(self, row_id, participants=None, phase=None):
         want = set(participants) if participants is not None else None
@@ -9806,6 +10877,7 @@ class StoryEngine:
         self._lull_stat_t = {}
         self._lull_stat_last = {}
         self.claims_out_lull = 0
+        self.predictions = PredictionLedger()     # V6 (08 OCT)
         enabled = set(scfg.e("enabled_phases", ["V3-P1"]))
         self.processors = []
         for rid, cls in sorted(_STORY_REGISTRY.items()):
@@ -10046,6 +11118,14 @@ class StoryEngine:
                   speaker=None, subjects=None):
         self.store.beat(t, rec, kind, name, {"ctx": ctx, "view": view})
         self.scorer.score(rec, t)
+        # V6: the chapter row (facts, not prose) and the prediction plant
+        story_chapter(rec, t, self.lap_now(), kind, name, display=ctx,
+                      numbers=numbers, cap=self.scfg.e("chapters_max", 24))
+        if rec.projection and len(rec.participants) >= 2:
+            tgt, chs = rec.participants[0], rec.participants[-1]
+            self.predictions.plant(t, self.lap_now(), rec, rec.projection, chs, tgt,
+                                   self.name(chs), self.name(tgt),
+                                   min_feas=self.scfg.e("prediction_min_feasibility", 1.0))
         row = rec.row
         subjects = list(subjects) if subjects is not None else list(rec.participants)
         names = [self.name(i) for i in subjects]
@@ -10499,16 +11579,32 @@ class P_LEAD_01(StoryProcessor):
             rec = self.open(t, [leader], fields={"gap": None, "laps_led": 0,
                                                  "pos_at_open": _pos_map(eng, [leader])})
             rec.fields["leader"] = leader
+            rec.fields["leaders"] = [(leader, eng.lap_now())]   # V6: history kept
+            rec.fields["_lap_seen"] = eng.lap_now()
             # the open is silent: V3's START claim has just said lights out
             # and the leader is on screen; the first spoken beat is a phase
             # change or the revisit
             return
         if rec.participants[0] != leader:
-            # the lead changed: LEAD-03 owns the moment; this record re-keys
+            # the lead changed: LEAD-03 owns the moment; this record re-keys,
+            # and (V6) keeps the previous leader in its chapters and history
+            prev = rec.participants[0]
+            story_chapter(rec, t, eng.lap_now(), "lead_change", "new_leader",
+                          display={"from": eng.name(prev), "to": eng.name(leader)},
+                          numbers={"gap": rec.fields.get("gap")},
+                          cap=eng.scfg.e("chapters_max", 24))
             rec.participants = [leader]
             rec.humans = [leader] if eng.is_human(leader) else []
             rec.fields["leader"] = leader
             rec.fields["laps_led"] = 0
+            rec.fields.setdefault("leaders", []).append((leader, eng.lap_now()))
+            rec.fields["_lap_seen"] = eng.lap_now()
+        # V6: laps_led counts the leader's completed laps (it was never
+        # incremented before 08 OCT)
+        ln = eng.lap_now()
+        if ln > rec.fields.get("_lap_seen", ln):
+            rec.fields["laps_led"] = rec.fields.get("laps_led", 0) + (ln - rec.fields["_lap_seen"])
+            rec.fields["_lap_seen"] = ln
         gap = eng.gap_ahead(second) if second is not None else None
         prev = rec.fields.get("gap")
         rec.fields["gap"] = gap
@@ -12138,6 +13234,32 @@ class BabyHooverV3:
         self.gallery = V3Gallery(self.model, self.config, self.actuation_state,
                                  self.source)
         self.gallery.stories = self.stories
+        # V6 (08 OCT): the blob context -- archive, track reference, dossier,
+        # league rules -- built only with the story layer on
+        if self.stories is not None:
+            here_ = os.path.dirname(os.path.abspath(__file__))
+            apath = getattr(args, "archive", None) or os.path.join(here_, ARCHIVE_FILE_NAME)
+            self.archive = Archive(apath, night_id=getattr(args, "night_id", None),
+                                   label=getattr(args, "night_label", None) or "practice",
+                                   log=self._log)
+            tpath = getattr(args, "tracks", None) or os.path.join(here_, TRACKS_FILE_NAME)
+            dpath = getattr(args, "dossier", None) or os.path.join(here_, DOSSIER_FILE_NAME)
+            rpath = getattr(args, "rules", None) or os.path.join(here_, RULES_FILE_NAME)
+            rules = []
+            if os.path.exists(rpath):
+                try:
+                    with open(rpath, encoding="utf-8") as f:
+                        rules = list(json.load(f).get("gates", []))
+                except Exception as e:
+                    self._log("[rules] could not read %s: %s" % (rpath, type(e).__name__))
+            self.booth.blobctx = BlobContext(
+                stories=self.stories, gallery=self.gallery, said=self.booth.said,
+                predictions=self.stories.predictions, archive=self.archive,
+                tracks=TrackReference(tpath, self._log), dossier=Dossier(dpath, self._log),
+                rules=rules, cfg=self.config)
+            self.booth.log_blobs = bool(getattr(args, "log_blobs", False))
+        else:
+            self.archive = None
         self.rec_start = None
         self.session_opened = False
         # J1: the camera/booth run on a decide clock, so replay ticks them
@@ -12377,6 +13499,94 @@ class BabyHooverV3:
         self.gallery.observe(t)
         self.booth.tick(t)
 
+    # ---- V6 (08 OCT): blob summary and the archive write --------------------
+    def _blob_summary(self):
+        b = self.booth
+        angles = collections.Counter(r.get("angle") for r in b.emitted if r.get("angle"))
+        lanes = collections.Counter(r.get("lane") for r in b.emitted if r.get("lane"))
+        out = {"lines": len(b.emitted), "angles": dict(angles), "lanes": dict(lanes),
+               "interjections_offered": sum(1 for r in b.emitted if r.get("interjection")),
+               "blob_log_rows": len(b.blob_log),
+               "predictions": (self.stories.predictions.summary()
+                               if self.stories is not None else None),
+               "said_ledger": {"lines": len(b.said.lines),
+                               "stories": len(b.said.by_story),
+                               "drivers": len(b.said.by_driver)}}
+        rej = collections.Counter()
+        tracks = b.blobctx.tracks if b.blobctx is not None else None
+        for r in b.emitted:
+            dr = r.get("dropped_reason")
+            if dr:
+                k, layer = classify_rejection(dr, self.world, tracks)
+                rej["%s/%s" % (k, layer)] += 1
+        out["rejections_by_layer"] = dict(rej)
+        if b.blob_log:
+            ns = [len(r["blob"].get("notes", [])) for r in b.blob_log]
+            out["notes_mean"] = round(sum(ns) / float(len(ns)), 2)
+            out["layers"] = dict(collections.Counter(
+                l for r in b.blob_log for l in r["blob"].get("layers", [])))
+        return out
+
+    def _archive_session(self, t, manifest):
+        """One record per captured session with a final classification: the
+        results store the next race's booth reads (paper layer 6)."""
+        m = self.model
+        fc = m.final_classification
+        w = self.world
+        source = "final_classification"
+        if not fc:
+            # no Final Classification packet (a capture cut before it, or a
+            # synthetic race): file the finish from Lap Data if the leader
+            # finished, else nothing
+            if m.leader_finish_t is None:
+                return
+            source = "lap_data"
+            rows_ = []
+            for c in w.cars:
+                if c.seen and c.position > 0:
+                    rows_.append({"idx": c.idx, "position": c.position, "grid": c.grid,
+                                  "pit_stops": c.num_pit_stops,
+                                  "result_status": c.result_status, "result_reason": 0})
+            fc = {"num_cars": len(rows_), "rows": rows_}
+        ext = getattr(w, "ext", None)
+        extra = {r["idx"]: r for r in (ext.final_class or {}).get("rows", [])} \
+            if ext is not None and ext.final_class else {}
+        rows = []
+        fastest_key, fastest_ms = None, None
+        for r in fc["rows"]:
+            if r["position"] <= 0:
+                continue
+            c = w.cars[r["idx"]]
+            key = _driver_key(c)
+            ex = extra.get(r["idx"], {})
+            best = ex.get("best_lap_ms") or (c.last_lap_ms or None)
+            row = {"key": key, "spoken": c.spoken, "human": bool(c.is_human),
+                   "position": r["position"], "grid": r["grid"],
+                   "status": r["result_status"], "pit_stops": r["pit_stops"],
+                   "points": ex.get("points") if ex.get("points")
+                   else F1_POINTS.get(r["position"], 0),
+                   "best_lap_ms": best, "stints": ex.get("stints")}
+            rows.append(row)
+            if best and (fastest_ms is None or best < fastest_ms):
+                fastest_key, fastest_ms = key, best
+        arcs = []
+        if self.stories is not None:
+            for rec in list(self.stories.store.closed) + list(self.stories.store.live.values()):
+                a = story_arc(rec, self.stories.lap_now())
+                a["type"] = rec.row_id
+                a["participants"] = [_driver_key(w.cars[i]) for i in rec.participants]
+                arcs.append(a)
+        lead_changes = max([a.get("lead_changes", 0) for a in arcs
+                            if a["type"] == "LEAD-01"] or [0])
+        self.archive.add_session({
+            "stem": manifest.get("stem") or os.path.basename(self.args.replay or "live"),
+            "session_kind": w.session_kind, "session_type": w.session_type,
+            "track": TRACK_NAMES.get(w.track_id, "UNK"), "track_id": w.track_id,
+            "total_laps": w.total_laps, "started_unix": round(t, 3),
+            "classification": rows, "fastest_lap_key": fastest_key,
+            "lead_changes": lead_changes, "arcs": arcs, "source": source,
+            "lines_aired": len(self.booth.emitted)})
+
     def _route_claims(self, t):
         """V4: with the story layer on, the engine observes the race after the
         model, withholds the V3 kinds it supersedes, and adds its own beats.
@@ -12527,6 +13737,13 @@ class BabyHooverV3:
             manifest["stories"]["metrics"] = self._story_metrics(t)
             if getattr(self.world, "ext", None) is not None:
                 manifest["decode_v5"] = self.world.ext.summary()
+            manifest["blob_v6"] = self._blob_summary()
+            if self.booth.blob_log:
+                with open(p + "_blobs.jsonl", "w", encoding="utf-8") as f:
+                    for row in self.booth.blob_log:
+                        f.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+            if self.archive is not None:
+                self._archive_session(t, manifest)
             with open(p + "_stories.jsonl", "w", encoding="utf-8") as f:
                 for ev in self.stories.store.events:
                     f.write(json.dumps(ev, sort_keys=True, default=str) + "\n")
@@ -12899,6 +14116,20 @@ def main():
                     help="V4 story layer (default on); off = V3 byte-for-byte")
     ap.add_argument("--stories-file", default=None,
                     help="path to hoover_stories_v4.json (default: beside the tool)")
+    # V6 (08 OCT): the state blob's files and the blob log
+    ap.add_argument("--log-blobs", action="store_true",
+                    help="write <stem>_blobs.jsonl: every blob beside the line it "
+                         "produced (built for template lines too)")
+    ap.add_argument("--archive", default=None,
+                    help="path to hoover_archive.json (default: beside the tool)")
+    ap.add_argument("--night-id", default=None,
+                    help="league-night key for the archive (default: today's date)")
+    ap.add_argument("--night-label", choices=["practice", "official"], default=None,
+                    help="how tonight's results are filed (default practice; only "
+                         "official nights count as season record)")
+    ap.add_argument("--tracks", default=None, help="path to hoover_tracks.json")
+    ap.add_argument("--dossier", default=None, help="path to hoover_dossier.json")
+    ap.add_argument("--rules", default=None, help="path to hoover_rules_league.json")
     ap.add_argument("--writer", choices=["template", "model", "hybrid"],
                     default="template",
                     help="who writes the lines (default template; a run with no "

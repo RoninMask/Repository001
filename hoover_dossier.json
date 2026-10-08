@@ -1,0 +1,11 @@
+{
+  "format": "hoover_dossier_v1",
+  "_about": "Hand-written driver facts (State Blob White Paper V1, layer 6). Keyed by the roster's driver_id for humans and by spoken name for AI cars. 'facts' are always offerable (at most three are offered); 'armed' facts are offered only when their condition holds: on_podium, on_lead, on_win, on_retire. Keep every fact true and short; every capitalised word in a fact becomes sayable when it is offered, so no nicknames the driver would not want on air. Empty entries are fine -- this file is optional.",
+  "drivers": {
+    "d_ronin": {"facts": [], "armed": {}},
+    "d_valor": {"facts": [], "armed": {}},
+    "d_pure": {"facts": [], "armed": {}},
+    "d_faze": {"facts": [], "armed": {}},
+    "d_raider": {"facts": [], "armed": {}}
+  }
+}

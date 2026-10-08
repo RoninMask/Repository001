@@ -1,0 +1,53 @@
+{
+  "format": "hoover_tracks_v1",
+  "_about": "Track reference (State Blob White Paper V1, layer 6). One entry per F1 25 track id. Sector-level location needs nothing from here (the sector start distances come off the wire in the Session packet). Corner-level location is used ONLY when 'calibrated' is true: run tests/calibrate_track.py over a real capture of the track, copy the fitted dist_m values in, review them against a lap you know, then set calibrated to true. Until then the corners list is names only and the booth says 'through the final sector', never 'into turn six'. 'character' and 'overtaking_spots' are plain-language facts the writer may use as colour; every capitalised word in them is licensed when they are offered.",
+  "tracks": {
+    "14": {
+      "name": "Abu Dhabi",
+      "length_m": 5281,
+      "calibrated": false,
+      "character": "Yas Marina is a power circuit with two long straights and a slow, twisting final sector under the hotel, so the passing comes at the end of the straights and the lap is lost or won in the last sector",
+      "overtaking_spots": [
+        "the end of the back straight",
+        "the end of the second straight",
+        "turn one, with a good exit from the final corner"
+      ],
+      "drs_zones": 2,
+      "corners": [
+        {"n": 1, "name": "turn one", "kind": "braking", "dist_m": null},
+        {"n": 2, "name": "turn two", "kind": "medium", "dist_m": null},
+        {"n": 3, "name": "turn three", "kind": "medium", "dist_m": null},
+        {"n": 4, "name": "turn four", "kind": "medium", "dist_m": null},
+        {"n": 5, "name": "the hairpin", "kind": "braking", "dist_m": null},
+        {"n": 6, "name": "turn six", "kind": "braking", "dist_m": null, "note": "end of the back straight"},
+        {"n": 7, "name": "turn seven", "kind": "chicane", "dist_m": null},
+        {"n": 8, "name": "turn eight", "kind": "fast", "dist_m": null},
+        {"n": 9, "name": "turn nine", "kind": "braking", "dist_m": null, "note": "end of the second straight"},
+        {"n": 10, "name": "turn ten", "kind": "medium", "dist_m": null},
+        {"n": 11, "name": "turn eleven", "kind": "medium", "dist_m": null},
+        {"n": 12, "name": "turn twelve", "kind": "medium", "dist_m": null},
+        {"n": 13, "name": "turn thirteen", "kind": "medium", "dist_m": null},
+        {"n": 14, "name": "turn fourteen", "kind": "medium", "dist_m": null},
+        {"n": 15, "name": "turn fifteen", "kind": "medium", "dist_m": null},
+        {"n": 16, "name": "the final corner", "kind": "medium", "dist_m": null}
+      ]
+    },
+    "17": {
+      "name": "Austria",
+      "length_m": 4318,
+      "calibrated": false,
+      "character": "the Red Bull Ring is short and fast, three big braking zones on the climbs and a quick run back down, so the field stays close and a small mistake costs a place",
+      "overtaking_spots": ["turn three at the top of the hill", "turn four", "turn one"],
+      "drs_zones": 3,
+      "corners": [
+        {"n": 1, "name": "turn one", "kind": "braking", "dist_m": null},
+        {"n": 3, "name": "turn three", "kind": "braking", "dist_m": null},
+        {"n": 4, "name": "turn four", "kind": "braking", "dist_m": null},
+        {"n": 6, "name": "turn six", "kind": "fast", "dist_m": null},
+        {"n": 7, "name": "turn seven", "kind": "fast", "dist_m": null},
+        {"n": 9, "name": "turn nine", "kind": "medium", "dist_m": null},
+        {"n": 10, "name": "the final corner", "kind": "medium", "dist_m": null}
+      ]
+    }
+  }
+}

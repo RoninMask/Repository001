@@ -1,0 +1,5 @@
+{
+  "format": "hoover_rules_v1",
+  "_about": "League rules as truth gates (State Blob White Paper V1, layer 6 / licence). Most gates come off the wire from the Session packet (equal performance, damage, collisions, safety car, red flags, DRS). Put here only what the game does not transmit: ghosting, lap-one rules the league enforces by hand, how points work tonight. Each line is given to the writer as 'NEVER contradict'. Empty is fine.",
+  "gates": []
+}
