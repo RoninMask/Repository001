@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Get V4.3</title>
+<style>
+@page{size:A4;margin:0}
+:root{--red:#e10600;--ink:#181c25;--mute:#5b6070;--rule:#dde0e6;--soft:#f4f5f7}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Poppins',sans-serif;color:var(--ink);font-size:9.6pt;line-height:1.42}
+.page{width:210mm;height:297mm;padding:14mm 18mm 18mm;position:relative;overflow:hidden}
+.band{background:var(--ink);color:#fff;margin:-14mm -18mm 8mm;padding:10mm 18mm 7mm}
+.band .k{color:var(--red);font-weight:700;letter-spacing:1.4pt;font-size:8pt;margin-bottom:3mm}
+.band h1{margin:0 0 2mm;font-size:22pt;font-weight:700}
+.band .s{color:#d5d8df;font-weight:300;font-size:10pt}
+h2{font-size:12pt;margin:5mm 0 1.5mm;font-weight:700;display:flex;gap:3mm;align-items:baseline}
+h2 .n{color:var(--red);font-size:9pt;letter-spacing:1pt;min-width:6mm}
+p{margin:0 0 2.5mm}
+pre{font-family:'DejaVu Sans Mono',monospace;font-size:9pt;background:var(--soft);border-left:2.5pt solid var(--red);padding:2.5mm 4mm;margin:1.5mm 0 2.5mm;white-space:pre-wrap;line-height:1.45}
+code{font-family:'DejaVu Sans Mono',monospace;font-size:8.6pt;background:var(--soft);padding:0 1mm}
+.ok{background:#e7f4ea;border-left:2.5pt solid #1d6b33}
+table{width:100%;border-collapse:collapse;margin:2mm 0 3mm;font-size:9.2pt}
+th{text-align:left;border-bottom:1.2pt solid var(--ink);padding:1.5mm 2mm}
+td{border-bottom:0.5pt solid var(--rule);padding:1.5mm 2mm;vertical-align:top}
+.foot{position:absolute;left:18mm;right:18mm;bottom:9mm;display:flex;justify-content:space-between;font-size:7pt;color:var(--mute);border-top:0.6pt solid var(--rule);padding-top:2mm}
+.foot b{color:var(--red)}
+</style></head><body><div class="page">
+<div class="band"><div class="k">PROJECT HOOVER · OPERATOR CARD</div><h1>Get the latest build</h1><div class="s">Two minutes. This morning's runs were V4.2 from the old branch; everything built since is on a new branch.</div></div>
+
+<h2><span class="n">1</span>Run these five lines</h2>
+<p>PowerShell, in your Hoover folder (<code>D:\Repository001</code>). Game closed or open, it does not matter.</p>
+<pre>git stash
+git fetch origin
+git checkout claude/v4-state-blob
+git pull
+python T11_F125_Baby_Hoover_V4_05OCT26.py --version</pre>
+
+<h2><span class="n">2</span>Check the first line it prints</h2>
+<p>It must read exactly this:</p>
+<pre class="ok">Baby Hoover V4.3 (build 08OCT26, script 4.3.0) · claude/v4-state-blob @ e04bb7a</pre>
+<table>
+<tr><th style="width:52mm">If you see</th><th>It means</th><th style="width:48mm">Do</th></tr>
+<tr><td><b>V4.3</b> and <code>@ e04bb7a</code></td><td>You have the latest build</td><td>Done. Go to step 3</td></tr>
+<tr><td>V4.3 but a different code after <code>@</code></td><td>The branch is right but <code>git pull</code> did not bring the last fix</td><td>Run <code>git pull</code> again, then <code>--version</code></td></tr>
+<tr><td><b>V4.2</b> (build 07OCT26)</td><td>Still on the old branch; the checkout did not take</td><td>Send Dustin the message <code>git checkout</code> printed. Do not force it</td></tr>
+<tr><td>Any data file not <code>ok</code> in the list below the first line</td><td>A file is missing beside the tool</td><td>Send a photo of the screen</td></tr>
+</table>
+
+<h2><span class="n">3</span>Sound check, then send the line</h2>
+<p>Your device settings live outside the repo, so the branch switch does not touch them, but the tool file is new, so run the check once:</p>
+<pre>python T11_F125_Baby_Hoover_V4_05OCT26.py --audio-check</pre>
+<p>Four green = good. Then send Dustin the <code>--version</code> line from step 2. That one line is the confirmation.</p>
+
+<h2><span class="n">!</span>What changed in this build</h2>
+<p>Tyres and lobby settings are read from the wire, the booth gets a fuller picture of the race, and <b>no two cars can share a spoken name</b>: this morning eleven cars aired as "the number 2 car". A car with no usable name is now its team (if unique) or "the car running fourth", and a line naming the same car twice never airs. Your V2 run sheet, steps 2 to 4, still applies after this card.</p>
+
+<div class="foot"><span>Project Hoover · Get the latest build · 08 OCT 26</span><span><b>Baby Hoover V4.3</b></span></div>
+</div></body></html>
