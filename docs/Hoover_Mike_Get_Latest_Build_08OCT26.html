@@ -32,12 +32,12 @@ git pull
 python T11_F125_Baby_Hoover_V4_05OCT26.py --version</pre>
 
 <h2><span class="n">2</span>Check the first line it prints</h2>
-<p>It must read exactly this:</p>
-<pre class="ok">Baby Hoover V4.3 (build 08OCT26, script 4.3.0) · claude/v4-state-blob @ e04bb7a</pre>
+<p>It must read like this (the seven characters after <code>@</code> are the commit; yours should be <code>630af7e</code> or newer):</p>
+<pre class="ok">Baby Hoover V4.3 (build 08OCT26, script 4.3.0) · claude/v4-state-blob @ 630af7e</pre>
 <table>
 <tr><th style="width:52mm">If you see</th><th>It means</th><th style="width:48mm">Do</th></tr>
-<tr><td><b>V4.3</b> and <code>@ e04bb7a</code></td><td>You have the latest build</td><td>Done. Go to step 3</td></tr>
-<tr><td>V4.3 but a different code after <code>@</code></td><td>The branch is right but <code>git pull</code> did not bring the last fix</td><td>Run <code>git pull</code> again, then <code>--version</code></td></tr>
+<tr><td><b>V4.3</b> and <code>claude/v4-state-blob</code></td><td>You have the latest build</td><td>Done. Go to step 3</td></tr>
+<tr><td>V4.3 but <code>@ e04bb7a</code> or older, or <code>git pull</code> printed an error</td><td>The branch is right but the last fix did not come down</td><td>Run <code>git pull</code> again, then <code>--version</code>; if the same, send the screen</td></tr>
 <tr><td><b>V4.2</b> (build 07OCT26)</td><td>Still on the old branch; the checkout did not take</td><td>Send Dustin the message <code>git checkout</code> printed. Do not force it</td></tr>
 <tr><td>Any data file not <code>ok</code> in the list below the first line</td><td>A file is missing beside the tool</td><td>Send a photo of the screen</td></tr>
 </table>
