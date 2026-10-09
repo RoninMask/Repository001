@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoover Dashboard</title>
+<style>
+:root{
+  --bg:#0d1014; --panel:#151a21; --panel2:#1b222b; --line:#28313c; --text:#e6e9ee; --dim:#8b96a5;
+  --accent:#f5c518; --green:#2fbf71; --yellow:#e7b416; --red:#e5484d; --blue:#4c9aff; --purple:#a678f0;
+  --mono:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,select,input{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:16px;padding:10px 18px;border-bottom:1px solid var(--line);background:#0a0d11;position:sticky;top:0;z-index:5}
+.brand{font-weight:800;letter-spacing:.18em;font-size:15px}
+.brand b{color:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:12.5px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.green{background:var(--green)}.dot.yellow{background:var(--yellow)}.dot.red{background:var(--red)}.dot.blue{background:var(--blue)}
+.dot.pulse{animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.grow{flex:1}
+.tool-label{font-size:12.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.tool-label b{color:var(--text);font-weight:600}
+.wrap{display:flex;min-height:calc(100vh - 49px)}
+nav{width:170px;border-right:1px solid var(--line);padding:12px 8px;display:flex;flex-direction:column;gap:2px;background:#0b0e12}
+nav button{all:unset;cursor:pointer;padding:9px 12px;border-radius:7px;color:var(--dim);font-weight:600}
+nav button:hover{background:var(--panel)}
+nav button.on{background:var(--panel2);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+nav .sp{flex:1}
+nav small{color:var(--dim);padding:8px 12px;font-size:11.5px}
+main{flex:1;min-width:0;padding:18px 22px 220px}
+section{display:none}section.on{display:block}
+h2{margin:0 0 12px;font-size:18px}
+h3{margin:0 0 8px;font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{cursor:pointer;border:1px solid var(--line);background:var(--panel2);padding:7px 13px;border-radius:7px;font-weight:600}
+.btn:hover{border-color:#3a4553}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.go{background:var(--green);border-color:var(--green);color:#06120b}
+.btn.stop{background:var(--red);border-color:var(--red);color:#fff}
+.btn.accent{background:var(--accent);border-color:var(--accent);color:#141000}
+.btn.big{padding:11px 22px;font-size:15px}
+.checks{display:flex;flex-direction:column;gap:6px}
+.check{display:grid;grid-template-columns:14px 190px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;background:var(--panel2)}
+.check .dot{margin-top:6px}
+.check .t{font-weight:600}
+.check .e{color:var(--text);word-break:break-word}
+.check .s{color:var(--dim);font-size:12.5px;margin-top:2px}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.preset{cursor:pointer;text-align:left;border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:11px 12px}
+.preset.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.preset b{display:block;margin-bottom:3px}
+.preset span{color:var(--dim);font-size:12.5px}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px 14px;margin-top:10px}
+.field label{display:block;font-size:12px;color:var(--dim);margin-bottom:3px}
+.field input[type=text],.field select{width:100%;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.field .help{font-size:11.5px;color:var(--dim);margin-top:3px;max-height:3.1em;overflow:hidden}
+.field.set label{color:var(--accent)}
+.boolf{display:flex;gap:8px;align-items:center;padding-top:16px}
+details summary{cursor:pointer;color:var(--dim);font-weight:600;margin:6px 0}
+.cmd{font-family:var(--mono);font-size:12.5px;background:#0a0d10;border:1px solid var(--line);border-radius:7px;padding:10px 12px;word-break:break-all;color:#cfe3ff}
+.note{color:var(--dim);font-size:12.5px}
+.warn{color:var(--yellow)}
+.bad{color:var(--red)}
+.good{color:var(--green)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid #1f262f;vertical-align:top}
+td.n{font-variant-numeric:tabular-nums;text-align:right;color:var(--dim)}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;font-weight:700;background:#25303b;color:var(--dim)}
+.tag.h{background:rgba(245,197,24,.15);color:var(--accent)}
+.tag.ok{background:rgba(47,191,113,.15);color:var(--green)}
+.tag.bad{background:rgba(229,72,77,.15);color:var(--red)}
+.tag.w{background:rgba(231,180,22,.15);color:var(--yellow)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.tile .k{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.tile .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .v small{font-size:13px;color:var(--dim);font-weight:500}
+.two{display:grid;grid-template-columns:minmax(260px,380px) 1fr;gap:14px}
+@media (max-width:900px){.two{grid-template-columns:1fr}nav{width:120px}.check{grid-template-columns:14px 1fr}.check .e{grid-column:2}}
+.feed{max-height:520px;overflow:auto}
+.ln{display:grid;grid-template-columns:52px 70px 1fr;gap:8px;padding:6px 4px;border-bottom:1px solid #1f262f}
+.ln .tm{color:var(--dim);font-variant-numeric:tabular-nums;font-size:12.5px}
+.ln .sp{font-size:11px;font-weight:800;letter-spacing:.06em;padding-top:2px}
+.ln .sp.LEAD{color:var(--accent)} .ln .sp.ANALYST{color:var(--blue)}
+.ln .kd{color:var(--dim);font-size:11.5px}
+.cam{color:var(--accent)}
+#dock{position:fixed;left:170px;right:0;bottom:0;background:#090b0e;border-top:1px solid var(--line);z-index:4}
+#dock .bar{display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--line)}
+#dockcon{height:150px;overflow:auto;font-family:var(--mono);font-size:12px;padding:6px 14px;white-space:pre-wrap}
+#dock.tall #dockcon{height:46vh}
+.con-cmd{color:#9ecbff}.con-err{color:var(--red)}.con-end{color:var(--green)}.con-in{color:var(--accent)}.con-dash{color:var(--purple)}
+#coninput{flex:1;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:12.5px}
+.toast{position:fixed;right:18px;top:62px;background:var(--panel2);border:1px solid var(--accent);padding:10px 14px;border-radius:9px;z-index:9;max-width:420px;display:none}
+.banner{padding:10px 12px;border-radius:8px;background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.4);margin-bottom:12px;display:none}
+.banner.show{display:block}
+.mono{font-family:var(--mono);font-size:12.5px}
+.muted{color:var(--dim)}
+pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:#cdd6e1}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">HOOVER <b>DASH</b></div>
+  <span class="chip" id="conn"><span class="dot pulse"></span><span>Connecting…</span></span>
+  <span class="chip" id="proc"><span class="dot"></span><span>Standby</span></span>
+  <span class="tool-label grow" id="toollabel">Looking for Hoover…</span>
+</header>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+<nav>
+  <button data-tab="pre" class="on">Pre-flight</button>
+  <button data-tab="ses">Session</button>
+  <button data-tab="live">Live</button>
+  <button data-tab="runs">Runs</button>
+  <button data-tab="this">This Hoover</button>
+  <div class="sp"></div>
+  <small id="dashver">dashboard</small>
+</nav>
+<main>
+<div class="banner" id="lostbanner"><b>Lost the dashboard.</b> The page cannot reach it. Is the "Hoover Dashboard" window still open? If you closed it, double-click Hoover Dashboard again; a race already running keeps going in that window.</div>
+
+<!-- PRE-FLIGHT -->
+<section id="pre" class="on">
+  <h2>Pre-flight</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">This PC</h3>
+      <button class="btn" id="btnchecks">Run checks</button></div>
+    <div class="checks" id="checks" style="margin-top:10px"><div class="note">Running…</div></div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Lobby and names</h3>
+      <div class="row">
+        <span class="note">Game in the lobby or a session, this PC spectating</span>
+        <select id="listensecs"><option value="5">5 s</option><option value="10" selected>10 s</option><option value="20">20 s</option></select>
+        <button class="btn accent" id="btnlisten">Listen to the game</button>
+      </div>
+    </div>
+    <div class="checks" id="lobbychecks" style="margin-top:10px"><div class="note">Not checked yet. This reads the names, race numbers and settings the game is sending, before lights out.</div></div>
+    <div id="lobbytable" style="margin-top:10px"></div>
+  </div>
+  <div class="card">
+    <h3>Audio</h3>
+    <div class="row">
+      <button class="btn" data-tool="--audio-check">Audio check</button>
+      <button class="btn" data-tool="--pick-devices">Pick devices</button>
+      <button class="btn" data-tool="--list-audio-devices">List devices</button>
+      <span class="note">Answers to the questions they ask go in the box at the bottom.</span>
+    </div>
+  </div>
+</section>
+
+<!-- SESSION -->
+<section id="ses">
+  <h2>Session</h2>
+  <div class="card">
+    <h3>Start from</h3>
+    <div class="presets" id="presets"></div>
+  </div>
+  <div class="card">
+    <h3>Tonight</h3>
+    <div class="fields" id="quick"></div>
+    <details id="alldet"><summary>All options (read from this Hoover)</summary><div class="fields" id="allopts"></div></details>
+  </div>
+  <div class="card">
+    <h3>Command</h3>
+    <div class="cmd" id="cmd">…</div>
+    <div class="note" id="cmdnote" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn go big" id="btnstart">Start session</button>
+      <button class="btn stop big" id="btnstop" style="display:none">Stop and finalise</button>
+      <button class="btn" id="btnkill" style="display:none">Force stop</button>
+      <span class="note" id="startnote"></span>
+    </div>
+  </div>
+</section>
+
+<!-- LIVE -->
+<section id="live">
+  <h2>Live</h2>
+  <div class="banner" id="notaps">This Hoover did not accept the live taps, so the running order and script are not shown here. The console at the bottom still shows everything.</div>
+  <div class="tiles">
+    <div class="tile"><div class="k">State</div><div class="v" id="t_state">–</div></div>
+    <div class="tile"><div class="k">Lap</div><div class="v" id="t_lap">–</div></div>
+    <div class="tile"><div class="k">Lines aired</div><div class="v" id="t_lines">0</div></div>
+    <div class="tile"><div class="k">Spoken / failed</div><div class="v" id="t_speech">–</div></div>
+    <div class="tile"><div class="k">Camera on humans</div><div class="v" id="t_hum">–</div></div>
+    <div class="tile"><div class="k">Queue · stories</div><div class="v" id="t_q">–</div></div>
+  </div>
+  <div class="two">
+    <div class="card"><h3>Running order</h3><div id="order" class="note">Waiting for a session.</div></div>
+    <div class="card"><h3>On air</h3><div class="feed" id="feed"><div class="note">Lines appear here as they air.</div></div></div>
+  </div>
+  <div class="card"><h3>Camera</h3><div class="feed" id="cuts" style="max-height:240px"><div class="note">Cuts appear here.</div></div></div>
+</section>
+
+<!-- RUNS -->
+<section id="runs">
+  <h2>Runs</h2>
+  <div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Recent session folders</h3>
+    <div class="row"><button class="btn" id="btnruns">Refresh</button><button class="btn" id="btnopenout">Open output folder</button></div></div>
+    <div id="runlist" style="margin-top:10px" class="note">…</div></div>
+</section>
+
+<!-- THIS HOOVER -->
+<section id="this">
+  <h2>This Hoover</h2>
+  <div class="card"><h3>Build</h3><pre class="ver" id="vertext">…</pre>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="btnrefresh">Re-read the tool</button>
+      <button class="btn" data-tool="--version">Version in console</button>
+    </div></div>
+  <div class="card"><h3>Get a newer build</h3>
+    <div class="row">
+      <button class="btn accent" id="btnpull">Get latest (git pull)</button>
+      <button class="btn" id="btnfetch">Fetch branches</button>
+      <select id="branches"><option value="">branches…</option></select>
+      <button class="btn" id="btncheckout">Switch to branch</button>
+    </div>
+    <div class="note" style="margin-top:8px">The dashboard re-reads the tool by itself after a pull: new options appear on the Session page, and the version above changes. Do this from standby, never during a race.</div>
+  </div>
+</section>
+</main>
+</div>
+
+<div id="dock">
+  <div class="bar">
+    <b style="font-size:12px;letter-spacing:.08em;color:var(--dim)">CONSOLE</b>
+    <input id="coninput" placeholder="Type an answer for the running tool (e.g. a number, y, n) and press Enter" disabled>
+    <button class="btn" id="btnenter" disabled>Enter</button>
+    <button class="btn" id="btntall">Bigger</button>
+    <button class="btn" id="btnclear">Clear</button>
+  </div>
+  <div id="dockcon"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let TOOL = null, cseq = 0, nl = 0, nc = 0, lastOk = 0, toolKey = null, running = false, runKind = null;
+let LINES = [], CUTS = [], STATUS = null, TAPS = null;
+const EXIT_MODES = new Set(["--version","--pick-devices","--audio-check","--list-audio-devices"]);
+const QUICK = ["--night-label","--night-id","--writer","--speech","--log-blobs","--roster","--replay","--pace","--no-camera"];
+let FORM = {};          // flag -> value (string) or true for bools
+let PRESET = "race";
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+function toast(msg, ms=4500){ const t=$("#toast"); t.innerHTML=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", ms); }
+
+// ---------- tabs
+document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(id){
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x.dataset.tab === id));
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === id));
+  if (id === "runs") loadRuns();
+}
+
+// ---------- tool
+function opt(flag){ return TOOL && TOOL.options.find(o => o.flag === flag); }
+function has(flag){ return !!opt(flag); }
+async function loadTool(force){
+  TOOL = await api("/api/tool" + (force ? "?force=1" : ""));
+  const v = TOOL.version || {}, rows = v.rows || {};
+  $("#toollabel").innerHTML = TOOL.path ? `<b>${esc(v.label || TOOL.file)}</b>` : `<span class="bad">No Hoover tool found next to the dashboard</span>`;
+  $("#vertext").textContent = TOOL.version_text || "(the tool did not answer --version)";
+  if (TOOL.options_error) toast("Could not read this Hoover's options. The Session page shows only the presets.<br><span class='mono'>" + esc(TOOL.options_error.slice(-300)) + "</span>", 9000);
+  buildPresets(); buildForm(); applyPreset(PRESET, true);
+}
+
+// ---------- presets
+function today(){ return TOOL ? TOOL.today : new Date().toISOString().slice(0,10); }
+const PRESETS = {
+  race:   {name:"Race: live, speech on", sub:"Template lines, ElevenLabs voice, camera on. The usual league-night run.",
+           set:{"--source":"live","--writer":"template","--speech":"elevenlabs","--log-blobs":true}},
+  quiet:  {name:"Race: live, no speech", sub:"Camera and script only. For a test, or when the voice is not wanted.",
+           set:{"--source":"live","--writer":"template","--speech":"none","--log-blobs":true}},
+  hybrid: {name:"Race: live, model writer", sub:"Hybrid writer (needs the model key) with speech on.",
+           set:{"--source":"live","--writer":"hybrid","--speech":"elevenlabs","--log-blobs":true}},
+  replay: {name:"Replay a capture", sub:"Run a recorded .bin through Hoover at full speed. No game needed.",
+           set:{"--source":"fast","--writer":"template","--speech":"none","--log-blobs":true}},
+  listen: {name:"Replay with the voice", sub:"A capture at real pace with speech: a listening test.",
+           set:{"--source":"replay","--pace":"real","--writer":"template","--speech":"elevenlabs","--log-blobs":true}},
+};
+function buildPresets(){
+  $("#presets").innerHTML = Object.entries(PRESETS).map(([k,p]) =>
+    `<button class="preset ${k===PRESET?"on":""}" data-p="${k}"><b>${esc(p.name)}</b><span>${esc(p.sub)}</span></button>`).join("");
+  document.querySelectorAll(".preset").forEach(b => b.onclick = () => applyPreset(b.dataset.p));
+}
+function applyPreset(k, keep){
+  PRESET = k;
+  document.querySelectorAll(".preset").forEach(b => b.classList.toggle("on", b.dataset.p === k));
+  const carry = {};
+  for (const f of ["--night-label","--night-id","--roster","--replay"]) if (FORM[f] !== undefined) carry[f] = FORM[f];
+  FORM = {};
+  Object.assign(FORM, PRESETS[k].set);
+  if (k.startsWith("replay") || k === "listen") { if (carry["--replay"]) FORM["--replay"] = carry["--replay"]; }
+  if (has("--night-label")) FORM["--night-label"] = carry["--night-label"] || "practice";
+  if (has("--night-id")) FORM["--night-id"] = (k === "replay" || k === "listen") ? (carry["--night-id"] && carry["--night-id"] !== today() ? carry["--night-id"] : "replay-test") : (carry["--night-id"] && carry["--night-id"] !== "replay-test" ? carry["--night-id"] : today());
+  if (carry["--roster"]) FORM["--roster"] = carry["--roster"];
+  syncForm(); renderCmd();
+}
+
+// ---------- form
+function fieldHTML(o, quick){
+  const id = "f" + o.flag.replace(/\W/g, "_") + (quick ? "_q" : "");
+  const help = esc(o.help || "");
+  let label = o.flag;
+  if (o.flag === "--roster") label = "--roster (league roster)";
+  if (o.kind === "bool")
+    return `<div class="field" data-flag="${o.flag}"><div class="boolf"><input type="checkbox" id="${id}"><label for="${id}" style="margin:0;color:var(--text)">${esc(label)}</label></div><div class="help">${help}</div></div>`;
+  if (o.choices)
+    return `<div class="field" data-flag="${o.flag}"><label for="${id}">${esc(label)}</label><select id="${id}"><option value="">(default${o.default!=null?": "+esc(o.default):""})</option>${o.choices.map(c=>`<option>${esc(c)}</option>`).join("")}</select><div class="help">${help}</div></div>`;
+  let extra = "";
+  if (o.flag === "--replay" && TOOL.captures && TOOL.captures.length)
+    extra = `<select class="capsel" style="margin-top:5px;width:100%;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:5px"><option value="">recent captures…</option>${TOOL.captures.map(c=>`<option value="${esc(c.path)}">${esc(c.name)} · ${c.mb} MB · ${esc(c.when)}</option>`).join("")}</select>`;
+  if (o.flag === "--roster")
+    extra = `<div class="row" style="margin-top:5px"><button class="btn" type="button" data-roster="on">Use league roster</button><button class="btn" type="button" data-roster="off">Off</button></div>`;
+  return `<div class="field" data-flag="${o.flag}"><label for="${id}">${esc(label)}</label><input type="text" id="${id}" placeholder="${o.default!=null?esc(o.default):""}">${extra}<div class="help">${help}</div></div>`;
+}
+function buildForm(){
+  if (!TOOL || !TOOL.options) return;
+  const opts = TOOL.options.filter(o => !EXIT_MODES.has(o.flag) && o.flag !== "--source");
+  const quick = QUICK.map(f => opts.find(o => o.flag === f)).filter(Boolean);
+  $("#quick").innerHTML = quick.map(o => fieldHTML(o, true)).join("") || `<div class="note">This Hoover has none of the usual options.</div>`;
+  $("#allopts").innerHTML = opts.filter(o => !QUICK.includes(o.flag)).map(o => fieldHTML(o, false)).join("");
+  document.querySelectorAll(".field").forEach(div => {
+    const flag = div.dataset.flag, o = opt(flag);
+    const el = div.querySelector("input,select");
+    const on = () => {
+      if (o.kind === "bool") { if (el.checked) FORM[flag] = true; else delete FORM[flag]; }
+      else { const v = el.value.trim(); if (v) FORM[flag] = v; else delete FORM[flag]; }
+      syncForm(); renderCmd();
+    };
+    el.addEventListener("change", on); el.addEventListener("input", on);
+    const cs = div.querySelector(".capsel");
+    if (cs) cs.onchange = () => { if (cs.value) { FORM["--replay"] = cs.value; syncForm(); renderCmd(); } };
+    div.querySelectorAll("[data-roster]").forEach(b => b.onclick = () => {
+      if (b.dataset.roster === "on") FORM["--roster"] = "hoover_roster_league.json"; else delete FORM["--roster"];
+      syncForm(); renderCmd();
+    });
+  });
+}
+function syncForm(){
+  document.querySelectorAll(".field").forEach(div => {
+    const flag = div.dataset.flag, o = opt(flag); if (!o) return;
+    const el = div.querySelector("input,select");
+    if (o.kind === "bool") el.checked = !!FORM[flag];
+    else if (document.activeElement !== el) el.value = FORM[flag] ?? "";
+    div.classList.toggle("set", FORM[flag] !== undefined);
+  });
+}
+function buildArgs(){
+  const args = [], dropped = [];
+  const src = FORM["--source"];
+  if (src) { if (has("--source")) args.push("--source", src); }
+  for (const [flag, val] of Object.entries(FORM)) {
+    if (flag === "--source") continue;
+    if (!has(flag)) { dropped.push(flag); continue; }
+    if ((flag === "--replay" || flag === "--pace") && src === "live") continue;
+    const o = opt(flag);
+    if (o.kind === "bool") { if (val) args.push(flag); }
+    else args.push(flag, String(val));
+  }
+  return {args, dropped};
+}
+function quote(a){ return /\s/.test(a) || a === "" ? `"${a}"` : a; }
+function renderCmd(){
+  if (!TOOL) return;
+  const {args, dropped} = buildArgs();
+  $("#cmd").textContent = "python " + (TOOL.file || "?") + " " + args.map(quote).join(" ");
+  const notes = [];
+  if (dropped.length) notes.push(`<span class="warn">This Hoover has no ${dropped.map(esc).join(", ")}: left out.</span>`);
+  const src = FORM["--source"];
+  if ((src === "fast" || src === "replay") && !FORM["--replay"]) notes.push(`<span class="bad">Pick a capture (.bin) in --replay first.</span>`);
+  if (src === "live") notes.push("Live: start this once F1 25 is in the session and this PC is spectating. Stop with the red button; it finalises the session (script, manifest, archive).");
+  if (FORM["--roster"]) notes.push("League roster on: drivers with a blank name are matched by their race number.");
+  $("#cmdnote").innerHTML = notes.join("<br>");
+  $("#btnstart").disabled = running || ((src === "fast" || src === "replay") && !FORM["--replay"]);
+  document.querySelectorAll('.field[data-flag="--replay"],.field[data-flag="--pace"],.field[data-flag="--pace-scale"]').forEach(d => d.style.display = src === "live" ? "none" : "");
+}
+
+// ---------- run
+async function runTool(args, kind){
+  const r = await api("/api/run", {args, kind});
+  if (!r.ok) toast(esc(r.msg)); else { cseq = Math.max(cseq, 0); }
+  return r;
+}
+$("#btnstart").onclick = async () => {
+  const {args} = buildArgs();
+  const r = await runTool(args, "session");
+  if (r.ok) { LINES = []; CUTS = []; STATUS = null; nl = 0; nc = 0; renderLive(); showTab("live"); }
+};
+$("#btnstop").onclick = async () => {
+  if (!confirm("Stop and finalise the session? Hoover writes the script, manifest and archive, then exits.")) return;
+  const r = await api("/api/stop", {}); toast(esc(r.msg));
+};
+$("#btnkill").onclick = async () => {
+  if (!confirm("Force stop kills Hoover without finalising: the run folder may be incomplete. Only use it if Stop did nothing.")) return;
+  await api("/api/kill", {});
+};
+document.querySelectorAll("[data-tool]").forEach(b => b.onclick = async () => {
+  const r = await runTool([b.dataset.tool], "tool");
+  if (r.ok) { $("#coninput").focus(); toast("Running " + esc(b.dataset.tool) + ": watch the console below." + (b.dataset.tool==="--pick-devices"||b.dataset.tool==="--audio-check" ? " Type answers in the box." : "")); }
+});
+
+// ---------- console dock
+function conLine(c){ const [seq, t, src, text] = c; return `<div class="con-${src}">${esc(text)}</div>`; }
+$("#btntall").onclick = () => { $("#dock").classList.toggle("tall"); $("#btntall").textContent = $("#dock").classList.contains("tall") ? "Smaller" : "Bigger"; };
+$("#btnclear").onclick = () => { $("#dockcon").innerHTML = ""; };
+async function sendInput(){ const v = $("#coninput").value; $("#coninput").value = ""; await api("/api/stdin", {text:v}); }
+$("#coninput").addEventListener("keydown", e => { if (e.key === "Enter") sendInput(); });
+$("#btnenter").onclick = sendInput;
+
+// ---------- poll
+async function poll(){
+  try {
+    const d = await api(`/api/poll?c=${cseq}&l=${nl}&u=${nc}`);
+    lastOk = Date.now();
+    if (toolKey && d.tool_key !== toolKey && !d.running) { await loadTool(); toast("Hoover changed on disk: re-read it. Now: <b>" + esc((TOOL.version||{}).label || TOOL.file) + "</b>"); }
+    toolKey = d.tool_key;
+    $("#dashver").textContent = "dashboard " + d.dash.version;
+    if (d.console.length) {
+      const box = $("#dockcon"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+      box.insertAdjacentHTML("beforeend", d.console.map(conLine).join(""));
+      while (box.childElementCount > 3000) box.removeChild(box.firstChild);
+      if (atEnd) box.scrollTop = box.scrollHeight;
+      cseq = d.seq;
+    }
+    if (d.lines.length) { LINES = LINES.concat(d.lines); nl = d.n_lines; }
+    if (d.cuts.length) { CUTS = CUTS.concat(d.cuts); nc = d.n_cuts; }
+    if (d.n_lines < nl) { LINES = []; nl = 0; }
+    STATUS = d.status; TAPS = d.taps;
+    const wasRunning = running;
+    running = d.running; runKind = d.kind;
+    setProc(d);
+    if (wasRunning && !running && (runKind === "git")) { setTimeout(() => loadTool(true), 500); }
+    if (wasRunning && !running && runKind === "tool") { setTimeout(runChecks, 300); }
+    renderLive(); renderCmd();
+  } catch (e) { /* handled by heartbeat */ }
+  setConn();
+}
+function fmtDur(s){ s = Math.max(0, Math.round(s)); return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); }
+function setProc(d){
+  const el = $("#proc");
+  let dot = "", txt = "Standby";
+  if (d.running) {
+    dot = d.stop_requested ? "yellow pulse" : (d.kind === "session" ? "green pulse" : "blue pulse");
+    txt = (d.stop_requested ? "Stopping, finalising… " : (d.kind === "session" ? "Running " : "Working ")) + fmtDur(Date.now()/1000 - d.started);
+  } else if (d.rc !== null && d.rc !== undefined && d.kind) {
+    dot = (d.rc === 0 || d.rc === 130) ? "green" : "red";
+    txt = (d.kind === "session" ? "Session ended" : "Done") + " (exit " + d.rc + ")";
+  }
+  el.innerHTML = `<span class="dot ${dot}"></span><span>${esc(txt)}</span>`;
+  $("#btnstart").style.display = d.running && d.kind === "session" ? "none" : "";
+  $("#btnstop").style.display = d.running ? "" : "none";
+  $("#btnkill").style.display = d.running && d.stop_requested && (Date.now()/1000 - d.stop_requested > 20) ? "" : "none";
+  $("#coninput").disabled = !d.running; $("#btnenter").disabled = !d.running;
+  document.querySelectorAll("[data-tool],#btnpull,#btncheckout,#btnlisten").forEach(b => b.disabled = d.running);
+  $("#startnote").textContent = d.running && d.kind !== "session" ? "Wait for the current task to finish." : (d.run_dir && !d.running ? "Wrote: " + d.run_dir : "");
+}
+function setConn(){
+  const age = Date.now() - lastOk, el = $("#conn");
+  if (lastOk && age < 3500) { el.innerHTML = `<span class="dot green"></span><span>Connected to Hoover dashboard</span>`; $("#lostbanner").classList.remove("show"); }
+  else if (lastOk) { el.innerHTML = `<span class="dot red"></span><span>Not connected</span>`; $("#lostbanner").classList.add("show"); }
+}
+
+// ---------- live
+const RESULT = {0:"",1:"",2:"",3:"finished",4:"DNF",5:"DSQ",6:"NC",7:"retired"};
+function renderLive(){
+  $("#notaps").classList.toggle("show", running && runKind === "session" && TAPS && TAPS.attached && TAPS.attached.length === 0);
+  const s = STATUS || {};
+  $("#t_state").textContent = s.state || "–";
+  const lead = (s.cars || [])[0];
+  $("#t_lap").innerHTML = lead && lead.lap ? `${lead.lap}<small> / ${s.total_laps || "?"}</small>` : "–";
+  $("#t_lines").textContent = LINES.length;
+  const sp = s.speech;
+  $("#t_speech").innerHTML = sp ? `${sp.spoken ?? 0}<small> / </small><span class="${sp.failed ? "bad" : ""}">${sp.failed ?? 0}</span>${sp.degraded ? ' <small class="bad">degraded</small>' : ""}` : "<small>speech off</small>";
+  // camera on humans: share of held time across cuts
+  let hum = 0, tot = 0;
+  const humanIdx = new Set((s.cars || []).filter(c => c.human).map(c => c.idx));
+  for (let i = 0; i < CUTS.length; i++) {
+    const a = CUTS[i], b = CUTS[i+1];
+    const end = b ? b.t_rec : (s.t && CUTS.length ? null : null);
+    if (b && a.t_rec != null && b.t_rec != null) { const d = b.t_rec - a.t_rec; tot += d; if (humanIdx.has(a.car_idx)) hum += d; }
+  }
+  $("#t_hum").innerHTML = tot > 0 ? Math.round(100 * hum / tot) + "<small>%</small>" : "–";
+  $("#t_q").innerHTML = s.queue != null ? `${s.queue}<small> · ${s.stories_live ?? "–"}</small>` : "–";
+  if (s.cars && s.cars.length) {
+    $("#order").innerHTML = `<table><tr><th>P</th><th>Driver</th><th></th><th></th></tr>` + s.cars.map(c =>
+      `<tr><td class="n">${c.pos || ""}</td><td>${c.idx === s.camera_car ? '<span class="cam" title="camera">&#9673;</span> ' : ""}${esc(c.spoken || c.name || ("car " + c.idx))}</td><td>${c.human ? '<span class="tag h">human</span>' : '<span class="tag">AI</span>'}</td><td class="muted">${esc(RESULT[c.result] || "")}</td></tr>`).join("") + `</table>`;
+  }
+  if (LINES.length) {
+    $("#feed").innerHTML = LINES.slice(-200).reverse().map(l =>
+      `<div class="ln"><div class="tm">${l.t_race != null ? fmtDur(l.t_race) : (l.t_rec != null ? fmtDur(l.t_rec) : "")}</div><div class="sp ${esc(l.speaker)}">${esc(l.speaker)}</div><div>${esc(l.text)}<div class="kd">${esc(l.kind || "")}${l.story ? " · " + esc(l.story) : ""}${l.writer && l.writer !== "template" ? " · " + esc(l.writer) : ""}</div></div></div>`).join("");
+  }
+  if (CUTS.length) {
+    $("#cuts").innerHTML = `<table><tr><th>Time</th><th>Car</th><th>P</th><th>Why</th><th>Layer</th></tr>` + CUTS.slice(-80).reverse().map(c =>
+      `<tr><td class="n">${c.t_race != null ? fmtDur(c.t_race) : fmtDur(c.t_rec || 0)}</td><td>${humanIdx.has(c.car_idx) ? '<span class="tag h">H</span> ' : ""}${esc(c.spoken)}</td><td class="n">${c.position ?? ""}</td><td>${esc(c.reason)}</td><td class="muted">${esc(c.layer)}</td></tr>`).join("") + `</table>`;
+  }
+}
+
+// ---------- pre-flight
+function checkHTML(r){ return `<div class="check"><span class="dot ${r.state}"></span><div class="t">${esc(r.title)}</div><div><div class="e">${esc(r.evidence)}</div>${r.suggestion ? `<div class="s">${esc(r.suggestion)}</div>` : ""}</div></div>`; }
+async function runChecks(){
+  $("#checks").innerHTML = `<div class="note">Running…</div>`;
+  const d = await api("/api/preflight");
+  $("#checks").innerHTML = d.rows.map(checkHTML).join("");
+  if (d.listen) renderListen(d.listen);
+}
+$("#btnchecks").onclick = runChecks;
+$("#btnlisten").onclick = async () => {
+  const secs = +$("#listensecs").value;
+  $("#btnlisten").disabled = true; $("#lobbychecks").innerHTML = `<div class="note">Listening for ${secs} s on UDP ${TOOL ? TOOL.udp_port : 20777}…</div>`;
+  try { const d = await api("/api/listen", {seconds: secs}); renderListen(d); } finally { $("#btnlisten").disabled = running; }
+};
+function renderListen(d){
+  if (d.error) { $("#lobbychecks").innerHTML = checkHTML({state:"red", title:"Lobby check", evidence:d.error, suggestion:""}); $("#lobbytable").innerHTML = ""; return; }
+  $("#lobbychecks").innerHTML = (d.rows || []).map(checkHTML).join("") + `<div class="note">Checked at ${esc(d.at || "")}. ${Object.entries(d.by_type||{}).map(([k,v])=>esc(k)+" "+v).join(" · ")}</div>`;
+  const people = (d.cars && d.cars.length) ? d.cars : (d.lobby || []);
+  if (!people.length) { $("#lobbytable").innerHTML = ""; return; }
+  $("#lobbytable").innerHTML = `<table><tr><th>#</th><th>Name sent</th><th>No.</th><th></th><th>Show names</th><th>Telemetry</th><th>Platform</th><th>Roster</th></tr>` + people.map((c,i) =>
+    `<tr><td class="n">${c.idx ?? i}</td><td>${c.blank ? '<span class="bad">Player</span>' : esc(c.name)}</td><td class="n">${c.shared_num ? `<span class="warn">${c.num}</span>` : c.num}</td><td>${c.ai ? '<span class="tag">AI</span>' : '<span class="tag h">human</span>'}</td><td>${c.ai ? "" : (c.show_names ? '<span class="tag ok">on</span>' : '<span class="tag bad">off</span>')}</td><td>${c.ai ? "" : (c.telemetry_public ? '<span class="tag ok">public</span>' : '<span class="tag w">restricted</span>')}</td><td class="muted">${esc(c.platform)}</td><td>${c.roster ? esc(c.roster) + ' <span class="muted">(' + esc(c.roster_by) + ')</span>' : ""}</td></tr>`).join("") + `</table>`;
+}
+
+// ---------- runs
+async function loadRuns(){
+  const d = await api("/api/runs");
+  if (!d.runs.length) { $("#runlist").innerHTML = `<div class="note">No session folders yet.</div>`; return; }
+  $("#runlist").innerHTML = `<table><tr><th>When</th><th>Folder</th><th>Source</th><th>Spoken / failed</th><th>Monitor</th><th></th></tr>` + d.runs.map((r,i) =>
+    `<tr><td class="n">${esc(r.when)}</td><td class="mono">${esc(r.name)}</td><td>${esc(r.source || "")}</td><td>${r.spoken == null ? '<span class="muted">speech off</span>' : `${r.spoken} / <span class="${r.failed ? "bad" : ""}">${r.failed}</span>`}</td><td>${r.monitor == null ? "" : (r.monitor ? '<span class="tag ok">on</span>' : '<span class="tag">off</span>')}</td><td class="row"><button class="btn" data-open="${i}">Open</button>${r.bin ? `<button class="btn" data-rep="${i}">Replay</button>` : ""}</td></tr>`).join("") + `</table>`;
+  document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => api("/api/open", {path: d.runs[+b.dataset.open].folder}));
+  document.querySelectorAll("[data-rep]").forEach(b => b.onclick = () => { FORM["--replay"] = d.runs[+b.dataset.rep].bin; applyPreset("replay"); FORM["--replay"] = d.runs[+b.dataset.rep].bin; syncForm(); renderCmd(); showTab("ses"); });
+}
+$("#btnruns").onclick = loadRuns;
+$("#btnopenout").onclick = () => api("/api/open", {path: "hoover_v3_out"}).then(r => { if (!r.ok) toast("No output folder yet."); });
+
+// ---------- this hoover
+$("#btnrefresh").onclick = () => loadTool(true).then(() => toast("Re-read: " + esc((TOOL.version||{}).label || TOOL.file)));
+$("#btnpull").onclick = async () => { if (confirm("Run git pull in the Hoover folder?")) await api("/api/git", {op:"pull"}); };
+$("#btnfetch").onclick = async () => {
+  await api("/api/git", {op:"fetch"});
+  const wait = setInterval(async () => { if (!running) { clearInterval(wait); const d = await api("/api/branches", {}); $("#branches").innerHTML = d.branches.map(b => `<option value="${esc(b.name.replace(/^origin\//, ""))}" ${b.current ? "selected" : ""}>${esc(b.name)} · ${esc(b.when)}${b.current ? " (current)" : ""}</option>`).join(""); } }, 700);
+};
+$("#btncheckout").onclick = async () => { const b = $("#branches").value; if (!b) return toast("Fetch branches first, then pick one."); if (confirm("Switch the Hoover folder to " + b + "?")) await api("/api/git", {op:"checkout", branch:b}); };
+
+// ---------- go
+(async () => {
+  await loadTool();
+  runChecks();
+  setInterval(poll, 1000); poll();
+})();
+</script>
+</body>
+</html>
