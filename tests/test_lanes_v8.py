@@ -151,6 +151,7 @@ class HybridLanes(unittest.TestCase):
     def test_fast_to_local_slow_to_cloud(self):
         cloud, local = _StubWriter("cloud"), _StubWriter("local")
         h = v.HybridWriter(_StubBooth(), CFG, cloud, local)
+        h.fast_lane, h.slow_lane = "local", "cloud"     # the lanes under test, not tonight's setting
         f, s = _req("f", "S_BAT_01_open", "fast"), _req("s", "S_BAT_01_open", "slow")
         h.submit(f)
         h.submit(s)

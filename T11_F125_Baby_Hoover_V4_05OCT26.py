@@ -5218,6 +5218,23 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
         race["subjects"] = subjects
         blob["race"] = race
 
+    # ---- driver threads (V8.6) ---------------------------------------------
+    if eng is not None and hasattr(eng, "threads"):
+        th = eng.threads()
+        if th:
+            for v in th.values():
+                v["text"] = speech_normalise(v["text"])
+            blob["threads"] = {k: v["text"] for k, v in th.items()}
+            for k, v in th.items():
+                allow(*_caps_words(v["text"]))
+                allow(*[w.strip(".,") for w in v["text"].replace("-", " ").split()
+                        if w.strip(".,") in NUMBER_WORDS])
+            for i in subj_idx:
+                nm = subj_say.get(i)
+                if nm in th and world is not None and world.cars[i].is_human:
+                    note(th[nm]["text"], "race", rec.id if rec else None,
+                         ("what", "means"), False, 0.75)
+
     # ---- shot ----------------------------------------------------------------
     g = ctx.gallery
     if g is not None and world is not None:
@@ -7010,6 +7027,11 @@ class V3Booth:
         self.dwell_min_for_bridge_s = float(dw.get("min_for_bridge_s", 6.0))
         self.dwell_bridge_window_s = float(dw.get("bridge_window_s", 20.0))
         self.dwell_on_screen_bonus = float(dw.get("on_screen_bonus", 6.0))
+        self.dwell_human_bonus = float(dw.get("human_bonus", 0.0))
+        fr = config.get("v3", "freshness", default=None) or {}
+        self.stale_gap_s = float(fr.get("after_s", 0.0))        # 0 = off (V3)
+        self.stale_gap_tol_s = float(fr.get("gap_tolerance_s", 0.5))
+        self.stale_gap_frac = float(fr.get("gap_tolerance_frac", 0.3))
         self.gallery = None                  # set by the run loop
         self._focus = None               # the story the booth is dwelling on
         self._focus_last = None          # the one it just left
@@ -7210,13 +7232,20 @@ class V3Booth:
         return "rewrite:dwell"
 
     def _on_screen_bonus(self, claim):
-        if self.stories is None or not self.dwell_on_screen_bonus:
+        if self.stories is None:
             return 0.0
+        bonus = 0.0
         g = getattr(self, "gallery", None)
         cur = getattr(g, "current", None) if g is not None else None
-        if cur is not None and claim.subjects and cur in claim.subjects:
-            return self.dwell_on_screen_bonus
-        return 0.0
+        if self.dwell_on_screen_bonus and cur is not None and claim.subjects \
+                and cur in claim.subjects:
+            bonus += self.dwell_on_screen_bonus
+        # V8.6: a line about one of our drivers outranks an AI line by more
+        if self.dwell_human_bonus and claim.subjects and any(
+                i is not None and 0 <= i < len(self.model.w.cars)
+                and self.model.w.cars[i].is_human for i in claim.subjects):
+            bonus += self.dwell_human_bonus
+        return bonus
 
     def _dwell_preview(self, claim):
         if not self.dwell_enabled or self.stories is None:
@@ -7374,6 +7403,23 @@ class V3Booth:
             return "drop:state:%s" % m.state
         if (t - claim.t_create) > self._max_age_for(claim):
             return "drop:expired"
+        # V8.6 (OK run 12:43: false gaps between Valor and Ronin): a line
+        # carrying a gap is checked against the live gap at air time; if the
+        # race has moved on, the line is not said.
+        g0 = f.get("gap")
+        if g0 is not None and self.stale_gap_s > 0 and (t - claim.t_create) > self.stale_gap_s \
+                and len(claim.subjects) >= 2 and self.stories is not None:
+            a, b = claim.subjects[0], claim.subjects[1]
+            try:
+                pa, pb = m.last_pos.get(a), m.last_pos.get(b)
+                behind = a if (pa and pb and pa > pb) else b
+                live = self.stories.gap_ahead(behind)
+            except Exception:
+                live = None
+            if live is not None:
+                tol = max(self.stale_gap_tol_s, self.stale_gap_frac * float(g0))
+                if abs(float(live) - float(g0)) > tol:
+                    return "drop:stale_gap"
         for idx in claim.subjects:
             if idx is not None and not m.w.cars[idx].name_resolved:
                 return "rewrite:hold_unnamed"
@@ -11143,13 +11189,39 @@ class V3Gallery:
                 fcfg = pc.get("booth_focus", {})
                 rec = fo.get("rec")
                 subs = list(rec.participants) if rec is not None else []
-                car = next((i for i in subs if m.w.cars[i].is_human), subs[0] if subs else None)
+                # V8.6 (OK run 12:43: the camera followed the booth to Ben,
+                # Draven and Multionia): the shared focus takes the camera
+                # only to one of our drivers
+                car = next((i for i in subs if m.w.cars[i].is_human), None)
                 until = fo["t_start"] + booth.dwell_s
                 if car is not None and t < until and not m.is_retired(car):
                     cands.append({"until": until, "priority": fcfg.get("priority", 76),
                                   "car": car, "reason": "booth_focus",
                                   "hold": fcfg.get("hold_s", 8.0),
                                   "hold_max": fcfg.get("hold_max_s", booth.dwell_s)})
+            # V8.6 (Dustin, 09 OCT): the last laps belong to our drivers. From
+            # final_laps_lock laps to go, the camera locks to the human in the
+            # closest fight (or the best-placed human); only the winner moment,
+            # a red flag or a safety car outrank it.
+            lcfg = pc.get("human_finish", {})
+            rem = st.laps_remaining() if hasattr(st, "laps_remaining") else None
+            if rem is not None and rem <= int(lcfg.get("laps", 2)) \
+                    and m.state in ("green", "final_lap"):
+                best_h, best_key = None, None
+                for h in st.humans():
+                    c = m.w.cars[h]
+                    ga = c.delta_front if c.position > 1 else None
+                    b = m.w.car_at_position(c.position + 1)
+                    gb = b.delta_front if b is not None else None
+                    close = min(x for x in (ga, gb) if x is not None) if (ga is not None or gb is not None) else 99.0
+                    key = (-(min(close, 5.0)), -(c.position or 99))
+                    if best_key is None or key > best_key:
+                        best_h, best_key = h, key
+                if best_h is not None:
+                    hold = float(lcfg.get("hold_s", 8.0))
+                    cands.append({"until": t + hold, "priority": lcfg.get("priority", 90),
+                                  "car": best_h, "reason": "human_finish", "hold": hold,
+                                  "hold_max": float(lcfg.get("hold_max_s", 600.0))})
             if m.start_window(t):
                 top3 = set(m.top3())
                 extra = [d for d in extra if d.get("car") in top3]
@@ -11555,7 +11627,7 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "pos", "n", "lap", "remaining", "count", "swaps", "speed",
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
-                      "seconds", "guess"}
+                      "seconds", "guess", "thread"}
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -12388,7 +12460,134 @@ class StoryEngine:
 
     def debt(self, h, t):
         last = self._mention_t.get(h)
-        return 0.0 if last is None else max(0.0, t - last)
+        if last is None:
+            return 0.0
+        # V8.6 (replay of the 12:43 run: no check-in all race): the debt is
+        # paid by a line that AIRED about the driver, not by a beat that was
+        # raised and never spoken. The said ledger knows what aired.
+        said = getattr(getattr(self, "blobctx", None), "said", None)
+        if said is not None:
+            try:
+                ld = said.last_on_driver(h)
+                aired_t = ld.get("t") if ld else None
+            except Exception:
+                aired_t = None
+            base = self.model.anchor_t if self.model.anchor_t is not None else last
+            if aired_t is not None and aired_t > base:
+                base = aired_t
+            # a driver never yet spoken of starts his debt at the anchor
+            return max(0.0, t - base)
+        return max(0.0, t - last)
+
+    # ---- V8.6 (09 OCT, Dustin): the driver thread --------------------------
+    # "What is that racer all about right now?" One answer per human, from
+    # the live stories he is in, ranked: pit cycle, recovering / dropping
+    # back, the lead, a fight, old tyres, or running his own race.
+    def grid_pos(self, h):
+        for r in list(self.store.live.values()) + self.store.closed:
+            if r.row_id in ("SF-04", "SF-02"):
+                g = (r.fields or {}).get("grid") or {}
+                if str(h) in g and g[str(h)]:
+                    return g[str(h)]
+        c = self.w.cars[h]
+        return c.grid if getattr(c, "grid", None) else None
+
+    def thread(self, h):
+        m = self.model
+        name = self.name(h)
+        pos = self.pos(h)
+        pw = _ordinal(pos) if pos else None
+        if m.is_retired(h):
+            return {"role": "out", "text": "%s is out of the race" % name, "with": None}
+        live = [r for r in self.store.live.values() if h in r.participants]
+        by = {}
+        for r in live:
+            by.setdefault(r.row_id, r)
+        other = lambda r: next((i for i in r.participants if i != h), None)
+        gp = self.grid_pos(h)
+        moved = ""
+        if gp and pos and gp != pos:
+            moved = ", up from %s on the grid" % _ordinal(gp) if pos < gp \
+                else ", down from %s on the grid" % _ordinal(gp)
+        if "STR-01" in by:
+            r = by["STR-01"]
+            return {"role": "pitting", "with": None,
+                    "text": "%s is in the pit cycle, in from %s" % (
+                        name, _ordinal(r.fields.get("pos_in") or pos or 0))}
+        if "INC-02" in by or "INC-01" in by:
+            r = by.get("INC-02") or by.get("INC-01")
+            o = other(r)
+            what = "an off" if r.row_id == "INC-02" else (
+                "contact with %s" % self.name(o) if o is not None else "contact")
+            return {"role": "recovering", "with": o,
+                    "text": "%s is recovering from %s, %s now%s" % (name, what, pw or "running", moved)}
+        if "POS-03" in by:
+            r = by["POS-03"]
+            g = (r.fields or {}).get("guess")
+            return {"role": "dropping", "with": None,
+                    "text": "%s is dropping back, %s lost, %s now%s" % (
+                        name, _places_word(r.fields.get("places", 1)), pw or "running",
+                        (" and " + g[0].lower() + g[1:]) if g else "")}
+        if pos == 1:
+            r = by.get("LEAD-02")
+            if r is not None:
+                o = other(r)
+                g = self.gap_ahead(o) if o is not None else None
+                return {"role": "defending_lead", "with": o,
+                        "text": "%s is holding the lead with %s %s behind" % (
+                            name, self.name(o) if o is not None else "the field", _gap_words(g) or "close")}
+            r = by.get("LEAD-01")
+            g = None
+            b = self.car_behind(h)
+            if b is not None:
+                g = self.gap_ahead(b)
+            return {"role": "leading", "with": b,
+                    "text": "%s is leading, %s clear of %s%s" % (
+                        name, _gap_words(g) or "a gap", self.name(b) if b is not None else "the field", moved)}
+        for rid in ("LEAD-02", "BAT-01", "BAT-03"):
+            r = by.get(rid)
+            if r is None:
+                continue
+            o = other(r)
+            if o is None:
+                continue
+            opos = self.pos(o)
+            if opos and pos and opos < pos:
+                g = self.gap_ahead(h)
+                return {"role": "chasing", "with": o,
+                        "text": "%s is chasing %s for %s, %s back%s" % (
+                            name, self.name(o), _ordinal(opos), _gap_words(g) or "close", moved)}
+            g = self.gap_ahead(o) if o is not None else None
+            return {"role": "defending", "with": o,
+                    "text": "%s is defending %s from %s, %s behind%s" % (
+                        name, pw or "his place", self.name(o), _gap_words(g) or "close", moved)}
+        ext = getattr(self.w, "ext", None)
+        ty = None
+        try:
+            ty = ext.tyre(h) if ext is not None else None
+        except Exception:
+            ty = None
+        ga = self.gap_ahead(h)
+        a = self.car_ahead(h)
+        tail = ""
+        if a is not None and ga is not None:
+            tail = ", %s behind %s" % (_gap_words(ga) or "close", self.name(a))
+        if ty and ty[1] >= 8:
+            return {"role": "old_tyres", "with": a,
+                    "text": "%s is %s on %s-lap-old %ss%s%s" % (
+                        name, pw or "running", _num_word(ty[1]), ty[0], tail, moved)}
+        return {"role": "cruising", "with": a,
+                "text": "%s is %s in clear air, running his own race%s%s" % (
+                    name, pw or "running", tail, moved)}
+
+    def threads(self):
+        out = {}
+        for h in self.humans():
+            try:
+                out[self.name(h)] = self.thread(h)
+            except Exception:
+                continue
+        return out
 
     def note_mention(self, idx, t):
         if self.is_human(idx):
@@ -14765,19 +14964,43 @@ class P_HUM_07(StoryProcessor):
                 eng._mention_t[h] = eng.model.anchor_t or t
                 continue
             rec = eng.store.find(self.ID, [h])
+            last_raise = getattr(self, "_raised_t", {}).get(h)
+            if last_raise is not None and (t - last_raise) < thr:
+                continue                     # one check-in per debt period
             if debt >= thr and rec is None:
-                rec = self.open(t, [h], fields={"debt": round(debt, 1),
-                                                "pos_at_open": _pos_map(eng, [h])},
-                                phase="owed")
+                self._raised_t = getattr(self, "_raised_t", {})
+                self._raised_t[h] = t
+                # V8.6 (09 OCT, Dustin): the check-in tells the driver's
+                # thread -- what he is about right now -- and is a must-call
+                # at the threshold, so every racer is visited.
+                th = eng.thread(h)
                 ahead = eng.car_ahead(h)
                 g = eng.gap_ahead(h)
+                last = None
+                said = getattr(getattr(eng, "blobctx", None), "said", None)
+                if said is not None:
+                    try:
+                        last = said.last_on_driver(h)
+                    except Exception:
+                        last = None
+                notes = [th["text"]]
+                if last and last.get("text"):
+                    notes.append("when we last looked at %s we said: %s" % (eng.name(h), last["text"]))
+                behind = eng.car_behind(h)
+                gb = eng.gap_ahead(behind) if behind is not None else None
+                if behind is not None and gb is not None:
+                    notes.append("%s is %s behind him" % (eng.name(behind), _gap_words(gb) or "close"))
+                rec = self.open(t, [h], fields={"debt": round(debt, 1), "thread": th,
+                                                "notes": notes,
+                                                "pos_at_open": _pos_map(eng, [h])},
+                                phase="owed")
                 self.beat(t, rec, "transition", "check_in",
                           ctx={"a": eng.name(h), "pos": _ordinal(eng.pos(h)),
                                "b": eng.name(ahead) if ahead is not None else None,
-                               "gap": _fmt_gap(g)},
-                          view={"has_ahead": ahead is not None},
+                               "gap": _fmt_gap(g), "thread": speech_normalise(th["text"])},
+                          view={"has_ahead": ahead is not None, "role": th["role"]},
                           numbers={"gap": g} if g is not None else {},
-                          must=debt >= 2 * thr)
+                          must=True, speaker="ANALYST")
                 self.close(t, rec, "paid")
 
 

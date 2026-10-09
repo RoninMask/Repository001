@@ -526,7 +526,23 @@
      "hold_s": 3.5,
      "priority": 55
     },
-    "incident_merge_s": 8.0
+    "incident_merge_s": 8.0,
+    "pit_stop": {
+     "priority": 78,
+     "hold_s": 14.0,
+     "hold_max_s": 20.0
+    },
+    "booth_focus": {
+     "priority": 76,
+     "hold_s": 8.0
+    },
+    "human_finish": {
+     "priority": 90,
+     "laps": 2,
+     "hold_s": 8.0,
+     "hold_max_s": 600.0,
+     "_about": "V8.6: from `laps` to go the camera locks to the human in the closest fight (or best placed); winner, red flag and safety car outrank it"
+    }
    },
    "share_hysteresis_s": 20.0,
    "share_band_inner_margin": 0.03,
@@ -620,24 +636,12 @@
     "grandstand",
     "grandstands",
     "fans",
-    "delight",
-    "delighted",
-    "etched",
-    "stunned",
-    "comprehend",
     "squeal",
     "squealing",
-    "palpable",
-    "masterclass",
-    "incredible",
-    "unbelievable",
     "jaw",
     "smile",
     "grin",
-    "tears",
-    "roar",
-    "roars",
-    "roaring"
+    "tears"
    ]
   },
   "model": {
@@ -669,10 +673,10 @@
    "socket_timeout_s": 10.0
   },
   "hybrid": {
-   "_about": "Pass 3 Part L, V8 lanes. model_kinds routes those kinds to a model writer; story kinds go to a model writer by default (model_story_kinds); everything else takes the template. V8: the blob's licence.lane picks the writer. fast_lane / slow_lane are cloud | local | template. A lane whose writer is absent (no key, no --local) falls to the other model writer, then the template.",
+   "_about": "Pass 3 Part L, V8 lanes. model_kinds routes those kinds to a model writer; story kinds go to a model writer by default (model_story_kinds); everything else takes the template. V8: the blob's licence.lane picks the writer. fast_lane / slow_lane are cloud | local | template. A lane whose writer is absent (no key, no --local) falls to the other model writer, then the template. V8.6 (09 OCT, league night): fast_lane cloud -- the local model invented colour and gaps; set back to local when a better local model is proven.",
    "model_kinds": [],
    "fall_back_to_template": true,
-   "fast_lane": "local",
+   "fast_lane": "cloud",
    "slow_lane": "cloud"
   },
   "parity": {
@@ -716,7 +720,14 @@
    "idle_release_s": 10.0,
    "must_after_s": 10.0,
    "min_for_bridge_s": 6.0,
-   "bridge_window_s": 20.0
+   "bridge_window_s": 20.0,
+   "human_bonus": 5.0
+  },
+  "freshness": {
+   "_about": "V8.6: a story line carrying a gap older than after_s is checked against the live gap at air time and dropped (stale_gap) if it has moved by more than the tolerance",
+   "after_s": 3.0,
+   "gap_tolerance_s": 0.5,
+   "gap_tolerance_frac": 0.3
   }
  },
  "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."

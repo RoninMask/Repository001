@@ -2191,6 +2191,28 @@
     {
      "speaker": "ANALYST",
      "when": {
+      "beat": "check_in"
+     },
+     "present": "Let us check on {a}. {thread}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "check_in"
+     },
+     "present": "{thread}. That is {a}'s race right now."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "check_in",
+      "role": "cruising"
+     },
+     "present": "And {a}, {pos}: {thread}. Quiet, but quiet is how you finish races."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
       "beat": "check_in",
       "has_ahead": true
      },
