@@ -37,6 +37,34 @@
       "kind": "under_way"
      },
      "present": "They are racing."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "kind": "lights_out"
+     },
+     "present": "And they're gone! Lights out and away we go."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "kind": "lights_out"
+     },
+     "present": "Lights out! The race is on."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "kind": "lights_out"
+     },
+     "present": "It's lights out and they're racing, up to turn one."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "kind": "lights_out"
+     },
+     "present": "Lights out, and here we go for the first time tonight."
     }
    ]
   },
@@ -2487,6 +2515,30 @@
       "beat": "enabled"
      },
      "present": "DRS is enabled."
+    }
+   ]
+  },
+  "LIGHTS_ON": {
+   "variants": [
+    {
+     "speaker": "LEAD",
+     "present": "Lights coming on."
+    },
+    {
+     "speaker": "LEAD",
+     "present": "Here come the lights."
+    },
+    {
+     "speaker": "LEAD",
+     "present": "Five lights."
+    },
+    {
+     "speaker": "LEAD",
+     "present": "Lights on, and hold your breath."
+    },
+    {
+     "speaker": "LEAD",
+     "present": "The lights are on."
     }
    ]
   }

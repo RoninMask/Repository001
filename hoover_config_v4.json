@@ -668,6 +668,13 @@
       "start": 0.5,
       "laps_frac": 0.5,
       "first_racing_lap": 2
+    },
+    "start_window": {
+      "_about": "V8.3 (09 OCT): from lights out until the leader is frac of the way round his first racing lap (or max_s), the camera stays with the lead group (cuts only inside the top three) and the booth speaks only the lead, the podium, the humans' launch, and a crash as one line; contact and penalties off the front are held and expire. fallback_s applies when the track length is unknown.",
+      "enabled": true,
+      "frac": 0.5,
+      "max_s": 75.0,
+      "fallback_s": 45.0
     }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."

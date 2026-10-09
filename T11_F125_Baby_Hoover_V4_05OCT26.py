@@ -5689,8 +5689,10 @@ class RaceModel:
         self._reset_for_restart(t)
         self.anchor_t = None
         self.anchor_source = None
+        self._start_lap = None
         self.saw_lgot = False
         self.saw_stlg = False
+        self._start_lap = None
         self.leader_finish_t = None
         self.road_winner = None
         self.ended_without_finish_t = None
@@ -5751,9 +5753,49 @@ class RaceModel:
         return round(t - self.anchor_t, 6)
 
     # ---- the one gate both Booth and Gallery consult ------------------------
+    def start_window(self, t):
+        """V8.3 (09 OCT, Dustin + Mike): the opening of a race belongs to the
+        front. From lights out until the leader is start_window_frac of the
+        way round his first racing lap (or start_window_max_s, whichever
+        first) the camera stays with the lead group and the booth speaks
+        only the lead, the podium and the humans' launch."""
+        if self.anchor_t is None or self.state not in ("green",):
+            return False
+        if not getattr(self, "emit_lights_on", False):
+            return False                 # story layer off: V3 behaviour
+        sw = self.v3.get("start_window", None)
+        if not sw or not sw.get("enabled", False):
+            return False
+        if t - self.anchor_t > float(sw.get("max_s", 75.0)):
+            return False
+        li = self.leader_idx
+        if li is None:
+            return (t - self.anchor_t) < float(sw.get("max_s", 75.0))
+        c = self.w.cars[li]
+        tl = 0
+        ext = getattr(self.w, "ext", None)
+        if ext is not None and getattr(ext, "session", None):
+            tl = (ext.session or {}).get("track_length_m") or 0
+        if tl <= 0:
+            return (t - self.anchor_t) < float(sw.get("fallback_s", 45.0))
+        frac = float(sw.get("frac", 0.5))
+        # the first racing lap is lap 1 in a no-formation lobby and lap 2 after
+        # a formation lap; either way, the leader has not yet crossed the line
+        # since the anchor while his lap is the anchor lap
+        if getattr(self, "_start_lap", None) is None:
+            self._start_lap = c.lap
+        if c.lap > self._start_lap:
+            return False
+        return (c.lap_distance or 0.0) < frac * tl
+
+    def top3(self):
+        return [c.idx for c in self.w.cars if c.seen and 0 < c.position <= 3]
+
     def allows(self, content_class, final_crossing=False, kind=None):
         s = self.state
         retire = kind in ("RETIREMENT", None)   # lifecycle "retirement only"
+        if s == "start_sequence":
+            return kind == "LIGHTS_ON"           # V8.3: one line as the lights come on
         if s in ("pre_start", "formation"):
             return content_class == CLASS_STATE and self._start_only()
         if s in ("green", "final_lap"):
@@ -5794,9 +5836,18 @@ class RaceModel:
         if code == "STLG":
             if self.state in self._DONE_STATES:
                 self._new_race(t, "STLG")
+            first_light = not self.saw_stlg
             self.saw_stlg = True
             if self.state in ("pre_start", "formation", "green", "restart_grid"):
                 self._set_state(t, "start_sequence", "STLG")
+            if first_light and self.state == "start_sequence" \
+                    and getattr(self, "emit_lights_on", False):
+                # V8.3: one short line as the lights come on, then silence
+                # until lights out
+                self.emit(Claim("LIGHTS_ON", CLASS_STATE, [], [], t,
+                                facts={"lights": info.get("lights")},
+                                provenance=[{"code": "STLG", "t_unix": round(t, 6)}],
+                                priority=99.0, hard=True, max_age_key="start"))
         elif code == "LGOT":
             if self.state in self._DONE_STATES:
                 self._new_race(t, "LGOT")
@@ -6751,7 +6802,7 @@ KIND_PLACEHOLDERS = {
 # F2: kinds allowed to consist only of fallback (subject-less) variants. A
 # race can end with no leader ever established, so RACE_END may fall back to a
 # subject-less line as its only satisfiable form.
-SUBJECT_OPTIONAL_KINDS = {"RACE_END"}
+SUBJECT_OPTIONAL_KINDS = {"RACE_END", "LIGHTS_ON"}
 
 # Minimum variant floors (B-3). Below the floor is a load-time error.
 MIN_VARIANTS = {
@@ -7033,10 +7084,39 @@ class V3Booth:
             nxt.facts["passage_dead"] = True
             nxt = getattr(nxt, "_passage_next", None)
 
+    _FRONT_STORIES = ("LEAD-01", "LEAD-02", "LEAD-03", "SF-03", "SF-02", "SF-06",
+                      "HUM-05", "INC-06")
+    _FRONT_KINDS = ("START", "LIGHTS_ON", "LEAD_CHANGE", "RED_FLAG", "SAFETY_CAR",
+                    "VSC", "RESTART")
+
+    def _front_only(self, claim, t):
+        """V8.3: inside the start window only the front may speak. Returns a
+        rewrite reason to hold the claim (it expires on its own clock), or
+        None to let it through."""
+        m = self.model
+        if not m.start_window(t):
+            return None
+        if claim.kind in self._FRONT_KINDS:
+            return None
+        f = claim.facts or {}
+        st = f.get("story_type")
+        if st in self._FRONT_STORIES:
+            return None
+        top3 = set(m.top3())
+        if st in ("BAT-01", "BAT-03", "POS-01", "INC-01") and claim.subjects \
+                and all(i in top3 for i in claim.subjects if i is not None):
+            return None
+        if st == "INC-02" and f.get("beat") == "off" and (f.get("view") or {}).get("big"):
+            return None                              # a crash: one line, we come back
+        return "rewrite:start_window"
+
     def _validate(self, claim, t):
         m = self.model
         if (claim.facts or {}).get("continuation"):
             return self._validate_continuation(claim, t)
+        held = self._front_only(claim, t)
+        if held:
+            return held
         # V7 backstop: a claim whose spoken names are not all distinct is never
         # aired (story layer on). The uniqueness pass should make this
         # unreachable; the count in the manifest says whether it was.
@@ -7399,7 +7479,7 @@ class V3Booth:
             if not self._lights_cleared:
                 self._lights_cleared = True
                 for c in list(self.queue):
-                    if c.kind not in ("START", "RESTART"):
+                    if c.kind not in ("START", "RESTART", "LIGHTS_ON"):
                         self._drop(c, "lights", t)
                 if self.speech is not None:
                     self.speech.hush()
@@ -10738,6 +10818,27 @@ class V3Gallery:
 
         if m.anchor_t is not None and not m.restarts:
             add("start", m.anchor_t, m.leader_idx, 95, 8.0)
+        # V8.3: the start window keeps the camera with the lead group. The
+        # subject is the leader, or the closest fight inside the top three.
+        if m.start_window(t):
+            car = m.leader_idx
+            best = None
+            for i in m.top3():
+                c = m.w.cars[i]
+                if c.position > 1 and c.delta_front is not None \
+                        and 0.0 < c.delta_front < 1.5:
+                    if best is None or c.delta_front < best[1]:
+                        best = (i, c.delta_front)
+            if best is not None:
+                car = best[0]
+            if car is not None:
+                cands.append({"until": t + 1.0, "priority": 96, "car": car,
+                              "reason": "start_window", "hold": 6.0, "hold_max": 90.0})
+            # contact and penalties off the front do not take the camera here
+            top3 = set(m.top3())
+            cands = [d for d in cands if d["reason"] in ("start", "start_window", "red_flag",
+                                                          "safety_car", "winner")
+                     or d["car"] in top3]
         if m.leader_finish_t is not None:
             add("winner", m.leader_finish_t, m.road_winner, 95, 5.0)
         if m.state in ("safety_car", "vsc") and m.state_since is not None:
@@ -10791,7 +10892,11 @@ class V3Gallery:
         # V4: story moments (Interrupt / Priority rows with a camera request)
         st = getattr(self, "stories", None)
         if st is not None:
-            cands.extend(st.focus_candidates(t))
+            extra = st.focus_candidates(t)
+            if m.start_window(t):
+                top3 = set(m.top3())
+                extra = [d for d in extra if d.get("car") in top3]
+            cands.extend(extra)
         if not cands:
             return None
         cands.sort(key=lambda d: (d["priority"], d["until"]), reverse=True)
@@ -14449,6 +14554,7 @@ class BabyHooverV3:
             self.stories = StoryEngine(self.model, self.world, self.config,
                                        StoriesConfig(spath), self._log)
             self.booth.stories = self.stories
+            self.model.emit_lights_on = True      # V8.3: the lights-on line
             # V5 decode (08 OCT): the extended read rides with the story layer,
             # so --stories off never builds it and stays V3 byte-for-byte.
             self.world.ext = ExtState(self.world, self._log)
