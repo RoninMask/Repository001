@@ -608,10 +608,26 @@
       "fast_mode_timeout_s": 5.0,
       "socket_timeout_s": 30.0
     },
+    "local": {
+      "_about": "V8 the local lane. An Ollama server on this machine (no key, no internet). Same writer class as the cloud lane, so the checker, cache, stamps and fallback apply unchanged. keep_alive keeps the model resident between lines; the first line after a cold start takes seconds, the rest do not. num_predict = max_tokens. The model name must match 'ollama list'; --local-model overrides it. socket_timeout_s is a transport cap; the air-time deadline still governs when the booth stops waiting.",
+      "backend": "ollama",
+      "model": "llama3.2",
+      "endpoint": "http://127.0.0.1:11434/api/chat",
+      "keep_alive": "30m",
+      "max_tokens": 60,
+      "temperature": 0.4,
+      "stop_sequences": [],
+      "max_workers": 1,
+      "min_socket_timeout_s": 0.2,
+      "fast_mode_timeout_s": 5.0,
+      "socket_timeout_s": 10.0
+    },
     "hybrid": {
-      "_about": "Pass 3 Part L. Ship with one rule: model_kinds (empty by default) routes those kinds to the model; everything else takes the template. Deadline-aware routing comes later, from this pass's measurements.",
+      "_about": "Pass 3 Part L, V8 lanes. model_kinds routes those kinds to a model writer; story kinds go to a model writer by default (model_story_kinds); everything else takes the template. V8: the blob's licence.lane picks the writer. fast_lane / slow_lane are cloud | local | template. A lane whose writer is absent (no key, no --local) falls to the other model writer, then the template.",
       "model_kinds": [],
-      "fall_back_to_template": true
+      "fall_back_to_template": true,
+      "fast_lane": "local",
+      "slow_lane": "cloud"
     },
     "parity": {
       "max_line_delta_s": 0.25

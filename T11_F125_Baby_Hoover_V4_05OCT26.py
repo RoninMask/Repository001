@@ -7956,16 +7956,34 @@ class ModelWriter(Writer):
     loop never blocks unbounded: the socket timeout is the deadline."""
     needs_blob = True
 
-    def __init__(self, booth, config, args, log=None, transport=None):
+    def __init__(self, booth, config, args, log=None, transport=None,
+                 section="model"):
+        """V8: `section` names the config block this writer reads. "model" is
+        the cloud lane (Anthropic Messages API, needs a key); "local" is the
+        local lane (an Ollama server on this machine, no key). The two are the
+        same class with a different backend, so every check, cache, stamp and
+        fallback rule applies to both by construction."""
         self.booth = booth
         self.cfg = config
         self.log = log or (lambda m: None)
-        mc = config.get("v3", "model", default={}) or {}
-        self.model_id = getattr(args, "model", None) or mc.get(
-            "model", "claude-haiku-4-5-20251001")
+        self.section = section
+        mc = config.get("v3", section, default={}) or {}
+        self.backend = (mc.get("backend") or
+                        ("ollama" if section == "local" else "anthropic"))
+        if self.backend not in ("anthropic", "ollama"):
+            raise SystemExit("STOP: v3.%s.backend must be anthropic or ollama, "
+                             "not %r" % (section, self.backend))
+        cli_model = getattr(args, "model", None) if section == "model" else \
+            getattr(args, "local_model", None)
+        self.model_id = cli_model or mc.get(
+            "model", "claude-haiku-4-5-20251001" if self.backend == "anthropic"
+            else "llama3.2")
         self.endpoint = mc.get("endpoint",
-                               "https://api.anthropic.com/v1/messages")
+                               "https://api.anthropic.com/v1/messages"
+                               if self.backend == "anthropic"
+                               else "http://127.0.0.1:11434/api/chat")
         self.api_version = mc.get("anthropic_version", "2023-06-01")
+        self.keep_alive = mc.get("keep_alive", "30m")   # ollama: stay resident
         self.max_tokens = mc.get("max_tokens", 60)
         self.temperature = mc.get("temperature", 0.4)
         self.stop = mc.get("stop_sequences", ["\n"])
@@ -7993,10 +8011,11 @@ class ModelWriter(Writer):
         # the API key: read once from --key-var, never stored where it could be
         # written out, never logged, never in an error message.
         self.key_var = getattr(args, "key_var", "ANTHROPIC_API_KEY")
-        self._api_key = os.environ.get(self.key_var)
+        self._api_key = (os.environ.get(self.key_var)
+                         if self.backend == "anthropic" else None)
         self._transport = transport         # tests inject a stub; else real http
         if (self._transport is None and not self.cache_only
-                and not self._api_key):
+                and self.backend == "anthropic" and not self._api_key):
             raise SystemExit(
                 "STOP: --writer model/hybrid needs the API key in $%s, which is "
                 "unset. Set it, or use --cache-only to run from the cache with "
@@ -8110,7 +8129,8 @@ class ModelWriter(Writer):
             return self._fallback(request, reason, cache_hit=cache_hit,
                                   stamps=stamps, latency_ms=latency_ms)
         self.counter["model"] += 1
-        return LineResult(text=text, speaker=request.speaker, writer="model",
+        return LineResult(text=text, speaker=request.speaker,
+                          writer="model" if self.section == "model" else "local",
                           template_id=None, latency_ms=latency_ms,
                           dropped_reason=None, prompt_version=self.prompt_version,
                           model_id=self.model_id, cache_hit=cache_hit,
@@ -8195,32 +8215,62 @@ class ModelWriter(Writer):
                 (self.user_preamble, blob_json, recent, extra,
                  request.speaker or "LEAD", request.word_budget or 24))
 
-    def _http_post(self, user_message):
-        import http.client
-        import urllib.parse
-        u = urllib.parse.urlsplit(self.endpoint)
+    def _payload(self, user_message, max_tokens=None):
+        """The request body for this backend. Anthropic: the Messages API.
+        Ollama: /api/chat, non-streaming, the system prompt as the first
+        message, the sampling knobs under 'options', keep_alive so the model
+        stays resident between lines (the first load is seconds; the rest are
+        not)."""
+        max_tokens = max_tokens or self.max_tokens
+        stops = [s for s in (self.stop or []) if s and s.strip()]
+        if self.backend == "ollama":
+            payload = {
+                "model": self.model_id, "stream": False,
+                "keep_alive": self.keep_alive,
+                "messages": [{"role": "system", "content": self.system},
+                             {"role": "user", "content": user_message}],
+                "options": {"temperature": self.temperature,
+                            "num_predict": max_tokens},
+            }
+            if stops:
+                payload["options"]["stop"] = stops
+            return payload
         payload = {
-            "model": self.model_id, "max_tokens": self.max_tokens,
+            "model": self.model_id, "max_tokens": max_tokens,
             "temperature": self.temperature,
             "system": self.system,
             "messages": [{"role": "user", "content": user_message}],
         }
         # The API rejects a whitespace-only stop sequence; send only real ones,
         # and omit the field entirely when none remain.
-        stops = [s for s in (self.stop or []) if s and s.strip()]
         if stops:
             payload["stop_sequences"] = stops
-        body = json.dumps(payload).encode("utf-8")
-        headers = {"x-api-key": self._api_key,
-                   "anthropic-version": self.api_version,
-                   "content-type": "application/json"}
+        return payload
+
+    def _http_post(self, user_message, max_tokens=None):
+        import http.client
+        import urllib.parse
+        u = urllib.parse.urlsplit(self.endpoint)
+        body = json.dumps(self._payload(user_message, max_tokens)).encode("utf-8")
+        if self.backend == "ollama":
+            headers = {"content-type": "application/json"}
+            default_path = "/api/chat"
+        else:
+            headers = {"x-api-key": self._api_key,
+                       "anthropic-version": self.api_version,
+                       "content-type": "application/json"}
+            default_path = "/v1/messages"
         conn = getattr(self._local, "conn", None)
         try:
             if conn is None:
-                conn = http.client.HTTPSConnection(
-                    u.hostname, u.port or 443, timeout=self.socket_timeout)
+                if u.scheme == "http":
+                    conn = http.client.HTTPConnection(
+                        u.hostname, u.port or 80, timeout=self.socket_timeout)
+                else:
+                    conn = http.client.HTTPSConnection(
+                        u.hostname, u.port or 443, timeout=self.socket_timeout)
                 self._local.conn = conn
-            conn.request("POST", u.path or "/v1/messages", body=body,
+            conn.request("POST", u.path or default_path, body=body,
                          headers=headers)
             resp = conn.getresponse()
             data = resp.read()
@@ -8235,7 +8285,7 @@ class ModelWriter(Writer):
                     body = ""
                 body = " ".join(body.split())[:400]
                 raise RuntimeError("api status %d: %s" % (resp.status, body))
-            return self._extract(data)
+            return self._extract(data, self.backend)
         except Exception:
             self._drop_conn()               # reconnect on the next line
             raise
@@ -8250,8 +8300,11 @@ class ModelWriter(Writer):
             self._local.conn = None
 
     @staticmethod
-    def _extract(data):
+    def _extract(data, backend="anthropic"):
         doc = json.loads(data.decode("utf-8"))
+        if backend == "ollama":
+            msg = doc.get("message") or {}
+            return (msg.get("content") or "").strip()
         parts = doc.get("content") or []
         for part in parts:
             if part.get("type") == "text":
@@ -8261,7 +8314,8 @@ class ModelWriter(Writer):
     def stats(self):
         c = self.counter
         return {
-            "writer": "model",
+            "writer": "model" if self.section == "model" else "local",
+            "backend": self.backend,
             "model_id": self.model_id,
             "prompt_version": self.prompt_version,
             "submitted": self._submitted,
@@ -8293,14 +8347,22 @@ class HybridWriter(Writer):
     not invent the routing policy now."""
     needs_blob = True
 
-    def __init__(self, booth, config, model_writer):
+    def __init__(self, booth, config, model_writer, local_writer=None):
         self.booth = booth
-        self.model = model_writer
+        self.model = model_writer           # the cloud lane (may be None)
+        self.local = local_writer           # the local lane (may be None)
         hy = config.get("v3", "hybrid", default={}) or {}
         self.model_kinds = set(hy.get("model_kinds", []) or [])
         self.model_story_kinds = hy.get("model_story_kinds", True)
         self.fall_back = hy.get("fall_back_to_template", True)
+        # V8 lanes: which writer takes the blob's FAST lane and which the SLOW
+        # lane. "cloud" / "local" / "template". A lane whose writer is absent
+        # (no key, no --local) falls to the other model writer, then template.
+        self.fast_lane = hy.get("fast_lane", "local")
+        self.slow_lane = hy.get("slow_lane", "cloud")
         self.template = TemplateWriter(booth)
+        self._routed = {}                   # claim_id -> writer chosen at submit
+        self.counter = collections.Counter()
 
     def _use_model(self, kind):
         if kind in self.model_kinds:
@@ -8313,20 +8375,56 @@ class HybridWriter(Writer):
             return True
         return False
 
+    def _lane_writer(self, request):
+        """The writer for this request: template when the kind is not a model
+        kind; else the lane's writer (fast -> local by default, slow -> cloud),
+        with the other model writer as the stand-in when the lane's own writer
+        was not built."""
+        if not self._use_model(request.kind):
+            return self.template, "template"
+        lane = ((request.blob or {}).get("licence") or {}).get("lane", "slow")
+        want = self.fast_lane if lane == "fast" else self.slow_lane
+        order = {"cloud": (self.model, self.local),
+                 "local": (self.local, self.model),
+                 "template": ()}.get(want, (self.model, self.local))
+        for w in order:
+            if w is not None:
+                return w, ("cloud" if w is self.model else "local")
+        return self.template, "template"
+
     def submit(self, request):
-        if self._use_model(request.kind):
-            self.model.submit(request)
+        w, label = self._lane_writer(request)
+        self._routed[request.claim_id] = (w, label)
+        self.counter["routed:%s" % label] += 1
+        if w is not self.template:
+            w.submit(request)
 
     def write_line(self, request):
-        if self._use_model(request.kind):
-            return self.model.write_line(request)
-        return self.template.write_line(request)
+        w, label = self._routed.pop(request.claim_id, (None, None))
+        if w is None:
+            w, label = self._lane_writer(request)
+        res = w.write_line(request)
+        return res
 
     def stats(self):
-        s = self.model.stats()
+        s = (self.model or self.local).stats() if (self.model or self.local) \
+            else {}
+        s = dict(s)
         s["writer"] = "hybrid"
         s["model_kinds"] = sorted(self.model_kinds)
+        s["lanes"] = {"fast": self.fast_lane, "slow": self.slow_lane}
+        s["routed"] = {k.split(":", 1)[1]: v for k, v in self.counter.items()
+                       if k.startswith("routed:")}
+        if self.model is not None:
+            s["cloud"] = self.model.stats()
+        if self.local is not None:
+            s["local"] = self.local.stats()
         return s
+
+    def close(self):
+        for w in (self.model, self.local):
+            if w is not None:
+                w.close()
 
     def close(self):
         self.model.close()
@@ -9404,6 +9502,98 @@ def audio_check(config, settings, args, sd, transport=None, inp=None,
         finally:
             ch.close()
 
+    code = 1 if any(r["state"] == RED for r in rows) else 0
+    return rows, code
+
+
+def writer_check(config, args, out=print):
+    """V8 --writer-check. One tiny request down each model lane: the cloud
+    lane (key present? API answers?) and the local lane (Ollama server up?
+    model present? one line in how many milliseconds?). Green/yellow/red rows
+    like the audio check. Never prints a key."""
+    rows = []
+    sentence = "Say the words: check complete."
+    # -- cloud lane --
+    key_var = getattr(args, "key_var", "ANTHROPIC_API_KEY")
+    mc = config.get("v3", "model", default={}) or {}
+    if not os.environ.get(key_var):
+        rows.append(_check(
+            "Cloud lane (%s)" % mc.get("model", "claude"), YELLOW,
+            "$%s is not set; the hybrid runs with the cloud lane OFF" % key_var,
+            "Set %s in Windows environment variables, then open a new window."
+            % key_var))
+    else:
+        ns = argparse.Namespace(model=None, local_model=None, cache_only=False,
+                                limit_model_lines=0, pace="real",
+                                pace_scale=1.0, prompts=None, key_var=key_var,
+                                out=os.path.join(os.getcwd(), "hoover_v3_out"))
+        try:
+            w = ModelWriter(None, config, ns)
+            t0 = time.time()
+            text = w._http_post(sentence, max_tokens=20)
+            ms = (time.time() - t0) * 1000.0
+            rows.append(_check("Cloud lane (%s)" % w.model_id, GREEN,
+                               "answered in %d ms: %r" % (ms, text[:60])))
+        except Exception as e:
+            st = _http_status_of(e)
+            if st in (401, 403):
+                rows.append(_check("Cloud lane", RED,
+                                   "the API rejected the key (%d)" % st,
+                                   "Check the key in the password app."))
+            else:
+                rows.append(_check("Cloud lane", YELLOW,
+                                   "key set, call failed: %s %s"
+                                   % (type(e).__name__, str(e)[:120]),
+                                   "Check the internet connection, then run "
+                                   "the check again."))
+    # -- local lane --
+    lc = config.get("v3", "local", default={}) or {}
+    model = getattr(args, "local_model", None) or lc.get("model", "llama3.2")
+    endpoint = lc.get("endpoint", "http://127.0.0.1:11434/api/chat")
+    try:
+        import urllib.request
+        import urllib.parse
+        u = urllib.parse.urlsplit(endpoint)
+        tags_url = "%s://%s/api/tags" % (u.scheme, u.netloc)
+        with urllib.request.urlopen(tags_url, timeout=3) as r:
+            tags = json.loads(r.read().decode("utf-8"))
+        names = [m.get("name", "") for m in (tags.get("models") or [])]
+        have = any(n == model or n.split(":")[0] == model.split(":")[0]
+                   for n in names)
+        if not have:
+            rows.append(_check(
+                "Local lane (%s)" % model, RED,
+                "Ollama is up but %r is not pulled; it has: %s"
+                % (model, ", ".join(names) or "nothing"),
+                "Run: ollama pull %s" % model))
+        else:
+            ns = argparse.Namespace(model=None, local_model=model,
+                                    cache_only=False, limit_model_lines=0,
+                                    pace="real", pace_scale=1.0, prompts=None,
+                                    key_var=key_var,
+                                    out=os.path.join(os.getcwd(), "hoover_v3_out"))
+            w = ModelWriter(None, config, ns, section="local")
+            t0 = time.time()
+            text = w._http_post(sentence, max_tokens=20)   # loads the model
+            ms_first = (time.time() - t0) * 1000.0
+            t0 = time.time()
+            text = w._http_post(sentence, max_tokens=20)   # warm
+            ms = (time.time() - t0) * 1000.0
+            state = GREEN if ms < 1500 else YELLOW
+            rows.append(_check(
+                "Local lane (%s)" % model, state,
+                "answered in %d ms warm (%d ms cold): %r"
+                % (ms, ms_first, text[:60]),
+                "" if state == GREEN else
+                "Slow for the fast lane; keep Ollama open so the model stays "
+                "resident, or use a smaller model."))
+    except Exception as e:
+        rows.append(_check(
+            "Local lane (%s)" % model, YELLOW,
+            "no Ollama server at %s (%s); the hybrid runs with the local "
+            "lane OFF" % (endpoint, type(e).__name__),
+            "Start Ollama from the Start menu (it sits in the tray), then "
+            "run the check again."))
     code = 1 if any(r["state"] == RED for r in rows) else 0
     return rows, code
 
@@ -13368,10 +13558,33 @@ class BabyHooverV3:
         choice = getattr(self.args, "writer", "template")
         if choice == "template":
             return TemplateWriter(self.booth)
-        model_writer = ModelWriter(self.booth, self.config, self.args, self._log)
+        if choice == "local":
+            return ModelWriter(self.booth, self.config, self.args, self._log,
+                               section="local")
         if choice == "model":
-            return model_writer
-        return HybridWriter(self.booth, self.config, model_writer)
+            return ModelWriter(self.booth, self.config, self.args, self._log)
+        # hybrid (V8): cloud lane + local lane + template. Either model lane may
+        # be absent: no cloud key -> cloud lane off (unless --cache-only); no
+        # --local -> local lane off. With both off the hybrid is the template.
+        cloud = local = None
+        want_local = bool(getattr(self.args, "local", False))
+        key_var = getattr(self.args, "key_var", "ANTHROPIC_API_KEY")
+        cache_only = bool(getattr(self.args, "cache_only", False))
+        if os.environ.get(key_var) or cache_only:
+            cloud = ModelWriter(self.booth, self.config, self.args, self._log)
+        else:
+            self._log("[writer] hybrid: no $%s, cloud lane off" % key_var)
+        if want_local:
+            local = ModelWriter(self.booth, self.config, self.args, self._log,
+                                section="local")
+            self._log("[writer] hybrid: local lane %s @ %s"
+                      % (local.model_id, local.endpoint))
+        if cloud is None and local is None:
+            raise SystemExit(
+                "STOP: --writer hybrid has no model lane: set $%s for the cloud "
+                "lane and/or pass --local for the Ollama lane (or use "
+                "--writer template)." % key_var)
+        return HybridWriter(self.booth, self.config, cloud, local)
 
     def _make_speech(self):
         """Part R: build the speech channel for --speech elevenlabs. A real run
@@ -14245,13 +14458,24 @@ def main():
     ap.add_argument("--tracks", default=None, help="path to hoover_tracks.json")
     ap.add_argument("--dossier", default=None, help="path to hoover_dossier.json")
     ap.add_argument("--rules", default=None, help="path to hoover_rules_league.json")
-    ap.add_argument("--writer", choices=["template", "model", "hybrid"],
+    ap.add_argument("--writer", choices=["template", "model", "local", "hybrid"],
                     default="template",
                     help="who writes the lines (default template; a run with no "
-                         "flag behaves exactly as today)")
+                         "flag behaves exactly as today). model = cloud lane "
+                         "only; local = Ollama lane only; hybrid = fast lane "
+                         "local, slow lane cloud, template under both")
     ap.add_argument("--model", default=None,
-                    help="model id for --writer model/hybrid "
+                    help="model id for the cloud lane "
                          "(default from config, else claude-haiku-4-5-20251001)")
+    ap.add_argument("--local", action="store_true",
+                    help="turn the local (Ollama) lane on in --writer hybrid; "
+                         "needs an Ollama server on this machine")
+    ap.add_argument("--local-model", default=None,
+                    help="model name for the local lane (default from config "
+                         "v3.local.model, else llama3.2)")
+    ap.add_argument("--writer-check", action="store_true",
+                    help="check the cloud key and the local Ollama server with "
+                         "one tiny request each, print green/yellow/red, exit")
     ap.add_argument("--prompts", default=None,
                     help="path to a prompt file (default hoover_prompts_v3.json "
                          "beside the tool); use it to run an old vs new prompt "
@@ -14304,6 +14528,17 @@ def main():
         return 0
     if args.pick_devices:
         return pick_devices(UserSettings(args.settings), _sounddevice)
+    if args.writer_check:
+        cfg_path = args.config or default_config_path()
+        print(build_label())
+        print("Writer check: one tiny request down each model lane.")
+        print("")
+        rows, code = writer_check(Config(cfg_path), args)
+        print(format_check_rows(rows))
+        print("")
+        print("All clear." if code == 0 else
+              "Something is red. Fix it before the race.")
+        return code
     if args.audio_check:
         cfg_path = args.config or default_config_path()
         print(build_label())
