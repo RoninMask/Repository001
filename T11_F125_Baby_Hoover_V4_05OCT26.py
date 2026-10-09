@@ -5673,6 +5673,36 @@ class RaceModel:
         self.state = new
         self.state_since = t
 
+    _DONE_STATES = ("classified", "finishing", "closed", "ended_without_finish")
+
+    def _new_race(self, t, why):
+        """V8.1 (09 OCT live run): one Hoover run saw the end of one race and
+        the start of the next; the second lights-out was taken as a RESTART
+        of the first (no grid, no formation, no start-light silence, the
+        finished race's winner still 'named'). A race that begins after a
+        classification is a NEW race: the restart reset plus the anchor and
+        the finish cleared, back to pre_start, so the start programme runs
+        in full. The previous race's classification stays in the manifest;
+        the archive files per run, so the practice day runs one Hoover per
+        session (the run card says so)."""
+        self.log(">>> NEW RACE after %s (%s) at %.3f" % (self.state, why, t))
+        self._reset_for_restart(t)
+        self.anchor_t = None
+        self.anchor_source = None
+        self.saw_lgot = False
+        self.saw_stlg = False
+        self.leader_finish_t = None
+        self.road_winner = None
+        self.ended_without_finish_t = None
+        self.final_classification = None
+        self.final_classification_t = None
+        self.humans_result_done = set()
+        self.chqf_seen = False
+        self.result_aired_pos = {}
+        self._corrected_pairs = set()
+        self.new_races = getattr(self, "new_races", []) + [round(t, 6)]
+        self._set_state(t, "pre_start", "new race: %s" % why)
+
     def _reset_for_restart(self, t):
         """V4: the grid reforms for a new race. Every car is running again;
         the aborted race's retirements, pit and pass bookkeeping, contests,
@@ -5762,10 +5792,14 @@ class RaceModel:
         if code in self.ignore:
             return
         if code == "STLG":
+            if self.state in self._DONE_STATES:
+                self._new_race(t, "STLG")
             self.saw_stlg = True
             if self.state in ("pre_start", "formation", "green", "restart_grid"):
                 self._set_state(t, "start_sequence", "STLG")
         elif code == "LGOT":
+            if self.state in self._DONE_STATES:
+                self._new_race(t, "LGOT")
             self._on_lgot(t)
         elif code == "SCAR":
             self._on_scar(t, info)
@@ -5832,6 +5866,8 @@ class RaceModel:
         prov = [{"code": "SCAR", "t_unix": round(t, 6)}]
         if sc_type == 3:
             # formation safety car: state only, never voiced.
+            if self.state in self._DONE_STATES:
+                self._new_race(t, "formation lap")
             if self.state == "pre_start":
                 self._set_state(t, "formation", "SCAR type 3")
             return
@@ -5980,6 +6016,7 @@ class RaceModel:
         if self.first_lapdata_t is None:
             self.first_lapdata_t = t
         self._session_guard(t)
+        self._maybe_fresh_grid(t)
         self._maybe_fallback_anchor(t)
         # sample positions and lifecycle from lap data
         leader = None
@@ -6095,6 +6132,29 @@ class RaceModel:
 
     def _session_guard(self, t):
         pass   # single-session replay: guard handled by the run loop's opener
+
+    def _maybe_fresh_grid(self, t):
+        """V8.1: after a classification the next race's grid appears on the
+        wire as cars back to 'active' on lap zero or one, stationary. Seen
+        sustained for fresh_grid_sustain_s, that is the new race, so the
+        pre-start (grid intros, the expectations passage) runs before the
+        lights rather than the lights being the first sign."""
+        if self.state not in self._DONE_STATES:
+            self._fresh_since = None
+            return
+        cars = [c for c in self.w.cars if c.seen and c.position > 0]
+        if not cars:
+            return
+        fresh = [c for c in cars if c.result_status == 2 and c.lap <= 1
+                 and self.speeds.get(c.idx, 0) < 5.0]
+        if len(fresh) >= max(4, int(round(0.6 * len(cars)))):
+            if getattr(self, "_fresh_since", None) is None:
+                self._fresh_since = t
+            elif t - self._fresh_since >= self.v3.get("fresh_grid_sustain_s", 2.0):
+                self._fresh_since = None
+                self._new_race(t, "fresh grid")
+        else:
+            self._fresh_since = None
 
     def _maybe_fallback_anchor(self, t):
         if self.anchor_t is not None or self.saw_lgot or self.saw_stlg:
@@ -7316,6 +7376,13 @@ class V3Booth:
         self.queue.remove(claim)
 
     # ---- per-tick scheduling ------------------------------------------------
+    def _new_race_check(self, t):
+        n = len(getattr(self.model, "new_races", []) or [])
+        if n > getattr(self, "_new_races_seen", 0):
+            self._new_races_seen = n
+            self._winner_named = False
+            self._lights_cleared = False
+
     def _lights(self, t):
         """V8: from the first start light to lights out the booth is silent.
         allows() already admits nothing in start_sequence; this clears what
@@ -7340,6 +7407,7 @@ class V3Booth:
     def tick(self, t):
         # drain claims that are ready and valid, one per free channel slot,
         # spread by the pacing governor (Part C).
+        self._new_race_check(t)
         self._lights(t)
         while True:
             if self.channel_busy_until > t + 1e-9:
@@ -13584,7 +13652,16 @@ class P_SF_02(StoryProcessor):
     def observe(self, t):
         eng = self.eng
         rec = self.live()[0] if self.live() else None
-        if eng.model.state == "formation":
+        m = eng.model
+        # V8.1: a lobby with no formation lap goes grid -> lights. The
+        # expectations passage then fires once the grid has sat for a few
+        # seconds in pre_start (never after the lights: start_sequence
+        # admits nothing).
+        grid_wait = self.p("grid_settle_s", 5.0)
+        on_grid = (m.state == "pre_start" and m.anchor_t is None
+                   and (t - (m.state_since or t)) >= grid_wait
+                   and any(c.seen and c.position > 0 for c in eng.w.cars))
+        if m.state == "formation" or on_grid:
             if rec is None:
                 # V8: the expectations passage. Opened on every human with
                 # the grid as its facts, so the slow-lane writer has the
@@ -14686,6 +14763,7 @@ class BabyHooverV3:
                        if m.anchor_t is not None else None),
             "restarts": m.restarts,
             "restart_resets": list(getattr(m, "restart_resets", [])),
+            "new_races": list(getattr(m, "new_races", [])),
             "leader_finish": ({"t_unix": round(m.leader_finish_t, 6),
                                "car_idx": m.road_winner}
                               if m.leader_finish_t is not None else None),
