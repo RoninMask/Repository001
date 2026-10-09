@@ -587,7 +587,7 @@
      "LEAD": "vSSoxe4a93eFSPtJHjAA",
      "ANALYST": "prJYBPOxu8LDMrZfACbo"
     },
-    "character_budget": 25000,
+    "character_budget": 150000,
     "degraded_threshold": 5,
     "request_timeout_s": 10.0,
     "loudness_target_dbfs": -16.0,
