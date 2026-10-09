@@ -98,7 +98,9 @@
    "max_age_s": 12.0
   },
   "gap_jump_max_s": 15.0,
-  "gap_jump_window_s": 5.0
+  "gap_jump_window_s": 5.0,
+  "prediction_min_feasibility": 0.8,
+  "projection_min_laps": 2
  },
  "params": {
   "BAT-01": {
@@ -153,7 +155,7 @@
    "max_age_s": 15.0
   },
   "INC-05": {
-   "incident_lookback_s": 20.0,
+   "incident_lookback_s": 45.0,
    "max_age_s": 30.0
   },
   "INC-06": {
@@ -204,7 +206,7 @@
    "per_car_min_s": 60.0
   },
   "REL-02": {
-   "incident_lookback_s": 20.0,
+   "incident_lookback_s": 45.0,
    "max_age_s": 30.0,
    "settle_s": 1.0
   },
@@ -231,8 +233,10 @@
   },
   "STR-01": {
    "ai_top_n": 3,
-   "max_age_s": 25.0,
-   "rejoin_settle_s": 3.0
+   "max_age_s": 30.0,
+   "rejoin_settle_s": 3.0,
+   "ledger_min": 3,
+   "ledger_every": 3
   },
   "HUM-06": {
    "defer_to_battle_s": 20.0

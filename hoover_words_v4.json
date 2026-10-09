@@ -1425,6 +1425,38 @@
       "human": true
      },
      "present": "Here is {a} in the box, {count} stop of his race. He gave up {pos} to come in, and every second here is a place on the road."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "ledger",
+      "has_out": true,
+      "has_in": true
+     },
+     "present": "{count} cars have stopped already, {b} among them. {a} is still out on his first set, and that is the strategy split in this race."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "ledger",
+      "has_out": true
+     },
+     "present": "{count} cars have been through the pits. {a} has not, so he is running long and the field will come back to him at the end."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "ledger",
+      "early": true
+     },
+     "present": "{count} cars in early for tyres. Whoever stays out now is betting on the end of the race."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "ledger"
+     },
+     "present": "The pit ledger: {count} cars have stopped so far."
     }
    ]
   },
@@ -1550,7 +1582,7 @@
      "when": {
       "beat": "out"
      },
-     "present": "{a} is out of the race, {cause}.",
+     "present": "{a} is out of the race, {cause}. We will come back to that.",
      "past": "{a} was out of the race, {cause}."
     },
     {
@@ -1717,7 +1749,7 @@
       "beat": "out"
      },
      "present": "{a} is out, {cause}.",
-     "past": "{a} dropped out."
+     "past": "{a} is gone from this race, {cause}."
     },
     {
      "speaker": "ANALYST",

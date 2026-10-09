@@ -81,8 +81,10 @@ class WriterPassages(unittest.TestCase):
         w = v.ModelWriter(_StubBooth(), CFG, _args(), section="local",
                           transport=lambda m: "")
         self.assertEqual(w._max_tokens_for(1), 60)
-        self.assertEqual(w._max_tokens_for(3), 55 * 3 + 20)
-        self.assertEqual(w._max_tokens_for(60), 400)
+        per = CFG.get("v3", "writer", "passage_tokens_per_sentence", default=55)
+        cap = CFG.get("v3", "writer", "passage_max_tokens", default=400)
+        self.assertEqual(w._max_tokens_for(3), per * 3 + 20)
+        self.assertEqual(w._max_tokens_for(60), cap)
         w.close()
 
     def test_passage_parsed_and_checked(self):
