@@ -1,0 +1,26 @@
+# Abu Dhabi (Yas Marina), F1 25 track id 14, 2021-onward 16-turn layout, 5281 m.
+# published_dist_m: median of the F1 live-timing corner markers (via MultiViewer/FastF1, archived by TracingInsights)
+#   over ten sessions, 2024 and 2025 Abu Dhabi GP (FP1-3, qualifying, race); per-corner spread 18-42 m; scaled x1.0099
+#   from the telemetry lap length (5229 m) to the official 5281 m.
+# ref_apex_m: where the speed minimum sits on Verstappen's 2025 pole lap (1:22.207), same scaling. calibrate_track.py
+#   matches the game's speed minima to these and moves dist_m by the difference.
+# Check against the wire: real sector 2 starts at 1210 m and sector 3 at 3567 m (pole lap, timing split vs distance);
+#   the F1 25 Session packet says 1211 m and 3538 m. The North Hairpin and Marsa Corner both sit just after a sector line.
+# Directions (left/right) taken from the x/y trace of the same lap. Names: authentic only; unnamed turns are spelled out.
+turn,name,kind,published_dist_m,ref_apex_m,approach_m,exit_m,note
+1,turn one,braking,380,401,200,100,left-hander at the end of the pit straight; the first-lap pile-up point
+2,turn two,fast,633,,,,quick left
+3,turn three,fast,843,,,,quick right
+4,turn four,fast,1036,,,,flat-out kink before the run to the North Hairpin
+5,the North Hairpin,braking,1430,1446,200,100,slow left hairpin onto the back straight
+6,the chicane at the end of the back straight,braking,2642,2661,200,100,the hardest stop on the lap, from the top speed of the back straight; the main overtaking spot
+7,the chicane,chicane,2703,,150,80,the right-hand exit of the chicane
+8,turn eight,medium,2914,,,,left onto the second straight
+9,Marsa Corner,braking,3730,3720,200,100,banked left at the end of the second straight; the second overtaking spot
+10,turn ten,fast,4073,,,,fast right toward the hotel
+11,turn eleven,fast,4230,,,,fast right
+12,turn twelve,braking,4359,4380,,,the big stop before the hotel; right-hander
+13,the hotel section,medium,4470,,100,60,the slow left that starts the run under the W Hotel
+14,turn fourteen,medium,4592,4590,100,60,left under the hotel
+15,turn fifteen,fast,4859,,100,60,quick right under the hotel
+16,the final corner,medium,5093,5125,100,60,right-hander onto the pit straight

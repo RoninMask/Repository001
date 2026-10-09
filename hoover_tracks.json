@@ -13,153 +13,155 @@
         "turn one, with a good exit from the final corner under the hotel"
       ],
       "drs_zones": 2,
+      "drs_zones_note": "DRS zone one: the back straight from the North Hairpin to the chicane. DRS zone two: the second straight from turn eight to Marsa Corner.",
       "corners": [
         {
           "n": 1,
           "name": "turn one",
           "kind": "braking",
-          "dist_m": 300,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "tight right at the end of the pit straight; the first-lap pile-up point"
+          "dist_m": 380,
+          "approach_m": 200,
+          "exit_m": 100,
+          "note": "left-hander at the end of the pit straight; the first-lap pile-up point"
         },
         {
           "n": 2,
           "name": "turn two",
           "kind": "fast",
-          "dist_m": 430,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "fast left-right sweep with three"
+          "dist_m": 633,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "quick left"
         },
         {
           "n": 3,
           "name": "turn three",
           "kind": "fast",
-          "dist_m": 520,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "pit exit rejoins on the outside"
+          "dist_m": 843,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "quick right"
         },
         {
           "n": 4,
           "name": "turn four",
-          "kind": "medium",
-          "dist_m": 720,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "kink into the hairpin"
+          "kind": "fast",
+          "dist_m": 1036,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "flat-out kink before the run to the North Hairpin"
         },
         {
           "n": 5,
           "name": "the North Hairpin",
           "kind": "braking",
-          "dist_m": 1020,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "wide left hairpin onto the back straight; DRS zone one"
+          "dist_m": 1430,
+          "approach_m": 200,
+          "exit_m": 100,
+          "note": "slow left hairpin onto the back straight"
         },
         {
           "n": 6,
           "name": "the chicane at the end of the back straight",
           "kind": "braking",
-          "dist_m": 2200,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "the main overtaking spot; lock-ups and contact here"
+          "dist_m": 2642,
+          "approach_m": 200,
+          "exit_m": 100,
+          "note": "the hardest stop on the lap"
         },
         {
           "n": 7,
           "name": "the chicane",
           "kind": "chicane",
-          "dist_m": 2290,
+          "dist_m": 2703,
           "approach_m": 150,
           "exit_m": 80,
-          "note": "second part of the chicane"
+          "note": "the right-hand exit of the chicane"
         },
         {
           "n": 8,
           "name": "turn eight",
           "kind": "medium",
-          "dist_m": 2600,
-          "approach_m": 150,
+          "dist_m": 2914,
+          "approach_m": 120,
           "exit_m": 80,
-          "note": "medium left onto the second straight; DRS zone two"
+          "note": "left onto the second straight"
         },
         {
           "n": 9,
           "name": "Marsa Corner",
           "kind": "braking",
-          "dist_m": 3250,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "banked sweeping hairpin at about two hundred and forty kilometres an hour; the second overtaking spot"
+          "dist_m": 3730,
+          "approach_m": 200,
+          "exit_m": 100,
+          "note": "banked left at the end of the second straight; the second overtaking spot"
         },
         {
           "n": 10,
           "name": "turn ten",
           "kind": "fast",
-          "dist_m": 3550,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "fast flowing run toward the hotel"
+          "dist_m": 4073,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "fast right toward the hotel"
         },
         {
           "n": 11,
           "name": "turn eleven",
           "kind": "fast",
-          "dist_m": 3750,
-          "approach_m": 150,
-          "exit_m": 80
+          "dist_m": 4230,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "fast right"
         },
         {
           "n": 12,
           "name": "turn twelve",
-          "kind": "fast",
-          "dist_m": 3950,
-          "approach_m": 150,
-          "exit_m": 80
+          "kind": "braking",
+          "dist_m": 4359,
+          "approach_m": 200,
+          "exit_m": 100,
+          "note": "the big stop before the hotel; right-hander"
         },
         {
           "n": 13,
           "name": "the hotel section",
           "kind": "medium",
-          "dist_m": 4300,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "tighter bends under the W Hotel"
+          "dist_m": 4470,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "the slow left that starts the run under the W Hotel"
         },
         {
           "n": 14,
           "name": "turn fourteen",
           "kind": "medium",
-          "dist_m": 4550,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "under the hotel"
+          "dist_m": 4592,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "left under the hotel"
         },
         {
           "n": 15,
           "name": "turn fifteen",
-          "kind": "medium",
-          "dist_m": 4800,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "under the hotel"
+          "kind": "fast",
+          "dist_m": 4859,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "quick right under the hotel"
         },
         {
           "n": 16,
           "name": "the final corner",
           "kind": "medium",
-          "dist_m": 5050,
-          "approach_m": 150,
-          "exit_m": 80,
-          "note": "onto the pit straight"
+          "dist_m": 5093,
+          "approach_m": 100,
+          "exit_m": 60,
+          "note": "right-hander onto the pit straight"
         }
       ],
       "estimated": true,
-      "_distances_note": "ESTIMATES from the 2021 layout (5.281 km): start/finish to turn one about three hundred metres, North Hairpin at about one kilometre, the 1.15 km back straight to the chicane, turn eight onto the second straight, Marsa Corner at about 3.25 km, the hotel section from about 4.3 km. Replace with tests/calibrate_track.py output from the first Abu Dhabi capture and set calibrated true.",
-      "drs_zones_note": "DRS zone one: the back straight from the North Hairpin to the chicane. DRS zone two: the second straight from turn eight to Marsa Corner."
+      "_distances_note": "Abu Dhabi (Yas Marina), F1 25 track id 14, 2021-onward 16-turn layout, 5281 m. published_dist_m: median of the F1 live-timing corner markers (via MultiViewer/FastF1, archived by TracingInsights) over ten sessions, 2024 and 2025 Abu Dhabi GP (FP1-3, qualifying, race); per-corner spread 18-42 m; scaled x1.0099 from the telemetry lap length (5229 m) to the official 5281 m. ref_apex_m: where the speed minimum sits on Verstappen's 2025 pole lap (1:22.207), same scaling. calibrate_track.py matches the game's speed minima to these and moves dist_m by the difference. Check against the wire: real sector 2 starts at 1210 m and sector 3 at 3567 m (pole lap, timing split vs distance); the F1 25 Session packet says 1211 m and 3538 m. The North Hairpin and Marsa Corner both sit just after a sector line. Directions (left/right) taken from the x/y trace of the same lap. Names: authentic only; unnamed turns are spelled out."
     },
     "17": {
       "name": "Austria",
