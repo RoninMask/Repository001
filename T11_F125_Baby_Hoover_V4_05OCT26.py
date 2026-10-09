@@ -8662,7 +8662,9 @@ class ModelWriter(Writer):
             extra += "\nSay what %s must be feeling (%s)." % (
                 aff.get("whose") or "the driver", aff.get("emotion") or "the moment")
         if lic.get("prediction_allowed"):
-            extra += "\nYou may make a prediction from the rate and the gap: who catches whom, and by when."
+            extra += ("\nThe LEAD should ask whether it happens (does he get there, can he hold on) "
+                      "and the ANALYST should answer with a guess from the rate and the gap: "
+                      "who catches whom, and by when.")
         if lic.get("interjection_allowed") and lic.get("interjection"):
             extra += "\nYou may open with a short exclamation such as '%s'." % lic["interjection"]
         n = self._sentences_for(request)
@@ -11147,7 +11149,7 @@ STORY_SUPERSEDES = {"PASS", "CONTESTED", "COLLAPSE", "LEAD_CHANGE",
 # Placeholders a story kind's words-file variants may use. One superset for all
 # story kinds; the engine fills only what the row supplies, and select() skips
 # variants whose placeholders are unfilled.
-STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause",
+STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "effect",
                       "pos", "n", "lap", "remaining", "count", "swaps", "speed",
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
@@ -12041,7 +12043,14 @@ class StoryEngine:
     # ---- beats -> claims ----------------------------------------------------
     def _priority(self, rec, must):
         if must:
-            return self.prio_must
+            # V8.2 (09 OCT): every must-call shared one priority, so in a
+            # race full of human passes a human going off waited its turn
+            # behind older pass calls and expired. Inside the must tier the
+            # Interrupt rows (contact, off, retirement, pile-up) go first,
+            # then by the row's own weight.
+            row = rec.row or {}
+            bonus = 10.0 if str(row.get("override", "")).lower() == "interrupt" else 0.0
+            return self.prio_must + bonus + min(5.0, float(row.get("base", 20)) / 20.0)
         return min(self.prio_cap, self.prio_floor + rec.score / self.prio_div)
 
     def emit_beat(self, t, rec, kind, name, ctx, view, numbers, must=False,
@@ -13321,6 +13330,14 @@ class P_INC_02(StoryProcessor):
             return
         if eng.model.state not in ("green", "final_lap", "safety_car", "vsc"):
             return
+        # V8.2: a 4 s speed history per car, for the size of an off
+        if not hasattr(self, "_speed_hist"):
+            self._speed_hist = {}
+        for idx, v in list(eng.model.speeds.items()):
+            h = self._speed_hist.setdefault(idx, [])
+            h.append((t, v or 0.0))
+            while h and t - h[0][0] > 4.0:
+                h.pop(0)
         min_s = self.p("min_off_s", 0.8)
         wheels = self.p("min_wheels", 2)
         for c in eng.w.cars:
@@ -13334,14 +13351,43 @@ class P_INC_02(StoryProcessor):
                     self._off_since[c.idx] = t
                 if rec is None and t - self._off_since[c.idx] >= min_s \
                         and not c.pit_status:
+                    # V8.2 (09 OCT): how big an off. The speed now against the
+                    # speed just before the car left the road: a big drop is
+                    # a crash or a spin, not a wide moment. Who is around him
+                    # and where it leaves him are the context the booth owes.
+                    sp_now = eng.model.speeds.get(c.idx, 0.0) or 0.0
+                    hist = getattr(self, "_speed_hist", {}).get(c.idx) or []
+                    sp_before = max([v for (tt, v) in hist if tt <= self._off_since[c.idx]] or [sp_now])
+                    drop = max(0.0, sp_before - sp_now)
+                    big = drop >= self.p("big_drop_kph", 80.0) or sp_now < self.p("stopped_kph", 15.0)
+                    behind = eng.car_behind(c.idx)
+                    gb = eng.gap_ahead(behind) if behind is not None else None
+                    corner = None
+                    tracks = getattr(getattr(eng, "blobctx", None), "tracks", None)
+                    notes = []
+                    if big:
+                        notes.append("%s has had a big off, down to about %s kilometres an hour"
+                                     % (eng.name(c.idx), _num_word(int(round(sp_now / 10.0)) * 10)))
+                    else:
+                        notes.append("%s ran wide but kept it going" % eng.name(c.idx))
+                    if behind is not None and gb is not None:
+                        notes.append("%s was %s behind and will be on him"
+                                     % (eng.name(behind), _gap_words(gb) or "close"))
+                    if eng.is_human(c.idx):
+                        notes.append("%s will be furious with himself if he loses places here"
+                                     % eng.name(c.idx))
                     rec = self.open(t, [c.idx],
                                     fields={"t_off": self._off_since[c.idx],
-                                            "pos_at_open": _pos_map(eng, [c.idx])},
-                                    cause={"text": "off the track", "known": True},
+                                            "pos_at_open": _pos_map(eng, [c.idx]),
+                                            "big": big, "speed_drop_kph": round(drop, 1),
+                                            "notes": notes},
+                                    cause={"text": "a big off" if big else "off the track",
+                                           "known": True},
                                     phase="off")
                     self.beat(t, rec, "transition", "off",
-                              ctx={"a": eng.name(c.idx)},
-                              view={"human": eng.is_human(c.idx)},
+                              ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position),
+                                   "b": eng.name(behind) if behind is not None else None},
+                              view={"human": eng.is_human(c.idx), "big": big},
                               must=eng.is_human(c.idx))
             else:
                 self._off_since.pop(c.idx, None)
@@ -13558,10 +13604,45 @@ class P_RC_05(StoryProcessor):
                 continue
             self._last_pen_t = getattr(self, "_last_pen_t", {})
             self._last_pen_t[car] = t
+            # V8.2 (09 OCT): every penalty gets its context, even when the
+            # answer is "no effect": what it costs, against whom, or when.
+            pt = f.get("pena_type")
+            behind = eng.car_behind(car)
+            ahead = eng.car_ahead(car)
+            gb = eng.gap_ahead(behind) if behind is not None else None
+            ga = eng.gap_ahead(car) if ahead is not None else None
+            effect = None
+            notes = []
+            if pt == 4 and secs:
+                sec = float(secs)
+                if behind is None:
+                    effect = "nobody behind him, so it costs him nothing tonight"
+                elif gb is not None and gb < sec:
+                    effect = "%s is only %s behind, so that penalty hands him the place" % (
+                        eng.name(behind), _gap_words(gb) or "a few tenths")
+                    notes.append("the penalty is worth a place to %s" % eng.name(behind))
+                elif gb is not None:
+                    effect = "he has %s in hand over %s, so it changes nothing unless %s closes" % (
+                        _gap_words(gb) or "a few seconds", eng.name(behind), eng.name(behind))
+                    notes.append("%s must stay more than %s clear of %s to the flag"
+                                 % (eng.name(car), _num_word(int(sec)) + " seconds", eng.name(behind)))
+                else:
+                    effect = "the gap behind decides what it costs"
+            elif pt in (0, 1):
+                effect = "he has to come in and serve it, and that is his race on the back foot"
+                notes.append("%s loses about twenty seconds serving it" % eng.name(car))
+            elif pt == 2:
+                effect = "that one applies to the next grid, not this race"
+            elif pt == 6:
+                effect = "and that is his race over"
+            rec.fields["notes"] = notes
+            rec.fields["effect"] = effect
             self.beat(t, rec, "transition", "issued",
                       ctx={"a": eng.name(car), "cause": (cause or {}).get("text"),
-                           "seconds": _num_word(int(secs)) if secs else None},
-                      view={"human": human, "cause_known": cause is not None},
+                           "seconds": _num_word(int(secs)) if secs else None,
+                           "effect": effect},
+                      view={"human": human, "cause_known": cause is not None,
+                            "effect_known": effect is not None},
                       numbers={"seconds": int(secs)} if secs else {}, must=human)
             # V4 cannot see 'served'; the story closes on its own idle timeout.
 
@@ -14203,6 +14284,62 @@ class P_DEV_06(StoryProcessor):
                   ctx={"count": _num_word(n), "n": _num_word(running)},
                   numbers={"count": n})
         self.close(t, rec, "count")
+
+
+@story_processor
+class P_RC_07(StoryProcessor):
+    """V8.2 (09 OCT): DRS enabled. Once per race, the moment race control
+    opens DRS (Car Status drs_allowed on any car), one line to the group:
+    who has it on whom among our drivers, and what it means for the gaps."""
+    ID = "RC-07"
+
+    def __init__(self, engine):
+        StoryProcessor.__init__(self, engine)
+        self._done_race = None
+
+    def observe(self, t):
+        eng = self.eng
+        m = eng.model
+        if m.state not in ("green",) or m.anchor_t is None:
+            return
+        if self._done_race == m.anchor_t:
+            return
+        ext = getattr(eng.w, "ext", None)
+        if ext is None or ext.status is None:
+            return
+        allowed = [c.idx for c in eng.w.cars
+                   if c.seen and c.position > 0 and not ext.restricted(c.idx)
+                   and (ext.status[c.idx] or {}).get("drs_allowed")]
+        if not allowed:
+            return
+        self._done_race = m.anchor_t
+        humans = list(eng.humans())
+        within = self.p("drs_range_s", 1.0)
+        pairs = []
+        for h in humans:
+            ahead = eng.car_ahead(h)
+            g = eng.gap_ahead(h)
+            if ahead is not None and g is not None and g <= within:
+                pairs.append((h, ahead, g))
+        pairs.sort(key=lambda x: x[2])
+        notes = ["DRS is enabled from this lap"]
+        for (h, a, g) in pairs[:3]:
+            notes.append("%s is inside DRS range of %s, %s behind"
+                         % (eng.name(h), eng.name(a), _gap_words(g) or "under a second"))
+        if not pairs and humans:
+            notes.append("none of our drivers is inside a second of the car ahead yet")
+        rec = self.open(t, humans, fields={"pairs": len(pairs), "notes": notes,
+                                           "pos_at_open": _pos_map(eng, humans)},
+                        phase="enabled")
+        rec.humans = list(humans)
+        ctx = {"count": _num_word(len(pairs))}
+        if pairs:
+            h, a, g = pairs[0]
+            ctx.update({"a": eng.name(h), "b": eng.name(a), "gap": _fmt_gap(g)})
+        self.beat(t, rec, "transition", "enabled", ctx=ctx,
+                  view={"pairs": bool(pairs)}, numbers={"count": len(pairs)},
+                  speaker="ANALYST")
+        self.close(t, rec, "enabled")
 
 
 @story_processor

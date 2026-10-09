@@ -1424,7 +1424,43 @@
     {
      "speaker": "LEAD",
      "when": {
-      "beat": "off"
+      "beat": "off",
+      "big": true
+     },
+     "present": "{a} is off! That is a big one, he has lost the car.",
+     "past": "{a} had a big off."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "off",
+      "big": true
+     },
+     "present": "Oh no, {a} has gone off in a big way, and {b} is right there behind him.",
+     "past": "{a} went off in a big way."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "off",
+      "big": true
+     },
+     "present": "That is a proper off for {a}, from {pos}. He has to gather it up and get back on, and every second out there is a place gone."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "off",
+      "big": false
+     },
+     "present": "{a} runs wide, two wheels off, and keeps it going.",
+     "past": "{a} ran wide."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "off",
+      "big": false
      },
      "present": "{a} is off!",
      "past": "{a} went off."
@@ -1432,7 +1468,8 @@
     {
      "speaker": "LEAD",
      "when": {
-      "beat": "off"
+      "beat": "off",
+      "big": false
      },
      "present": "{a} has gone off the track.",
      "past": "{a} went off the track."
@@ -1560,7 +1597,35 @@
      "speaker": "LEAD",
      "when": {
       "beat": "issued",
-      "cause_known": true
+      "cause_known": true,
+      "effect_known": true
+     },
+     "present": "A {seconds} second penalty for {a}, {cause}. And {effect}.",
+     "past": "{a} was given a penalty, {cause}, and {effect}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "issued",
+      "effect_known": true
+     },
+     "present": "{a} has a penalty to carry. Here is what it means: {effect}."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "issued",
+      "effect_known": true
+     },
+     "present": "Penalty for {a}, and {effect}.",
+     "past": "{a} was given a penalty, and {effect}."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "issued",
+      "cause_known": true,
+      "effect_known": false
      },
      "present": "A {seconds} second penalty for {a}, {cause}.",
      "past": "{a} was given a penalty."
@@ -1568,7 +1633,8 @@
     {
      "speaker": "LEAD",
      "when": {
-      "beat": "issued"
+      "beat": "issued",
+      "effect_known": false
      },
      "present": "Penalty for {a}, {seconds} seconds.",
      "past": "{a} was given a penalty."
@@ -1577,14 +1643,16 @@
      "speaker": "ANALYST",
      "when": {
       "beat": "issued",
-      "cause_known": true
+      "cause_known": true,
+      "effect_known": false
      },
      "present": "{a} has a penalty to carry, {cause}."
     },
     {
      "speaker": "ANALYST",
      "when": {
-      "beat": "issued"
+      "beat": "issued",
+      "effect_known": false
      },
      "present": "That is a penalty for {a}."
     }
@@ -2384,6 +2452,41 @@
       "stat": "out"
      },
      "present": "{n} cars out of this race so far."
+    }
+   ]
+  },
+  "S_RC_07": {
+   "variants": [
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "enabled",
+      "pairs": true
+     },
+     "present": "DRS is enabled, and that matters straight away: {a} is {gap} behind {b} and gets the flap open down the straight."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "enabled",
+      "pairs": true
+     },
+     "present": "DRS enabled. {a} has it on {b}, watch the back straight."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "enabled",
+      "pairs": false
+     },
+     "present": "DRS is enabled now, but none of our drivers is inside a second of the car ahead yet, so it is a pace race for the moment."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "enabled"
+     },
+     "present": "DRS is enabled."
     }
    ]
   }

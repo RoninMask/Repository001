@@ -147,7 +147,10 @@
   },
   "INC-02": {
    "min_off_s": 0.8,
-   "min_wheels": 2
+   "min_wheels": 2,
+   "big_drop_kph": 80.0,
+   "stopped_kph": 15.0,
+   "max_age_s": 15.0
   },
   "INC-05": {
    "incident_lookback_s": 20.0,
@@ -233,6 +236,9 @@
   },
   "HUM-06": {
    "defer_to_battle_s": 20.0
+  },
+  "RC-07": {
+   "drs_range_s": 1.0
   }
  },
  "rows": {
@@ -1268,7 +1274,7 @@
   },
   "INC-02": {
    "anchor": "relate",
-   "base": 78,
+   "base": 95,
    "build": "V3-P1",
    "camera": "request",
    "cause_required": "partial",
@@ -1276,7 +1282,7 @@
    "decay_per_lap": 0.3,
    "energy": 4,
    "group": "Incidents",
-   "hsub": 2.5,
+   "hsub": 3.5,
    "humor": "never",
    "hvic": 1,
    "idle_frac": null,
@@ -1287,7 +1293,7 @@
    "register": "fact",
    "revisit": "none",
    "single_party": true,
-   "stick": 3,
+   "stick": 5,
    "story": "Off track / spin",
    "valence": "down",
    "voice": "lead",
@@ -3301,6 +3307,34 @@
    "valence": "neutral",
    "voice": "analyst",
    "voice_default": "ANALYST"
+  },
+  "RC-07": {
+   "anchor": "relate",
+   "base": 60,
+   "build": "V8.2",
+   "camera": "none",
+   "cause_required": "partial",
+   "cluster": false,
+   "decay_per_lap": 1.0,
+   "energy": 2,
+   "group": "Race control",
+   "hsub": 1.5,
+   "humor": "lull-only",
+   "hvic": 1,
+   "idle_frac": null,
+   "idle_laps": null,
+   "min_race": "any",
+   "must_call": "yes",
+   "override": "Priority",
+   "register": "fact",
+   "revisit": "none",
+   "single_party": false,
+   "stick": 2,
+   "story": "DRS enabled",
+   "valence": "neutral",
+   "voice": "analyst",
+   "voice_default": "ANALYST",
+   "speak_after_close": true
   }
  },
  "stories_version": "V1.1-05OCT26"
