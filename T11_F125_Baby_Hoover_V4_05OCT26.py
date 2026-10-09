@@ -7037,6 +7037,8 @@ class V3Booth:
         # Part A2-2: the repetition guard.
         rp = config.get("v3", "repetition", default={}) or {}
         self.rp_exact_window = rp.get("exact_repeat_window_s", 120.0)
+        self.rp_near_jaccard = float(rp.get("near_repeat_jaccard", 0.0))   # V8.5; 0 = off
+        self.rp_near_window = float(rp.get("near_repeat_window_s", 90.0))
         self.rp_ks_window = rp.get("kind_subject_window_s", 45.0)
         self.rp_tmpl_window = rp.get("template_window_s", 30.0)
         self.rp_subj_max = rp.get("subject_share_max", 0.25)
@@ -7889,6 +7891,18 @@ class V3Booth:
                 if (t - et) <= self.rp_exact_window and txt == text:
                     self._drop(claim, "repeat:exact", t)
                     return
+            # V8.5 (OK run 12:43): three near-identical model lines in 30 s
+            # ("Valor's face is a picture of utter delight ..."). A line that
+            # shares most of its words with a recent line is a repeat too.
+            if self.stories is not None and self.rp_near_jaccard > 0:
+                mine = set(w.lower() for w in text.split())
+                for (et, txt) in self._recent_texts:
+                    if (t - et) > self.rp_near_window:
+                        continue
+                    theirs = set(w.lower() for w in txt.split())
+                    if mine and theirs and len(mine & theirs) / float(len(mine | theirs)) >= self.rp_near_jaccard:
+                        self._drop(claim, "repeat:near", t)
+                        return
         speech_text = _cap_first_alpha(speech_normalise(text, self._abbrevs))
         wc = max(1, len(text.split()))
         duration = wc / self.rate
@@ -8037,8 +8051,11 @@ class V3Booth:
                 self.blobctx.last_interjection_t = air_t
             if self.blobctx is not None and self.blobctx.predictions is not None and story_id:
                 pl = self.blobctx.predictions
-                if angle == "next" and (blob.get("memory") or {}).get("prediction_open"):
-                    pl.mark_spoken(story_id)
+                po = (blob.get("memory") or {}).get("prediction_open")
+                if po and (angle == "next" or any(
+                        k in text.lower() for k in ("lap", "catch", "on him", "gets there",
+                                                    "get there", "reel", "reach"))):
+                    pl.mark_spoken(story_id)          # V8.5: by what was said
                 if (blob.get("memory") or {}).get("prediction_resolved"):
                     pl.mark_paid(story_id)
             if self.log_blobs:
@@ -8364,6 +8381,15 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
             return (False, "banned:%s" % (b.strip() or b))
 
     tokens = _WORD_RE.findall(text)
+    # V8.5 (OK run 12:43): the local model invented faces, crowds and
+    # feelings ("delight etched on his face"). Whole-word bans from the
+    # config catch invented colour the number check cannot.
+    if cfg is not None:
+        bw = {w.lower() for w in (cfg.get("v3", "writer", "banned_words", default=[]) or [])}
+        if bw:
+            for tok in tokens:
+                if tok.lower().strip("'") in bw:
+                    return (False, "banned_word:%s" % tok.lower())
     for i, tok in enumerate(tokens):
         low = tok.lower()
         parts = low.split("-")
@@ -11021,8 +11047,14 @@ class V3Gallery:
                 c = m.w.cars[i]
                 if c.position > 1 and c.delta_front is not None \
                         and 0.0 < c.delta_front < 1.5:
-                    if best is None or c.delta_front < best[1]:
-                        best = (i, c.delta_front)
+                    # V8.5: a fight with one of our drivers in it beats a
+                    # closer fight between two AI cars (OK run: 33 s on an
+                    # AI third place while Ronin led)
+                    ahead = m.w.car_at_position(c.position - 1)
+                    human = c.is_human or (ahead is not None and ahead.is_human)
+                    key = (1 if human else 0, -c.delta_front)
+                    if best is None or key > best[2]:
+                        best = (i, c.delta_front, key)
             if best is not None:
                 car = best[0]
             if car is not None:
@@ -11704,7 +11736,25 @@ class StoryStore:
                       cap=self.eng.scfg.e("chapters_max", 24))
         pl = getattr(self.eng, "predictions", None)
         if pl is not None:
-            pl.resolve_story(rec, rec.closed_lap)
+            it = pl.resolve_story(rec, rec.closed_lap)
+            # V8.5 (OK run 12:43: 7 predictions confirmed, 0 paid): a
+            # prediction the booth said out loud is paid off with its own
+            # line when the story closes, right or wrong.
+            if it and it.get("spoken") and not it.get("paid") \
+                    and it.get("status") in ("confirmed", "missed", "late") \
+                    and rec.row.get("speak_after_close", False) is not None:
+                say = it.get("say") or {}
+                ctx = {"a": say.get("chaser"), "b": say.get("target"),
+                       "lap": _num_word(it.get("deadline_lap") or 0)}
+                try:
+                    rec.row = dict(rec.row, speak_after_close=True)
+                    self.eng.emit_beat(t, rec, "threshold", "payoff", ctx,
+                                       {"status": it["status"]}, {},
+                                       must=bool(rec.humans), speaker="ANALYST",
+                                       subjects=[it["chaser"], it["target"]])
+                    it["paid"] = True
+                except Exception as ex:
+                    self.eng.log("[stories] payoff beat failed: %s" % ex)
 
     def find(self, row_id, participants=None, phase=None):
         want = set(participants) if participants is not None else None
@@ -13036,6 +13086,9 @@ class P_LEAD_02(StoryProcessor):
                             ctx={"a": eng.name(chaser), "b": eng.name(leader),
                                  "gap": _fmt_gap(gap)}, numbers={"gap": gap})
         elif gap > attack * 2 and rec.phase == "attack_range":
+            if gap > self.p("cooling_max_gap_s", 10.0):      # V8.5: see BAT-01
+                self.close(t, rec, "separated")
+                return
             self.transition(t, rec, "cooling",
                             ctx={"a": eng.name(chaser), "b": eng.name(leader),
                                  "gap": _fmt_gap(gap)}, numbers={"gap": gap})
@@ -13167,6 +13220,12 @@ class P_BAT_01(StoryProcessor):
             if gap <= attack and rec.phase in ("catching", "big_catch", "cooling"):
                 self.transition(t, rec, "attack_range", ctx, numbers={"gap": gap})
             elif gap > attack * 2.0 and rec.phase == "attack_range":
+                # V8.5 (OK run 12:43: "dropped off, sixty-five seconds now"):
+                # a gap that has jumped past cooling_max_gap_s is a stop, a
+                # spin or a lap-count glitch, not a battle cooling -- close it
+                if gap > self.p("cooling_max_gap_s", 10.0):
+                    self.close(t, rec, "separated")
+                    continue
                 self.transition(t, rec, "cooling", ctx, numbers={"gap": gap})
             if eng.drs.get(behind) and rec.phase == "attack_range" \
                     and not rec.fields.get("drs_said"):
@@ -14173,9 +14232,10 @@ class P_REL_02(StoryProcessor):
             # with no contact on the wire still gets an educated guess, and
             # a first-lap stop names the first lap.
             lap = eng.lap_now() or 0
+            since_start = (t - m.anchor_t) if m.anchor_t is not None else None
             if disconnected:
                 guess = "lost from the session"
-            elif lap <= 1:
+            elif lap <= 1 and since_start is not None and since_start < 240.0:
                 guess = "stopped on the opening lap, no contact that we saw, so most likely damage from the first-corner scramble"
             else:
                 guess = "stopped out on track, no contact that we saw, so damage or a problem with the car"

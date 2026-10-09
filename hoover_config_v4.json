@@ -1,693 +1,723 @@
 {
-  "config_version": "3.1.0",
-  "notes": "Every tunable for T11 Baby Hoover V2. No scoring number, threshold, budget or window may be a literal in the code. Values marked by the papers as REC are provisional; the direction is the finding, the magnitudes are not. Sources: Baby Hoover V2 Offline Decision Layer V1.1, Drama Rev 2 (M-14, value windows, taxonomy), Broadcaster Quality V2, Commentary Channel V1, Driver Naming and Identity V1, Monza reference broadcast analysis.",
-  "pit_wall": {
-    "w_leader": 25.0,
-    "w_podium": 10.0,
-    "w_sticky": 18.0,
-    "w_lonely": -20.0,
-    "w_closing": 15.0,
-    "w_flying_lap": 45.0,
-    "w_improving": 15.0,
-    "w_pit_lane": 25.0,
-    "w_out_in_lap": -15.0,
-    "gap_bands": [
-      [
-        0.5,
-        45.0
-      ],
-      [
-        1.0,
-        35.0
-      ],
-      [
-        2.0,
-        20.0
-      ],
-      [
-        3.0,
-        8.0
-      ]
-    ],
-    "gap_band_max_s": 900.0,
-    "human_battle_gap_max_s": 3.0,
-    "closing_trend_threshold": -0.08,
-    "closing_gap_max_s": 4.0,
-    "lonely_gap_s": 5.0,
-    "battle_gap_max_s": 1.2,
-    "battle_trend_threshold": -0.05,
-    "battle_cooldown_s": 45.0,
-    "hard_interrupt_age_s": 3.0,
-    "event_weights": {
-      "COLLISION": {
-        "base": 70.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "RETIREMENT": {
-        "base": 60.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "OVERTAKE": {
-        "base": 60.0,
-        "decay_s": 8.0,
-        "hard": false,
-        "window": "short"
-      },
-      "FASTEST_LAP": {
-        "base": 55.0,
-        "decay_s": 8.0,
-        "hard": false,
-        "window": "short"
-      },
-      "PENALTY": {
-        "base": 50.0,
-        "decay_s": 8.0,
-        "hard": false,
-        "window": "short"
-      },
-      "PIT_IN": {
-        "base": 45.0,
-        "decay_s": 12.0,
-        "hard": false,
-        "window": "short"
-      },
-      "PIT_OUT": {
-        "base": 40.0,
-        "decay_s": 10.0,
-        "hard": false,
-        "window": "short"
-      },
-      "SPEED_TRAP": {
-        "base": 20.0,
-        "decay_s": 5.0,
-        "hard": false,
-        "window": "short"
-      },
-      "OVTK_HINT": {
-        "base": 12.0,
-        "decay_s": 5.0,
-        "hard": false,
-        "window": "short"
-      },
-      "LEADER_CHANGE": {
-        "base": 65.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "OFF_TRACK": {
-        "base": 55.0,
-        "decay_s": 2.0,
-        "hard": false,
-        "window": "interrupt"
-      },
-      "SAFETY_CAR": {
-        "base": 88.0,
-        "decay_s": 15.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "SAFETY_CAR_END": {
-        "base": 80.0,
-        "decay_s": 10.0,
-        "hard": false,
-        "window": "short"
-      },
-      "LIGHTS_OUT": {
-        "base": 100.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "CHEQUERED": {
-        "base": 95.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "RACE_WINNER": {
-        "base": 95.0,
-        "decay_s": 10.0,
-        "hard": true,
-        "window": "interrupt"
-      },
-      "BATTLE": {
-        "base": 55.0,
-        "decay_s": 20.0,
-        "hard": false,
-        "window": "medium"
-      },
-      "COLLAPSE": {
-        "base": 70.0,
-        "decay_s": 20.0,
-        "hard": false,
-        "window": "medium"
-      },
-      "SESSION_START": {
-        "base": 40.0,
-        "decay_s": 10.0,
-        "hard": false,
-        "window": "short"
-      },
-      "SESSION_END": {
-        "base": 40.0,
-        "decay_s": 10.0,
-        "hard": false,
-        "window": "short"
-      }
-    },
-    "participation": {
-      "human_vs_human": 2.2,
-      "human_vs_ai": 2.2,
-      "human_alone": 1.4,
-      "ai_vs_ai": 0.5
-    },
-    "value_windows_s": {
-      "interrupt": 5.0,
-      "short": 30.0,
-      "medium": 180.0,
-      "long": 999999.0
-    }
-  },
-  "gallery": {
-    "hold_floor_incident_s": 2.5,
-    "hold_floor_normal_s": 4.0,
-    "hold_floor_lull_s": 7.0,
-    "interrupt_min_hold_s": 2.0,
-    "cut_margin": 25.0,
-    "cut_margin_stale": 10.0,
-    "stale_hold_s": 40.0,
-    "verify_timeout_s": 1.6,
-    "walk_max_presses": 8,
-    "operator_yield_s": 20.0,
-    "miss_cooldown_s": 20.0,
-    "incident_recent_s": 8.0,
-    "lull_top_score_threshold": 45.0,
-    "subject_lost_grace_s": 2.0,
-    "defer_cut_for_airing_line": true
-  },
-  "booth": {
-    "speech_rate_wps": 3.85,
-    "budgets": {
-      "stinger": [
-        1,
-        4
-      ],
-      "call": [
-        3,
-        9
-      ],
-      "beat": [
-        8,
-        16
-      ],
-      "analysis": [
-        14,
-        33
-      ]
-    },
-    "hard_ceiling_words": 33,
-    "median_target_words": 8,
-    "short_tail_share": 0.31,
-    "short_tail_max_words": 5,
-    "min_air_score": 8.0,
-    "tense_demote_age_s": 8.0,
-    "queue_max_age_factor": 1.0,
-    "burn_window_s": 600.0,
-    "suppression": {
-      "inverse_pair_window_s": 8.0
-    },
-    "fusion": {
-      "symptom_window_s": 40.0,
-      "min_symptom_beats": 3,
-      "cause_lookback_s": 30.0
-    },
-    "floor_governor": {
-      "floor_wpm": 150.0,
-      "window_s": 60.0,
-      "min_session_age_s": 20.0,
-      "silence_gap_threshold_s": 10.0,
-      "negative_space_min_gap_s": 6.0
-    },
-    "connective_max_age_s": 300.0,
-    "naming": {
-      "names_per_min_target": 6.5,
-      "reanchor_max_utterances": 2
-    },
-    "_speech_rate_note_v8": "V8 (09 OCT): 3.85 words/s measured over Mike's run 2 of 08 OCT (76 ElevenLabs flash lines, LEAD 3.83, ANALYST 4.00). The old 2.92 reserved about a second a line the voice never used (78 s over one race)."
-  },
-  "phases": {
-    "boundaries_lap_fraction": [
-      0.15,
-      0.35,
-      0.85
-    ],
-    "open": {
-      "wpm": 180.0,
-      "utterance_target_w": 7.0,
-      "budget_scale": 1.0,
-      "names_per_min": 6.0,
-      "mechanism_per_min": 0.2,
-      "commitment_per_min": 1.6
-    },
-    "early": {
-      "wpm": 180.0,
-      "utterance_target_w": 7.8,
-      "budget_scale": 1.0,
-      "names_per_min": 11.6,
-      "mechanism_per_min": 0.9,
-      "commitment_per_min": 1.2
-    },
-    "mid": {
-      "wpm": 179.0,
-      "utterance_target_w": 9.0,
-      "budget_scale": 1.0,
-      "names_per_min": 7.5,
-      "mechanism_per_min": 0.85,
-      "commitment_per_min": 0.9
-    },
-    "close": {
-      "wpm": 146.0,
-      "utterance_target_w": 6.5,
-      "budget_scale": 0.8,
-      "names_per_min": 4.8,
-      "mechanism_per_min": 0.2,
-      "commitment_per_min": 0.5
-    }
-  },
-  "coverage_floor": [
-    "LIGHTS_OUT",
-    "LEADER_CHANGE",
-    "RACE_WINNER",
-    "CHEQUERED",
-    "SAFETY_CAR",
-    "RED_FLAG"
+ "config_version": "3.1.0",
+ "notes": "Every tunable for T11 Baby Hoover V2. No scoring number, threshold, budget or window may be a literal in the code. Values marked by the papers as REC are provisional; the direction is the finding, the magnitudes are not. Sources: Baby Hoover V2 Offline Decision Layer V1.1, Drama Rev 2 (M-14, value windows, taxonomy), Broadcaster Quality V2, Commentary Channel V1, Driver Naming and Identity V1, Monza reference broadcast analysis.",
+ "pit_wall": {
+  "w_leader": 25.0,
+  "w_podium": 10.0,
+  "w_sticky": 18.0,
+  "w_lonely": -20.0,
+  "w_closing": 15.0,
+  "w_flying_lap": 45.0,
+  "w_improving": 15.0,
+  "w_pit_lane": 25.0,
+  "w_out_in_lap": -15.0,
+  "gap_bands": [
+   [
+    0.5,
+    45.0
+   ],
+   [
+    1.0,
+    35.0
+   ],
+   [
+    2.0,
+    20.0
+   ],
+   [
+    3.0,
+    8.0
+   ]
   ],
-  "negative_space": {
-    "stack": [
-      {
-        "kind": "NS_SETUP",
-        "base": 35.0,
-        "window": "medium"
-      },
-      {
-        "kind": "NS_PRE_TENSION",
-        "base": 25.0,
-        "window": "medium"
-      },
-      {
-        "kind": "NS_COOLDOWN",
-        "base": 15.0,
-        "window": "short"
-      },
-      {
-        "kind": "NS_STRATEGIC",
-        "base": 10.0,
-        "window": "long"
-      },
-      {
-        "kind": "NS_LULL",
-        "base": 5.0,
-        "window": "long"
-      },
-      {
-        "kind": "NS_STAT",
-        "base": 5.0,
-        "window": "long"
-      },
-      {
-        "kind": "NS_SCENIC",
-        "base": 2.0,
-        "window": "long"
-      }
-    ]
+  "gap_band_max_s": 900.0,
+  "human_battle_gap_max_s": 3.0,
+  "closing_trend_threshold": -0.08,
+  "closing_gap_max_s": 4.0,
+  "lonely_gap_s": 5.0,
+  "battle_gap_max_s": 1.2,
+  "battle_trend_threshold": -0.05,
+  "battle_cooldown_s": 45.0,
+  "hard_interrupt_age_s": 3.0,
+  "event_weights": {
+   "COLLISION": {
+    "base": 70.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "RETIREMENT": {
+    "base": 60.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "OVERTAKE": {
+    "base": 60.0,
+    "decay_s": 8.0,
+    "hard": false,
+    "window": "short"
+   },
+   "FASTEST_LAP": {
+    "base": 55.0,
+    "decay_s": 8.0,
+    "hard": false,
+    "window": "short"
+   },
+   "PENALTY": {
+    "base": 50.0,
+    "decay_s": 8.0,
+    "hard": false,
+    "window": "short"
+   },
+   "PIT_IN": {
+    "base": 45.0,
+    "decay_s": 12.0,
+    "hard": false,
+    "window": "short"
+   },
+   "PIT_OUT": {
+    "base": 40.0,
+    "decay_s": 10.0,
+    "hard": false,
+    "window": "short"
+   },
+   "SPEED_TRAP": {
+    "base": 20.0,
+    "decay_s": 5.0,
+    "hard": false,
+    "window": "short"
+   },
+   "OVTK_HINT": {
+    "base": 12.0,
+    "decay_s": 5.0,
+    "hard": false,
+    "window": "short"
+   },
+   "LEADER_CHANGE": {
+    "base": 65.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "OFF_TRACK": {
+    "base": 55.0,
+    "decay_s": 2.0,
+    "hard": false,
+    "window": "interrupt"
+   },
+   "SAFETY_CAR": {
+    "base": 88.0,
+    "decay_s": 15.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "SAFETY_CAR_END": {
+    "base": 80.0,
+    "decay_s": 10.0,
+    "hard": false,
+    "window": "short"
+   },
+   "LIGHTS_OUT": {
+    "base": 100.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "CHEQUERED": {
+    "base": 95.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "RACE_WINNER": {
+    "base": 95.0,
+    "decay_s": 10.0,
+    "hard": true,
+    "window": "interrupt"
+   },
+   "BATTLE": {
+    "base": 55.0,
+    "decay_s": 20.0,
+    "hard": false,
+    "window": "medium"
+   },
+   "COLLAPSE": {
+    "base": 70.0,
+    "decay_s": 20.0,
+    "hard": false,
+    "window": "medium"
+   },
+   "SESSION_START": {
+    "base": 40.0,
+    "decay_s": 10.0,
+    "hard": false,
+    "window": "short"
+   },
+   "SESSION_END": {
+    "base": 40.0,
+    "decay_s": 10.0,
+    "hard": false,
+    "window": "short"
+   }
   },
-  "session": {
-    "derive_interval_s": 0.5,
-    "decide_interval_s": 0.5,
-    "idle_close_s": 90.0,
-    "status_every_s": 10.0,
-    "dormant_lapdata_age_s": 15.0
+  "participation": {
+   "human_vs_human": 2.2,
+   "human_vs_ai": 2.2,
+   "human_alone": 1.4,
+   "ai_vs_ai": 0.5
   },
-  "v3": {
-    "fallback_anchor": {
-      "speed_kph": 5,
-      "min_fraction_cars": 0.5,
-      "sustain_s": 1.0
+  "value_windows_s": {
+   "interrupt": 5.0,
+   "short": 30.0,
+   "medium": 180.0,
+   "long": 999999.0
+  }
+ },
+ "gallery": {
+  "hold_floor_incident_s": 2.5,
+  "hold_floor_normal_s": 4.0,
+  "hold_floor_lull_s": 7.0,
+  "interrupt_min_hold_s": 2.0,
+  "cut_margin": 25.0,
+  "cut_margin_stale": 10.0,
+  "stale_hold_s": 40.0,
+  "verify_timeout_s": 1.6,
+  "walk_max_presses": 8,
+  "operator_yield_s": 20.0,
+  "miss_cooldown_s": 20.0,
+  "incident_recent_s": 8.0,
+  "lull_top_score_threshold": 45.0,
+  "subject_lost_grace_s": 2.0,
+  "defer_cut_for_airing_line": true
+ },
+ "booth": {
+  "speech_rate_wps": 3.85,
+  "budgets": {
+   "stinger": [
+    1,
+    4
+   ],
+   "call": [
+    3,
+    9
+   ],
+   "beat": [
+    8,
+    16
+   ],
+   "analysis": [
+    14,
+    33
+   ]
+  },
+  "hard_ceiling_words": 33,
+  "median_target_words": 8,
+  "short_tail_share": 0.31,
+  "short_tail_max_words": 5,
+  "min_air_score": 8.0,
+  "tense_demote_age_s": 8.0,
+  "queue_max_age_factor": 1.0,
+  "burn_window_s": 600.0,
+  "suppression": {
+   "inverse_pair_window_s": 8.0
+  },
+  "fusion": {
+   "symptom_window_s": 40.0,
+   "min_symptom_beats": 3,
+   "cause_lookback_s": 30.0
+  },
+  "floor_governor": {
+   "floor_wpm": 150.0,
+   "window_s": 60.0,
+   "min_session_age_s": 20.0,
+   "silence_gap_threshold_s": 10.0,
+   "negative_space_min_gap_s": 6.0
+  },
+  "connective_max_age_s": 300.0,
+  "naming": {
+   "names_per_min_target": 6.5,
+   "reanchor_max_utterances": 2
+  },
+  "_speech_rate_note_v8": "V8 (09 OCT): 3.85 words/s measured over Mike's run 2 of 08 OCT (76 ElevenLabs flash lines, LEAD 3.83, ANALYST 4.00). The old 2.92 reserved about a second a line the voice never used (78 s over one race)."
+ },
+ "phases": {
+  "boundaries_lap_fraction": [
+   0.15,
+   0.35,
+   0.85
+  ],
+  "open": {
+   "wpm": 180.0,
+   "utterance_target_w": 7.0,
+   "budget_scale": 1.0,
+   "names_per_min": 6.0,
+   "mechanism_per_min": 0.2,
+   "commitment_per_min": 1.6
+  },
+  "early": {
+   "wpm": 180.0,
+   "utterance_target_w": 7.8,
+   "budget_scale": 1.0,
+   "names_per_min": 11.6,
+   "mechanism_per_min": 0.9,
+   "commitment_per_min": 1.2
+  },
+  "mid": {
+   "wpm": 179.0,
+   "utterance_target_w": 9.0,
+   "budget_scale": 1.0,
+   "names_per_min": 7.5,
+   "mechanism_per_min": 0.85,
+   "commitment_per_min": 0.9
+  },
+  "close": {
+   "wpm": 146.0,
+   "utterance_target_w": 6.5,
+   "budget_scale": 0.8,
+   "names_per_min": 4.8,
+   "mechanism_per_min": 0.2,
+   "commitment_per_min": 0.5
+  }
+ },
+ "coverage_floor": [
+  "LIGHTS_OUT",
+  "LEADER_CHANGE",
+  "RACE_WINNER",
+  "CHEQUERED",
+  "SAFETY_CAR",
+  "RED_FLAG"
+ ],
+ "negative_space": {
+  "stack": [
+   {
+    "kind": "NS_SETUP",
+    "base": 35.0,
+    "window": "medium"
+   },
+   {
+    "kind": "NS_PRE_TENSION",
+    "base": 25.0,
+    "window": "medium"
+   },
+   {
+    "kind": "NS_COOLDOWN",
+    "base": 15.0,
+    "window": "short"
+   },
+   {
+    "kind": "NS_STRATEGIC",
+    "base": 10.0,
+    "window": "long"
+   },
+   {
+    "kind": "NS_LULL",
+    "base": 5.0,
+    "window": "long"
+   },
+   {
+    "kind": "NS_STAT",
+    "base": 5.0,
+    "window": "long"
+   },
+   {
+    "kind": "NS_SCENIC",
+    "base": 2.0,
+    "window": "long"
+   }
+  ]
+ },
+ "session": {
+  "derive_interval_s": 0.5,
+  "decide_interval_s": 0.5,
+  "idle_close_s": 90.0,
+  "status_every_s": 10.0,
+  "dormant_lapdata_age_s": 15.0
+ },
+ "v3": {
+  "fallback_anchor": {
+   "speed_kph": 5,
+   "min_fraction_cars": 0.5,
+   "sustain_s": 1.0
+  },
+  "idle_watchdog_s": {
+   "default": 90,
+   "stopped": 600
+  },
+  "lifecycle": {
+   "merge_window_s": 5.0,
+   "cause_lookback_s": 30.0
+  },
+  "pit": {
+   "fusion_window_s": 30.0,
+   "max_named": 3
+  },
+  "session_guard": {
+   "min_cars": 10,
+   "sustain_s": 5.0
+  },
+  "passes": {
+   "pass_hold_s": 2.0,
+   "ovtk_match_s": 2.0,
+   "contest_window_s": 20.0,
+   "contest_settle_s": 6.0,
+   "collapse_places": 3,
+   "collapse_window_s": 20.0
+  },
+  "finish": {
+   "winner_call_max_delay_s": 5.0,
+   "max_corrections_per_car": 2,
+   "correct_only_if": [
+    "podium",
+    "human"
+   ]
+  },
+  "claims": {
+   "max_age_s": {
+    "default": 12.0,
+    "pass": 8.0,
+    "lead_change": 6.0,
+    "state": 20.0,
+    "retirement": 30.0,
+    "penalty": 30.0,
+    "result": 60.0,
+    "story": 16.0,
+    "story_relate": 24.0
+   },
+   "final_order_guard_s": 30.0
+  },
+  "pacing": {
+   "min_gap_s": 1.2,
+   "max_consecutive": 4,
+   "breath_s": 3.5,
+   "max_continuous_speech_s": 12.0,
+   "breath_after_run_s": 4.5,
+   "window_s": 60.0,
+   "window_max_share": 0.7,
+   "hard_interrupt_kinds": [
+    "START",
+    "RESTART",
+    "LEAD_CHANGE",
+    "SAFETY_CAR",
+    "VSC",
+    "RED_FLAG",
+    "RETIREMENT",
+    "WINNER",
+    "RACE_END",
+    "PENALTY"
+   ]
+  },
+  "repetition": {
+   "exact_repeat_window_s": 120.0,
+   "kind_subject_window_s": 45.0,
+   "template_window_s": 30.0,
+   "subject_share_max": 0.25,
+   "subject_share_window_s": 180.0,
+   "near_repeat_jaccard": 0.6,
+   "near_repeat_window_s": 90.0
+  },
+  "lull": {
+   "after_s": 3.0,
+   "max_per_minute": 6,
+   "kind_cooldown_s": {
+    "LULL_DISTANCE": 180,
+    "LULL_FASTEST": 120,
+    "LULL_GAP": 90,
+    "LULL_HUMAN": 90,
+    "LULL_WEATHER": 300,
+    "LULL_PROGRESS": 90
+   },
+   "max_silence_s": 5.0,
+   "window_reserve_s": 4.0,
+   "kind_min_s": {
+    "LULL_WEATHER": 240.0
+   },
+   "hard_silence_s": 30.0,
+   "min_green_s_for": {
+    "LULL_WEATHER": 120.0,
+    "LULL_DISTANCE": 60.0
+   },
+   "_v8_1": "min_green_s_for: a lull kind may not fire until the race is this many seconds old (the live run of 09 OCT opened on the track temperature)."
+  },
+  "restart": {
+   "reset_on_grid": true,
+   "_note": "A lobby restart (session end, then session start from suspended) is a new race: retirements, pit/pass bookkeeping, contests and lead history are cleared when the grid reforms. false = V3 behaviour."
+  },
+  "camera": {
+   "roster_wait_max_s": 10.0,
+   "leader_checkin_s": 150.0,
+   "leader_checkin_hold_s": 8.0,
+   "away_max_s": 12.0,
+   "away_margin": 15.0,
+   "human_share_window_s": 300.0,
+   "hold_floor_normal_s": 6.0,
+   "hold_floor_incident_s": 5.0,
+   "hold_floor_lull_s": 10.0,
+   "max_hold_s": 40.0,
+   "lull_top_score_threshold": 45.0,
+   "human_share_bands": [
+    {
+     "min_humans": 5,
+     "band": [
+      0.7,
+      0.8
+     ]
     },
-    "idle_watchdog_s": {
-      "default": 90,
-      "stopped": 600
+    {
+     "min_humans": 3,
+     "band": [
+      0.6,
+      0.75
+     ]
     },
-    "lifecycle": {
-      "merge_window_s": 5.0,
-      "cause_lookback_s": 30.0
+    {
+     "min_humans": 2,
+     "band": [
+      0.55,
+      0.75
+     ]
     },
-    "pit": {
-      "fusion_window_s": 30.0,
-      "max_named": 3
+    {
+     "min_humans": 1,
+     "band": [
+      0.55,
+      0.75
+     ]
     },
-    "session_guard": {
-      "min_cars": 10,
-      "sustain_s": 5.0
-    },
-    "passes": {
-      "pass_hold_s": 2.0,
-      "ovtk_match_s": 2.0,
-      "contest_window_s": 20.0,
-      "contest_settle_s": 6.0,
-      "collapse_places": 3,
-      "collapse_window_s": 20.0
-    },
-    "finish": {
-      "winner_call_max_delay_s": 5.0,
-      "max_corrections_per_car": 2,
-      "correct_only_if": [
-        "podium",
-        "human"
-      ]
-    },
-    "claims": {
-      "max_age_s": {
-        "default": 12.0,
-        "pass": 8.0,
-        "lead_change": 6.0,
-        "state": 20.0,
-        "retirement": 30.0,
-        "penalty": 30.0,
-        "result": 60.0,
-        "story": 16.0,
-        "story_relate": 24.0
-      },
-      "final_order_guard_s": 30.0
-    },
-    "pacing": {
-      "min_gap_s": 1.2,
-      "max_consecutive": 4,
-      "breath_s": 3.5,
-      "max_continuous_speech_s": 12.0,
-      "breath_after_run_s": 4.5,
-      "window_s": 60.0,
-      "window_max_share": 0.7,
-      "hard_interrupt_kinds": [
-        "START",
-        "RESTART",
-        "LEAD_CHANGE",
-        "SAFETY_CAR",
-        "VSC",
-        "RED_FLAG",
-        "RETIREMENT",
-        "WINNER",
-        "RACE_END",
-        "PENALTY"
-      ]
-    },
-    "repetition": {
-      "exact_repeat_window_s": 120.0,
-      "kind_subject_window_s": 45.0,
-      "template_window_s": 30.0,
-      "subject_share_max": 0.25,
-      "subject_share_window_s": 180.0
-    },
-    "lull": {
-      "after_s": 3.0,
-      "max_per_minute": 6,
-      "kind_cooldown_s": {
-        "LULL_DISTANCE": 180,
-        "LULL_FASTEST": 120,
-        "LULL_GAP": 90,
-        "LULL_HUMAN": 90,
-        "LULL_WEATHER": 300,
-        "LULL_PROGRESS": 90
-      },
-      "max_silence_s": 5.0,
-      "window_reserve_s": 4.0,
-      "kind_min_s": {
-        "LULL_WEATHER": 240.0
-      },
-      "hard_silence_s": 30.0,
-      "min_green_s_for": {
-        "LULL_WEATHER": 120.0,
-        "LULL_DISTANCE": 60.0
-      },
-      "_v8_1": "min_green_s_for: a lull kind may not fire until the race is this many seconds old (the live run of 09 OCT opened on the track temperature)."
-    },
-    "restart": {
-      "reset_on_grid": true,
-      "_note": "A lobby restart (session end, then session start from suspended) is a new race: retirements, pit/pass bookkeeping, contests and lead history are cleared when the grid reforms. false = V3 behaviour."
-    },
-    "camera": {
-      "roster_wait_max_s": 10.0,
-      "leader_checkin_s": 150.0,
-      "leader_checkin_hold_s": 8.0,
-      "away_max_s": 12.0,
-      "away_margin": 15.0,
-      "human_share_window_s": 300.0,
-      "hold_floor_normal_s": 6.0,
-      "hold_floor_incident_s": 5.0,
-      "hold_floor_lull_s": 10.0,
-      "max_hold_s": 40.0,
-      "lull_top_score_threshold": 45.0,
-      "human_share_bands": [
-        {
-          "min_humans": 5,
-          "band": [
-            0.7,
-            0.8
-          ]
-        },
-        {
-          "min_humans": 3,
-          "band": [
-            0.6,
-            0.75
-          ]
-        },
-        {
-          "min_humans": 2,
-          "band": [
-            0.55,
-            0.75
-          ]
-        },
-        {
-          "min_humans": 1,
-          "band": [
-            0.55,
-            0.75
-          ]
-        },
-        {
-          "min_humans": 0,
-          "band": null
-        }
-      ],
-      "protected": {
-        "red_flag": {
-          "hold_s": null,
-          "priority": 100
-        },
-        "start": {
-          "hold_s": 8.0,
-          "priority": 95
-        },
-        "winner_hold_s": 5.0,
-        "winner": {
-          "hold_s": 5.0,
-          "priority": 95
-        },
-        "safety_car": {
-          "hold_s": 6.0,
-          "priority": 90
-        },
-        "retirement": {
-          "hold_s": 7.0,
-          "priority": 85
-        },
-        "collision_human": {
-          "hold_s": 8.0,
-          "priority": 85
-        },
-        "lead_change": {
-          "hold_s": 6.0,
-          "priority": 80
-        },
-        "penalty_human": {
-          "hold_s": 4.0,
-          "priority": 70
-        },
-        "collision_ai": {
-          "hold_s": 3.5,
-          "priority": 55
-        },
-        "incident_merge_s": 8.0
-      },
-      "share_hysteresis_s": 20.0,
-      "share_band_inner_margin": 0.03,
-      "lead_battle_merge_s": 8.0,
-      "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10."
-    },
-    "naming": {
-      "fallback_order": [
-        "team",
-        "number",
-        "generic"
-      ]
-    },
-    "speech": {
-      "abbreviations": [
-        "DRS",
-        "ERS",
-        "MGU-K",
-        "MGU-H",
-        "KERS",
-        "VSC",
-        "SC"
-      ],
-      "_duration_model_about": "Pass 3 Part M. A least-squares fit over the 25 Sep render (r2=0.75): about 0.590 s of fixed per-line overhead (onset, breath, decay) plus ~0.246 s per word. Used for the word-budget conversion. VOICE-SPECIFIC: any change of ElevenLabs voice invalidates these constants. per_speaker keeps one shared pair on purpose -- the sample (LEAD 3.13 wps / ANALYST 2.84 wps over 17/18 lines) is too thin to fit two intercepts. apply_to_est_duration is false so the default template run stays byte-identical to the pre-Pass-3 output (acceptance item 1); est_duration_s keeps fallback_wps until a new byte-identity baseline is taken. V8 (09 OCT): refit over run 2 of 08 OCT (76 lines, r2 0.92): overhead about zero (clamped to 0.05), 0.258 s per word; fallback_wps 3.85. Median bias of the old pair on that run was +0.54 s a line.",
-      "duration_model": {
-        "overhead_s": 0.05,
-        "seconds_per_word": 0.258,
-        "fallback_wps": 3.85,
-        "apply_to_est_duration": false,
-        "per_speaker": {}
-      },
-      "realtime": {
-        "_about": "Pass 4 Parts R-V. The real-time speech channel. Flash is the low-latency model the 226 ms first-byte figure was measured on; eleven_multilingual_v2 is higher quality but does not fit real time and stays for offline re-renders. Voices measured at the same latency floor. character_budget caps one run's spend (account allowance is ~70 races/month, shared); on reaching it the channel stops synthesising but the script and audio kit keep being written. loudness_target_dbfs normalises each clip; trim_silence removes ElevenLabs' leading/trailing silence. voice_settings are iterated in config, never code, and recorded in the manifest. degraded_threshold: once this many synths fail, log that speech is degraded and carry on writing.",
-        "model": "eleven_flash_v2_5",
-        "endpoint": "https://api.elevenlabs.io/v1/text-to-speech",
-        "output_format": "pcm_24000",
-        "sample_rate_hz": 24000,
-        "_device_about": "ENUMERATED on the target machine and used EXACTLY -- never inferred from a name, and NEVER guessed from what a standard VB-CABLE install would be called (that trap: the generic install names the playback endpoint 'CABLE Input (VB-Audio Virtual Cable)', but THIS machine renamed it, so the generic name does not exist here and would fail). The four endpoints enumerated on the machine: 'CABLE In 16 Ch (VB-Audio Virtual Cable)' (16-channel, do NOT use), 'CABLE Output (VB-Audio Virtual Cable)' (the capture side OBS reads, not us), 'Speakers (VB-Audio Virtual Cable)' (THE cable endpoint = device_cable, what OBS captures off the cable -- the authoritative track), and 'ED270 Z (NVIDIA High Definition Audio)' (the operator's real monitor = device_audible). The call is played to BOTH: device_cable (for OBS) and device_audible (so the operator hears it live), in parallel on separate streams. The monitor is best-effort and never disturbs the cable feed; set device_audible to the same string as device_cable, or remove it, to play to the cable only. Both are checked at start-up. --speech-device overrides device_cable; --list-audio-devices prints the exact strings; a real run whose device does not match exactly fails loud at start-up. Re-enumerate and change both strings per machine.",
-        "device_cable": "Speakers (VB-Audio Virtual Cable)",
-        "device_audible": "ED270 Z (NVIDIA High Definition Audio)",
-        "voices": {
-          "LEAD": "vSSoxe4a93eFSPtJHjAA",
-          "ANALYST": "prJYBPOxu8LDMrZfACbo"
-        },
-        "character_budget": 25000,
-        "degraded_threshold": 5,
-        "request_timeout_s": 10.0,
-        "loudness_target_dbfs": -16.0,
-        "trim_silence": true,
-        "trim_threshold_dbfs": -40.0,
-        "voice_settings": {
-          "stability": 0.5,
-          "similarity_boost": 0.75,
-          "speed": 1.0
-        }
-      }
-    },
-    "writer": {
-      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain. V8: passage_tokens_per_sentence x sentences (capped at passage_max_tokens) is the completion budget for a passage; passage_max_wait_s is how long the rest of a passage may wait past the previous sentence's end before its tail is dropped. passage_gap_s is the handover gap between the sentences of one passage (instead of the governor's min_gap_s). V8.3 (09 OCT): lead_cloud_s / lead_local_s / lead_passage_s is how long the booth waits for a model answer in flight before airing the template instead; 149 of 170 lines timed out on 09 OCT because the booth aired the instant the channel was free. V8.4 (09 OCT, cycle 2): the window opened -- lead times 3.0/1.0/5.0, cloud max_workers 6, story claims live 16 s so a passage has time to come back; a dropped claim cancels its call.",
-      "recent_lines": 4,
-      "slot_budget_s": 8.0,
-      "slot_budget_by_kind": {},
-      "budget_slack_words": 2,
-      "sentence_initial_caps_ok": [
-        "I",
-        "OK"
-      ],
-      "banned_constructions": [
-        "ladies and gentlemen",
-        "[",
-        "]",
-        "LEAD:",
-        "ANALYST:",
-        "stage direction",
-        "(",
-        ")"
-      ],
-      "passage_tokens_per_sentence": 60,
-      "passage_max_tokens": 480,
-      "passage_max_wait_s": 6.0,
-      "passage_gap_s": 0.4,
-      "lead_cloud_s": 3.0,
-      "lead_local_s": 1.0,
-      "lead_passage_s": 5.0
-    },
-    "model": {
-      "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",
-      "model": "claude-haiku-4-5-20251001",
-      "endpoint": "https://api.anthropic.com/v1/messages",
-      "anthropic_version": "2023-06-01",
-      "max_tokens": 60,
-      "temperature": 0.4,
-      "_stop_sequences_note": "The Messages API rejects a whitespace-only stop sequence (400: 'each stop sequence must contain non-whitespace'), so the old ['\\n'] is invalid. 'One line, always' is enforced in code by taking the first line of the completion. Only non-whitespace stop sequences are sent; whitespace-only entries are filtered and the field is omitted if none remain.",
-      "stop_sequences": [],
-      "max_workers": 6,
-      "min_socket_timeout_s": 0.2,
-      "fast_mode_timeout_s": 5.0,
-      "socket_timeout_s": 30.0
-    },
-    "local": {
-      "_about": "V8 the local lane. An Ollama server on this machine (no key, no internet). Same writer class as the cloud lane, so the checker, cache, stamps and fallback apply unchanged. keep_alive keeps the model resident between lines; the first line after a cold start takes seconds, the rest do not. num_predict = max_tokens. The model name must match 'ollama list'; --local-model overrides it. socket_timeout_s is a transport cap; the air-time deadline still governs when the booth stops waiting.",
-      "backend": "ollama",
-      "model": "llama3.2",
-      "endpoint": "http://127.0.0.1:11434/api/chat",
-      "keep_alive": "30m",
-      "max_tokens": 60,
-      "temperature": 0.4,
-      "stop_sequences": [],
-      "max_workers": 2,
-      "min_socket_timeout_s": 0.2,
-      "fast_mode_timeout_s": 5.0,
-      "socket_timeout_s": 10.0
-    },
-    "hybrid": {
-      "_about": "Pass 3 Part L, V8 lanes. model_kinds routes those kinds to a model writer; story kinds go to a model writer by default (model_story_kinds); everything else takes the template. V8: the blob's licence.lane picks the writer. fast_lane / slow_lane are cloud | local | template. A lane whose writer is absent (no key, no --local) falls to the other model writer, then the template.",
-      "model_kinds": [],
-      "fall_back_to_template": true,
-      "fast_lane": "local",
-      "slow_lane": "cloud"
-    },
-    "parity": {
-      "max_line_delta_s": 0.25
-    },
-    "blob": {
-      "_about": "V6 state blob (State Blob White Paper V1, 08 OCT 26). The slot sets the size: a line inside slow_lane_min_s of its deadline, a hard interrupt, or a sudden incident is the FAST lane and gets notes_fast notes; everything else is the SLOW lane and gets notes_slow (plus notes_lull_bonus in a race lull). spend_* is how many notes the writer is told to use. feel is licensed when the beat's affect intensity reaches feel_min_intensity and a human is its anchor. An interjection is offered for an instant-onset beat at interjection_min_intensity or more, no more than once per interjection_min_gap_s. V8 (09 OCT): sentences_* is the slot's sentence budget on the SLOW lane (the fast lane is always one): the grid/formation and a race lull get the long form, green racing a short exchange, a neutralisation in between. The booth airs a passage one sentence per clip and a higher-priority call cuts in at a sentence boundary.",
-      "slow_lane_min_s": 3.0,
-      "notes_fast": 4,
-      "notes_slow": 12,
-      "notes_lull_bonus": 3,
-      "spend_fast": 1,
-      "spend_slow": 2,
-      "feel_min_intensity": 0.6,
-      "interjection_min_intensity": 0.8,
-      "interjection_min_gap_s": 120.0,
-      "sentences_prestart": 8,
-      "sentences_lull": 8,
-      "sentences_green": 5,
-      "sentences_neutralised": 6,
-      "prediction_min_feasibility": 0.8
-    },
-    "tether": {
-      "_about": "V8 the lead-to-human tether (09 OCT). The start belongs to the leaders and the run to turn one; by halfway the broadcast is on the humans. The human premium in the camera's participation multiplier and in the story scores is scaled by `start` on the first racing lap, rising linearly to 1.0 by lap ceil(laps_frac x total laps). A five-lap race is full by lap three; a thirty-lap race by lap fifteen. enabled=false restores the 07 OCT weighting everywhere.",
-      "enabled": true,
-      "start": 0.5,
-      "laps_frac": 0.5,
-      "first_racing_lap": 2
-    },
-    "start_window": {
-      "_about": "V8.3 (09 OCT): from lights out until the leader is frac of the way round his first racing lap (or max_s), the camera stays with the lead group (cuts only inside the top three) and the booth speaks only the lead, the podium, the humans' launch, and a crash as one line; contact and penalties off the front are held and expire. fallback_s applies when the track length is unknown.",
-      "enabled": true,
-      "frac": 0.5,
-      "max_s": 75.0,
-      "fallback_s": 45.0
-    },
-    "dwell": {
-      "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
-      "enabled": true,
-      "dwell_s": 25.0,
-      "idle_release_s": 10.0,
-      "must_after_s": 10.0,
-      "min_for_bridge_s": 6.0,
-      "bridge_window_s": 20.0
+    {
+     "min_humans": 0,
+     "band": null
     }
+   ],
+   "protected": {
+    "red_flag": {
+     "hold_s": null,
+     "priority": 100
+    },
+    "start": {
+     "hold_s": 8.0,
+     "priority": 95
+    },
+    "winner_hold_s": 5.0,
+    "winner": {
+     "hold_s": 5.0,
+     "priority": 95
+    },
+    "safety_car": {
+     "hold_s": 6.0,
+     "priority": 90
+    },
+    "retirement": {
+     "hold_s": 7.0,
+     "priority": 85
+    },
+    "collision_human": {
+     "hold_s": 8.0,
+     "priority": 85
+    },
+    "lead_change": {
+     "hold_s": 6.0,
+     "priority": 80
+    },
+    "penalty_human": {
+     "hold_s": 4.0,
+     "priority": 70
+    },
+    "collision_ai": {
+     "hold_s": 3.5,
+     "priority": 55
+    },
+    "incident_merge_s": 8.0
+   },
+   "share_hysteresis_s": 20.0,
+   "share_band_inner_margin": 0.03,
+   "lead_battle_merge_s": 8.0,
+   "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10."
   },
-  "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
+  "naming": {
+   "fallback_order": [
+    "team",
+    "number",
+    "generic"
+   ]
+  },
+  "speech": {
+   "abbreviations": [
+    "DRS",
+    "ERS",
+    "MGU-K",
+    "MGU-H",
+    "KERS",
+    "VSC",
+    "SC"
+   ],
+   "_duration_model_about": "Pass 3 Part M. A least-squares fit over the 25 Sep render (r2=0.75): about 0.590 s of fixed per-line overhead (onset, breath, decay) plus ~0.246 s per word. Used for the word-budget conversion. VOICE-SPECIFIC: any change of ElevenLabs voice invalidates these constants. per_speaker keeps one shared pair on purpose -- the sample (LEAD 3.13 wps / ANALYST 2.84 wps over 17/18 lines) is too thin to fit two intercepts. apply_to_est_duration is false so the default template run stays byte-identical to the pre-Pass-3 output (acceptance item 1); est_duration_s keeps fallback_wps until a new byte-identity baseline is taken. V8 (09 OCT): refit over run 2 of 08 OCT (76 lines, r2 0.92): overhead about zero (clamped to 0.05), 0.258 s per word; fallback_wps 3.85. Median bias of the old pair on that run was +0.54 s a line.",
+   "duration_model": {
+    "overhead_s": 0.05,
+    "seconds_per_word": 0.258,
+    "fallback_wps": 3.85,
+    "apply_to_est_duration": false,
+    "per_speaker": {}
+   },
+   "realtime": {
+    "_about": "Pass 4 Parts R-V. The real-time speech channel. Flash is the low-latency model the 226 ms first-byte figure was measured on; eleven_multilingual_v2 is higher quality but does not fit real time and stays for offline re-renders. Voices measured at the same latency floor. character_budget caps one run's spend (account allowance is ~70 races/month, shared); on reaching it the channel stops synthesising but the script and audio kit keep being written. loudness_target_dbfs normalises each clip; trim_silence removes ElevenLabs' leading/trailing silence. voice_settings are iterated in config, never code, and recorded in the manifest. degraded_threshold: once this many synths fail, log that speech is degraded and carry on writing.",
+    "model": "eleven_flash_v2_5",
+    "endpoint": "https://api.elevenlabs.io/v1/text-to-speech",
+    "output_format": "pcm_24000",
+    "sample_rate_hz": 24000,
+    "_device_about": "ENUMERATED on the target machine and used EXACTLY -- never inferred from a name, and NEVER guessed from what a standard VB-CABLE install would be called (that trap: the generic install names the playback endpoint 'CABLE Input (VB-Audio Virtual Cable)', but THIS machine renamed it, so the generic name does not exist here and would fail). The four endpoints enumerated on the machine: 'CABLE In 16 Ch (VB-Audio Virtual Cable)' (16-channel, do NOT use), 'CABLE Output (VB-Audio Virtual Cable)' (the capture side OBS reads, not us), 'Speakers (VB-Audio Virtual Cable)' (THE cable endpoint = device_cable, what OBS captures off the cable -- the authoritative track), and 'ED270 Z (NVIDIA High Definition Audio)' (the operator's real monitor = device_audible). The call is played to BOTH: device_cable (for OBS) and device_audible (so the operator hears it live), in parallel on separate streams. The monitor is best-effort and never disturbs the cable feed; set device_audible to the same string as device_cable, or remove it, to play to the cable only. Both are checked at start-up. --speech-device overrides device_cable; --list-audio-devices prints the exact strings; a real run whose device does not match exactly fails loud at start-up. Re-enumerate and change both strings per machine.",
+    "device_cable": "Speakers (VB-Audio Virtual Cable)",
+    "device_audible": "ED270 Z (NVIDIA High Definition Audio)",
+    "voices": {
+     "LEAD": "vSSoxe4a93eFSPtJHjAA",
+     "ANALYST": "prJYBPOxu8LDMrZfACbo"
+    },
+    "character_budget": 25000,
+    "degraded_threshold": 5,
+    "request_timeout_s": 10.0,
+    "loudness_target_dbfs": -16.0,
+    "trim_silence": true,
+    "trim_threshold_dbfs": -40.0,
+    "voice_settings": {
+     "stability": 0.5,
+     "similarity_boost": 0.75,
+     "speed": 1.0
+    }
+   }
+  },
+  "writer": {
+   "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain. V8: passage_tokens_per_sentence x sentences (capped at passage_max_tokens) is the completion budget for a passage; passage_max_wait_s is how long the rest of a passage may wait past the previous sentence's end before its tail is dropped. passage_gap_s is the handover gap between the sentences of one passage (instead of the governor's min_gap_s). V8.3 (09 OCT): lead_cloud_s / lead_local_s / lead_passage_s is how long the booth waits for a model answer in flight before airing the template instead; 149 of 170 lines timed out on 09 OCT because the booth aired the instant the channel was free. V8.4 (09 OCT, cycle 2): the window opened -- lead times 3.0/1.0/5.0, cloud max_workers 6, story claims live 16 s so a passage has time to come back; a dropped claim cancels its call.",
+   "recent_lines": 4,
+   "slot_budget_s": 8.0,
+   "slot_budget_by_kind": {},
+   "budget_slack_words": 2,
+   "sentence_initial_caps_ok": [
+    "I",
+    "OK"
+   ],
+   "banned_constructions": [
+    "ladies and gentlemen",
+    "[",
+    "]",
+    "LEAD:",
+    "ANALYST:",
+    "stage direction",
+    "(",
+    ")"
+   ],
+   "passage_tokens_per_sentence": 60,
+   "passage_max_tokens": 480,
+   "passage_max_wait_s": 6.0,
+   "passage_gap_s": 0.4,
+   "lead_cloud_s": 3.0,
+   "lead_local_s": 1.0,
+   "lead_passage_s": 5.0,
+   "banned_words": [
+    "face",
+    "faces",
+    "eyes",
+    "crowd",
+    "crowds",
+    "grandstand",
+    "grandstands",
+    "fans",
+    "delight",
+    "delighted",
+    "etched",
+    "stunned",
+    "comprehend",
+    "squeal",
+    "squealing",
+    "palpable",
+    "masterclass",
+    "incredible",
+    "unbelievable",
+    "jaw",
+    "smile",
+    "grin",
+    "tears",
+    "roar",
+    "roars",
+    "roaring"
+   ]
+  },
+  "model": {
+   "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",
+   "model": "claude-haiku-4-5-20251001",
+   "endpoint": "https://api.anthropic.com/v1/messages",
+   "anthropic_version": "2023-06-01",
+   "max_tokens": 60,
+   "temperature": 0.4,
+   "_stop_sequences_note": "The Messages API rejects a whitespace-only stop sequence (400: 'each stop sequence must contain non-whitespace'), so the old ['\\n'] is invalid. 'One line, always' is enforced in code by taking the first line of the completion. Only non-whitespace stop sequences are sent; whitespace-only entries are filtered and the field is omitted if none remain.",
+   "stop_sequences": [],
+   "max_workers": 6,
+   "min_socket_timeout_s": 0.2,
+   "fast_mode_timeout_s": 5.0,
+   "socket_timeout_s": 30.0
+  },
+  "local": {
+   "_about": "V8 the local lane. An Ollama server on this machine (no key, no internet). Same writer class as the cloud lane, so the checker, cache, stamps and fallback apply unchanged. keep_alive keeps the model resident between lines; the first line after a cold start takes seconds, the rest do not. num_predict = max_tokens. The model name must match 'ollama list'; --local-model overrides it. socket_timeout_s is a transport cap; the air-time deadline still governs when the booth stops waiting.",
+   "backend": "ollama",
+   "model": "llama3.2",
+   "endpoint": "http://127.0.0.1:11434/api/chat",
+   "keep_alive": "30m",
+   "max_tokens": 60,
+   "temperature": 0.4,
+   "stop_sequences": [],
+   "max_workers": 2,
+   "min_socket_timeout_s": 0.2,
+   "fast_mode_timeout_s": 5.0,
+   "socket_timeout_s": 10.0
+  },
+  "hybrid": {
+   "_about": "Pass 3 Part L, V8 lanes. model_kinds routes those kinds to a model writer; story kinds go to a model writer by default (model_story_kinds); everything else takes the template. V8: the blob's licence.lane picks the writer. fast_lane / slow_lane are cloud | local | template. A lane whose writer is absent (no key, no --local) falls to the other model writer, then the template.",
+   "model_kinds": [],
+   "fall_back_to_template": true,
+   "fast_lane": "local",
+   "slow_lane": "cloud"
+  },
+  "parity": {
+   "max_line_delta_s": 0.25
+  },
+  "blob": {
+   "_about": "V6 state blob (State Blob White Paper V1, 08 OCT 26). The slot sets the size: a line inside slow_lane_min_s of its deadline, a hard interrupt, or a sudden incident is the FAST lane and gets notes_fast notes; everything else is the SLOW lane and gets notes_slow (plus notes_lull_bonus in a race lull). spend_* is how many notes the writer is told to use. feel is licensed when the beat's affect intensity reaches feel_min_intensity and a human is its anchor. An interjection is offered for an instant-onset beat at interjection_min_intensity or more, no more than once per interjection_min_gap_s. V8 (09 OCT): sentences_* is the slot's sentence budget on the SLOW lane (the fast lane is always one): the grid/formation and a race lull get the long form, green racing a short exchange, a neutralisation in between. The booth airs a passage one sentence per clip and a higher-priority call cuts in at a sentence boundary.",
+   "slow_lane_min_s": 3.0,
+   "notes_fast": 4,
+   "notes_slow": 12,
+   "notes_lull_bonus": 3,
+   "spend_fast": 1,
+   "spend_slow": 2,
+   "feel_min_intensity": 0.6,
+   "interjection_min_intensity": 0.8,
+   "interjection_min_gap_s": 120.0,
+   "sentences_prestart": 8,
+   "sentences_lull": 8,
+   "sentences_green": 5,
+   "sentences_neutralised": 6,
+   "prediction_min_feasibility": 0.8
+  },
+  "tether": {
+   "_about": "V8 the lead-to-human tether (09 OCT). The start belongs to the leaders and the run to turn one; by halfway the broadcast is on the humans. The human premium in the camera's participation multiplier and in the story scores is scaled by `start` on the first racing lap, rising linearly to 1.0 by lap ceil(laps_frac x total laps). A five-lap race is full by lap three; a thirty-lap race by lap fifteen. enabled=false restores the 07 OCT weighting everywhere.",
+   "enabled": true,
+   "start": 0.5,
+   "laps_frac": 0.5,
+   "first_racing_lap": 2
+  },
+  "start_window": {
+   "_about": "V8.3 (09 OCT): from lights out until the leader is frac of the way round his first racing lap (or max_s), the camera stays with the lead group (cuts only inside the top three) and the booth speaks only the lead, the podium, the humans' launch, and a crash as one line; contact and penalties off the front are held and expire. fallback_s applies when the track length is unknown.",
+   "enabled": true,
+   "frac": 0.5,
+   "max_s": 75.0,
+   "fallback_s": 45.0
+  },
+  "dwell": {
+   "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
+   "enabled": true,
+   "dwell_s": 25.0,
+   "idle_release_s": 10.0,
+   "must_after_s": 10.0,
+   "min_for_bridge_s": 6.0,
+   "bridge_window_s": 20.0
+  }
+ },
+ "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
 }

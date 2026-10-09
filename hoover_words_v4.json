@@ -865,6 +865,37 @@
       "beat": "status"
      },
      "present": "{a} is still there, {gap} behind {b}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "confirmed"
+     },
+     "present": "We said {a} would be on {b} by lap {lap}, and there it is. Called it."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "late"
+     },
+     "present": "We said {a} would get to {b} by lap {lap}. It came, a lap or so late, but it came."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "missed"
+     },
+     "present": "We said {a} would be on {b} by lap {lap}. He is not, and I will hold my hands up to that one."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff"
+     },
+     "present": "That settles the one we called between {a} and {b}."
     }
    ]
   },
@@ -1056,6 +1087,37 @@
       "beat": "status"
      },
      "present": "No change between {a} and {b}, {gap} between them."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "confirmed"
+     },
+     "present": "We said {a} would be on {b} by lap {lap}, and there it is. Called it."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "late"
+     },
+     "present": "We said {a} would get to {b} by lap {lap}. It came, a lap or so late, but it came."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff",
+      "status": "missed"
+     },
+     "present": "We said {a} would be on {b} by lap {lap}. He is not, and I will hold my hands up to that one."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "payoff"
+     },
+     "present": "That settles the one we called between {a} and {b}."
     }
    ]
   },

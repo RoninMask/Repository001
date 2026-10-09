@@ -60,7 +60,9 @@ class _Writer(v.Writer):
     def write_line(self, request):
         self.requests.append(request)
         self.n = getattr(self, "n", 0) + 1
-        return v.LineResult("Line %s about %s." % (v._num_word(self.n), request.claim.names[0]),
+        words = ["alpha bravo charlie", "delta echo foxtrot golf", "hotel india juliet kilo lima",
+                 "mike november oscar papa", "quebec romeo sierra tango uniform"]
+        return v.LineResult("%s %s." % (request.claim.names[0], words[self.n % len(words)]),
                             "LEAD", "stub")
 
 
