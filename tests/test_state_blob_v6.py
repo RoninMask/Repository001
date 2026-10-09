@@ -226,14 +226,17 @@ class ArchiveFiles(unittest.TestCase):
         self.assertTrue(tr.facts(14))
         # V8: Abu Dhabi ships 'estimated' distances, so names resolve before
         # calibration; with neither flag, no corner.
-        self.assertEqual(tr.corner_at(14, 1000.0)["name"], "the North Hairpin")
+        hp = [c for c in tr.tracks["14"]["corners"] if "Hairpin" in c["name"]][0]
+        self.assertEqual(tr.corner_at(14, float(hp["dist_m"]))["name"], hp["name"])
         tr.tracks["14"]["estimated"] = False
-        self.assertIsNone(tr.corner_at(14, 1000.0))         # not calibrated: no corner
+        tr.tracks["14"]["calibrated"] = False
+        self.assertIsNone(tr.corner_at(14, float(hp["dist_m"])))   # neither flag: no corner
         tr.tracks["14"]["calibrated"] = True
-        tr.tracks["14"]["corners"][5]["dist_m"] = 1800
-        self.assertEqual(tr.corner_at(14, 1750.0)["name"],
-                         "the chicane at the end of the back straight")
-        self.assertIsNone(tr.corner_at(14, 1500.0))
+        c6 = tr.tracks["14"]["corners"][5]
+        self.assertEqual(tr.corner_at(14, float(c6["dist_m"]) - 50.0)["name"], c6["name"])
+        # a point on the back straight, clear of every window, names nothing
+        mid = (hp["dist_m"] + hp.get("exit_m", 80) + c6["dist_m"] - c6.get("approach_m", 150)) / 2.0
+        self.assertIsNone(tr.corner_at(14, mid))
         self.assertEqual(tr.corner_at(99, 10.0), None)
 
     def test_dossier(self):
