@@ -1,0 +1,117 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Hoover Dashboard</title>
+<style>
+@page{size:A4;margin:0}
+:root{--red:#e10600;--ink:#181c25;--mute:#5b6070;--rule:#dde0e6;--soft:#f4f5f7}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Poppins',sans-serif;color:var(--ink);font-size:8.7pt;line-height:1.36}
+.page{width:210mm;height:297mm;padding:14mm 17mm 16mm;position:relative;overflow:hidden;page-break-after:always}
+.page:last-child{page-break-after:auto}
+.band{background:var(--ink);color:#fff;margin:-14mm -18mm 5mm;padding:8mm 18mm 5.5mm}
+.band .k{color:var(--red);font-weight:700;letter-spacing:1.4pt;font-size:8pt;margin-bottom:3mm}
+.band h1{margin:0 0 1.5mm;font-size:20pt;font-weight:700}
+.band .s{color:#d5d8df;font-weight:300;font-size:10pt}
+.mini{background:var(--ink);color:#fff;margin:-14mm -18mm 4mm;padding:6mm 18mm 5mm;font-size:8pt;letter-spacing:1.2pt;font-weight:700}
+.mini span{color:var(--red)}
+h2{font-size:11pt;margin:3.2mm 0 1.2mm;font-weight:700;display:flex;gap:3mm;align-items:baseline}
+h2 .n{color:var(--red);font-size:9pt;letter-spacing:1pt;min-width:6mm}
+p{margin:0 0 1.8mm}
+ul{margin:0 0 2.5mm;padding-left:5mm}
+li{margin:0 0 1mm}
+pre{font-family:'DejaVu Sans Mono',monospace;font-size:8.2pt;background:var(--soft);border-left:2.5pt solid var(--red);padding:1.8mm 4mm;margin:1mm 0 1.8mm;white-space:pre-wrap;line-height:1.38}
+code{font-family:'DejaVu Sans Mono',monospace;font-size:8.4pt;background:var(--soft);padding:0 1mm}
+.ok{background:#e7f4ea;border-left:2.5pt solid #1d6b33}
+.lead{font-size:9.2pt;margin-bottom:2mm}
+.box{background:var(--soft);border-radius:2mm;padding:2.2mm 3.5mm;margin:1.5mm 0 2mm}
+.box b.r{color:var(--red)}
+table{width:100%;border-collapse:collapse;margin:1mm 0 2mm;font-size:8.3pt}
+th{text-align:left;border-bottom:1.2pt solid var(--ink);padding:1mm 2mm}
+td{border-bottom:0.5pt solid var(--rule);padding:0.9mm 2mm;vertical-align:top}
+.dot{display:inline-block;width:2.6mm;height:2.6mm;border-radius:50%;margin-right:1.2mm;vertical-align:-0.2mm}
+.g{background:#1d9a4f}.y{background:#d9a40b}.rd{background:#e10600}
+.tabs{display:flex;gap:2mm;margin:1mm 0 2mm;flex-wrap:wrap}
+.tab{border:0.8pt solid var(--rule);border-radius:1.5mm;padding:1.2mm 3mm;font-size:8.6pt}
+.tab b{color:var(--red)}
+.foot{position:absolute;left:18mm;right:18mm;bottom:9mm;display:flex;justify-content:space-between;font-size:7pt;color:var(--mute);border-top:0.6pt solid var(--rule);padding-top:2mm}
+.foot b{color:var(--red)}
+</style></head><body>
+
+<div class="page">
+<div class="band"><div class="k">PROJECT HOOVER · OPERATOR CARD</div><h1>The Hoover Dashboard</h1><div class="s">Hoover in your browser: the pre-race checks, start and stop, and the race as it airs. No more typing commands.</div></div>
+
+<p class="lead"><b>What it is.</b> A page that opens in your web browser and runs Hoover for you. It checks the PC before a race, listens to the game to see who is in the lobby, starts the session you pick, and shows the running order, every line as it airs and every camera cut. It runs on your PC only: nothing goes on the internet, and nobody else can see it.</p>
+<p>It sits in your Hoover folder next to the tool, and every <code>git pull</code> updates both. It never changes the tool: if the page ever misbehaves, Hoover still runs from the console or <b>Start Hoover.bat</b> exactly as before.</p>
+
+<h2><span class="n">1</span>Get it (once)</h2>
+<p>PowerShell, in your Hoover folder (<code>D:\Repository001</code>):</p>
+<pre>git stash
+git fetch origin
+git checkout claude/v4-state-blob
+git pull
+python T11_F125_Baby_Hoover_V4_05OCT26.py --version</pre>
+<p>The first line it prints should read like this (<code>c656d82</code> or a newer commit):</p>
+<pre class="ok">Baby Hoover V5 (build 09OCT26, script 5.0.0) · claude/v4-state-blob @ c656d82</pre>
+<p><code>git stash</code> keeps your local edits safe, as before. If <code>git checkout</code> refuses, send Dustin the message it prints. Do not force it.</p>
+
+<h2><span class="n">2</span>Make the desktop icon (once)</h2>
+<p>In File Explorer, open your Hoover folder and double-click <b>Make dashboard shortcut</b> (with file extensions hidden, Windows lists it as a <i>Windows Batch File</i>). A black window says it made the shortcut; press any key. A <b>Hoover Dashboard</b> icon is now on your desktop.</p>
+
+<h2><span class="n">3</span>Open it</h2>
+<p>Double-click <b>Hoover Dashboard</b>. A black window opens, then your browser shows the dashboard at <code>http://127.0.0.1:8777</code>.</p>
+<div class="box"><b class="r">Leave the black window open</b> the whole time. It <i>is</i> the dashboard: closing it shuts the dashboard down, and closing it during a race can lose that race's files. The chip at the top of the page reads <b>Connected to Hoover dashboard</b> while all is well. If it turns red, the black window was closed: double-click the icon again.</div>
+
+<p>Down the left side are five pages, and a <b>console</b> sits along the bottom of every page:</p>
+<div class="tabs">
+<span class="tab"><b>Pre-flight</b> · checks before a race</span>
+<span class="tab"><b>Session</b> · pick and start</span>
+<span class="tab"><b>Live</b> · the race as it airs</span>
+<span class="tab"><b>Runs</b> · past sessions</span>
+<span class="tab"><b>This Hoover</b> · version, updates</span>
+</div>
+<p>The console shows everything Hoover prints, the same text as the old black window. When a tool asks a question (Pick devices, Audio check), type the answer in the box at the bottom and press Enter.</p>
+
+<h2><span class="n">4</span>Sound, once per PC (and after any audio change)</h2>
+<p>On <b>Pre-flight</b>, press <b>Pick devices</b>: type the number for the cable, then for your speakers, in the box at the bottom. Then press <b>Audio check</b> with OBS <i>not</i> recording, and answer <code>y</code> if you heard the beep. Four green lines in the console = good.</p>
+
+<div class="foot"><span>Project Hoover · The Hoover Dashboard · operator card · 09 OCT 26</span><span><b>Dashboard 1.0</b> · page 1 of 2</span></div>
+</div>
+
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>THE HOOVER DASHBOARD</span> · RACE NIGHT</div>
+
+<h2><span class="n">5</span>Before every race: Pre-flight</h2>
+<p>Press <b>Run checks</b>. Each line is <span class="dot g"></span>green (good), <span class="dot y"></span>yellow (works, but read the grey line under it) or <span class="dot rd"></span>red (fix before the race; the grey line says how).</p>
+<table>
+<tr><th style="width:40mm">Line</th><th>What it checks</th></tr>
+<tr><td>This Hoover · Git</td><td>Which build this is, and whether anything in the folder was edited by hand</td></tr>
+<tr><td>Data files</td><td>The files that sit beside the tool all load</td></tr>
+<tr><td>Audio packages · devices</td><td>Speech can run; your cable and speakers are picked (step 4)</td></tr>
+<tr><td>Speech key · Model key</td><td>The ElevenLabs and Anthropic keys are set. The model key is needed for the hybrid writer</td></tr>
+<tr><td>League roster</td><td>Each driver's race number is unique. Yellow is normal tonight; leave the roster off</td></tr>
+<tr><td>UDP port 20777</td><td>Nothing else (another Hoover, a recorder) is holding the telemetry port</td></tr>
+</table>
+<p>Then, with the game in the lobby or a session and <b>you spectating</b>, press <b>Listen to the game</b>. In ten seconds it lists every driver as the game sends them: name, race number, whether <i>show online names</i> is on, and whether their telemetry is public.</p>
+<div class="box"><b class="r">Red on Names</b> means some drivers come through as <b>"Player"</b>. That is the driver's own game setting, not Hoover. Ask them to turn on <b>Show online names</b> and set <b>Your telemetry</b> to <b>Public</b>, then listen again. If they can't, Hoover still runs and calls them "the car running fifth".</div>
+
+<h2><span class="n">6</span>Run the session</h2>
+<p>On <b>Session</b>, pick a starting point. For tonight's races use <b>Race: live, HYBRID writer</b>. If the model key is not set, use <b>Race: live, speech on</b>. Check the <b>Tonight</b> block: <i>night label</i> <b>practice</b>, <i>night id</i> today's date. The <b>Command</b> box shows exactly what will run. Start the session once the game is in it and you are spectating, then press <b>Start session</b>. The page jumps to <b>Live</b>: running order (the camera's car marked), lines as they air, spoken / failed, and the share of camera time on humans.</p>
+<div class="box"><b class="r">Stop with the red Stop and finalise button.</b> Never stop by closing the black window or the browser in the middle of a race. Stop writes the script, the manifest and tonight's results; it takes a few seconds. <b>Force stop</b> appears only if Stop does nothing after 20 seconds, and it does <i>not</i> save the run. One session at a time: stop one before starting the next.</div>
+
+<h2><span class="n">7</span>After the race</h2>
+<p><b>Runs</b> lists each session folder with spoken / failed. <b>Open</b> shows the folder: zip it without the <code>.bin</code> and send it as usual. <b>Replay</b> loads that race's capture on the Session page.</p>
+<p><b>Updates:</b> from standby (no race running), go to <b>This Hoover</b> and press <b>Get latest</b>. The page picks up the new build and any new options by itself.</p>
+
+<h2><span class="n">!</span>If something is off</h2>
+<table>
+<tr><th style="width:52mm">You see</th><th>Do</th></tr>
+<tr><td>The browser never opens</td><td>Open <code>http://127.0.0.1:8777</code> yourself while the black window is open</td></tr>
+<tr><td>The black window shows an error and closes</td><td>Send a photo of it. Hoover still runs from <b>Start Hoover.bat</b></td></tr>
+<tr><td>Chip at the top is red, "Not connected"</td><td>The black window was closed. Double-click the icon again</td></tr>
+<tr><td>Listen to the game: "Cannot listen"</td><td>A session or another app holds port 20777. Stop it, then listen</td></tr>
+<tr><td>Live page: banner "did not accept the live taps"</td><td>Nothing is wrong with the race; the console shows everything. Tell Dustin</td></tr>
+<tr><td>Spoken stays 0, or failed climbs</td><td>Stop and finalise, run Audio check, fix the red line, start again</td></tr>
+</table>
+<p>Anything else: a screenshot of the page plus a photo of the black window.</p>
+
+<div class="foot"><span>Project Hoover · The Hoover Dashboard · operator card · 09 OCT 26</span><span><b>Dashboard 1.0</b> · page 2 of 2</span></div>
+</div>
+</body></html>
