@@ -15,7 +15,7 @@
 | **Driver-left** | Participation latch: a car seen human is `was_human`; a human→AI flip sets `left_t`. REL-02 then says one honest line ("lost from the session"), must-call, and never a crash. The live flag still flips, so the human set is honest everywhere at once. The second trigger (a human retiring with no contact) was already REL-02. | `Car.was_human / left_t`, `P_REL_02` |
 | **Finish reads penalties** | Time penalties (PENA type 4) accumulate per car; the WINNER claim carries `pending_penalty_s` and whether it costs the win against the gap to second; three new WINNER variants ("crosses the line first, but that five-second penalty is still to be applied, and it costs him the win"). Only added to the claim when a penalty is pending, so a clean finish stays byte-identical to V3. | `RaceModel.pending_penalty_s`, `hoover_words_v4.json` |
 | **Duration model refit** | From Mike's run 2 (76 ElevenLabs flash lines, r² 0.92): 3.85 words/s, 0.258 s/word, overhead ≈ 0. `booth.speech_rate_wps` 2.92 → 3.85 in the V4 config (the V3 config stays frozen). The old pair reserved about half a second to a second a line the voice never used. | `hoover_config_v4.json` |
-| **Roster V2** | Spoken names set to the broadcast name map (Kannedy, Kannedy Jr, Meadows, Osterman, Lababera); the duplicate race number 2 cleared to null (it matched whichever loaded last). **Real numbers to be filled in before the race.** | `hoover_roster_league.json` |
+| **Roster V2** | Spoken names stay the gamertag-derived forms from the naming rules (Ronin, Pure, Valor, Faze, Raider); real-name association is a later project. The duplicate race number 2 cleared to null (it matched whichever loaded last). **Real numbers to be filled in before the race.** | `hoover_roster_league.json` |
 | **Abu Dhabi** | Corner table with landmark names (the North Hairpin, the chicane at the end of the back straight, Marsa Corner, the hotel section, the final corner), DRS zones, and **estimated** distances from the 2021 layout, flagged `estimated: true` so names resolve from race one; `tests/calibrate_track.py` on the first capture replaces them. | `hoover_tracks.json`, `TrackReference.corner_at` |
 | **Camera measure** | `manifest.camera_v8`: realised human share from the cuts' hold times, seconds on humans, longest run away, runs over `away_max_s`. The share-band controller (0.55–0.80 by human count, away max 12 s) was already there; the 08 OCT 42% was the identity failure, not the controller. | `_camera_share()` |
 | **Local TTS, once** | `--tts-test local` (menu **L**): one sentence synthesised by the Windows speech engine (System.Speech via PowerShell, nothing to install) to a 24 kHz WAV, played down the cable and the monitor through the same device path the race uses. Proves the local speech path exists. Not used on air; Kokoro wiring is a later conversation. | `tts_test_local()` |
@@ -44,7 +44,6 @@
 - The tether is off when the config has no `v3.tether` block (the frozen V3 config), on in V4's.
 - Interrupt rows are exempt from the tether (a human in trouble on lap one is the first thing said).
 - The local lane defaults to `llama3.2` (what is pulled); `llama3.1:8b` is a one-line config change if the card has the memory.
-- The roster's spoken names were switched to the broadcast name map that was decided in September but never put in the file.
 
 ## Files touched
 

@@ -1,7 +1,7 @@
 {
   "league": "league_2026",
   "roster_version": "2",
-  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names set to the broadcast name map (Dustin, Sept 2026); the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming).",
+  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names stay the gamertag-derived forms from the naming rules (Ronin0700VII -> Ronin, etc.); real-name association is a later project; the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming).",
   "drivers": [
     {
       "driver_id": "d_pure",
@@ -12,8 +12,8 @@
       },
       "level": "B",
       "spoken": {
-        "short": "Kannedy Jr",
-        "full": "Kannedy Junior",
+        "short": "Pure",
+        "full": "Pure Rez",
         "rung": 2,
         "possessive_ok": true
       },
@@ -30,8 +30,8 @@
       },
       "level": "B",
       "spoken": {
-        "short": "Lababera",
-        "full": "Lababera",
+        "short": "Valor",
+        "full": "Valor",
         "rung": 2,
         "possessive_ok": true
       },
@@ -48,8 +48,8 @@
       },
       "level": "B",
       "spoken": {
-        "short": "Kannedy",
-        "full": "Kannedy",
+        "short": "Ronin",
+        "full": "Ronin",
         "rung": 2,
         "possessive_ok": true
       },
@@ -66,8 +66,8 @@
       },
       "level": "B",
       "spoken": {
-        "short": "Osterman",
-        "full": "Osterman",
+        "short": "Faze",
+        "full": "Faze Noob",
         "rung": 2,
         "possessive_ok": true
       },
@@ -84,8 +84,8 @@
       },
       "level": "B",
       "spoken": {
-        "short": "Meadows",
-        "full": "Meadows",
+        "short": "Raider",
+        "full": "Raider",
         "rung": 2,
         "possessive_ok": true
       },
