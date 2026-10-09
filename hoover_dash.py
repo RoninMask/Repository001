@@ -370,6 +370,37 @@ def roster_problems(doc):
     return shared, default2
 
 
+_LANES = {"t": 0.0, "rows": []}
+
+
+def _writer_lane_rows(info, tool_dir, ttl_s=180.0):
+    """Cloud lane and local (Ollama) lane as live pre-flight rows, from the
+    tool's --writer-check (one tiny request down each lane). Cached ttl_s."""
+    now = time.time()
+    if _LANES["rows"] and now - _LANES["t"] < ttl_s:
+        return _LANES["rows"]
+    rows = []
+    if info.path and info.option("--writer-check"):
+        rc, out = run_capture([sys.executable, info.path, "--writer-check"], tool_dir, timeout=60)
+        for ln in out.splitlines():
+            m = re.match(r"\[(GREEN|YELLOW|RED)\s*\]\s*(.+?):\s*(.*)$", ln.strip())
+            if m:
+                state = m.group(1).lower()
+                name, ev = m.group(2), m.group(3)
+                fix = ""
+                if state != "green":
+                    fix = ("Start Ollama (tray icon) and pull the model, or run without the local lane."
+                           if "Local" in name else
+                           "Check the model key, then reopen the dashboard.")
+                rows.append(row(state, name, ev, fix,
+                                cid="lane_local" if "Local" in name else "lane_cloud"))
+        if not rows:
+            rows.append(row("yellow", "Writer lanes", "writer check gave no rows: " + " ".join(out.split())[-200:],
+                            "Run Writer check from Tools to see the detail."))
+    _LANES["t"], _LANES["rows"] = now, rows
+    return rows
+
+
 def preflight(info, session, port):
     info.refresh()
     rows = []
@@ -418,6 +449,9 @@ def preflight(info, session, port):
     rows.append(row("green" if os.environ.get(mk) else "yellow", "Model key (%s)" % mk,
                     "set" if os.environ.get(mk) else "not set (only needed for --writer model or hybrid)",
                     "" if os.environ.get(mk) else "Template lines work without it.", cid="model_key"))
+    # V8.2: the two writer lanes, LIVE (one tiny request each) via the tool's
+    # own --writer-check, cached for a few minutes so the page stays quick.
+    rows.extend(_writer_lane_rows(info, tool_dir))
     out = os.path.join(tool_dir, "hoover_v3_out")
     try:
         free = shutil.disk_usage(tool_dir).free / 1e9

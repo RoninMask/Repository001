@@ -149,6 +149,8 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
     <h3>Audio</h3>
     <div class="row">
       <button class="btn" data-tool="--audio-check">Audio check</button>
+      <button class="btn" data-tool="--writer-check">Writer check</button>
+      <button class="btn" data-tool="--tts-test local">Local voice test</button>
       <button class="btn" data-tool="--pick-devices">Pick devices</button>
       <button class="btn" data-tool="--list-audio-devices">List devices</button>
       <span class="note">Answers to the questions they ask go in the box at the bottom.</span>
@@ -245,7 +247,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let TOOL = null, cseq = 0, nl = 0, nc = 0, lastOk = 0, toolKey = null, running = false, runKind = null;
 let LINES = [], CUTS = [], STATUS = null, TAPS = null;
-const EXIT_MODES = new Set(["--version","--pick-devices","--audio-check","--list-audio-devices"]);
+const EXIT_MODES = new Set(["--version","--pick-devices","--audio-check","--list-audio-devices","--writer-check","--tts-test local"]);
 const QUICK = ["--night-label","--night-id","--writer","--speech","--log-blobs","--roster","--replay","--pace","--no-camera"];
 let FORM = {};          // flag -> value (string) or true for bools
 let PRESET = "race";
@@ -411,7 +413,7 @@ $("#btnkill").onclick = async () => {
   await api("/api/kill", {});
 };
 document.querySelectorAll("[data-tool]").forEach(b => b.onclick = async () => {
-  const r = await runTool([b.dataset.tool], "tool");
+  const r = await runTool(b.dataset.tool.split(" "), "tool");
   if (r.ok) { $("#coninput").focus(); toast("Running " + esc(b.dataset.tool) + ": watch the console below." + (b.dataset.tool==="--pick-devices"||b.dataset.tool==="--audio-check" ? " Type answers in the box." : "")); }
 });
 
