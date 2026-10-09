@@ -25,7 +25,7 @@
 ## Race day (from ~18:00)
 
 11. Game: private lobby, all drivers public telemetry, names on. OBS up, Hoover source meter moving on the audio check beep.
-12. **9 Start live, HYBRID** → night label `practice` (Enter). Leave it running across the practice session, the qualifying, and all five races: it files each session into `hoover_archive.json` under `2026-10-09` so race two onward can say "won the first race tonight". Stop with Ctrl+C (answer N) only at the end of the night.
+12. **9 Start live, HYBRID** → night label `practice` (Enter). **One Hoover run per session:** start it while the lobby is forming, stop it with **Ctrl+C** (answer N) after the flag, start it again for the next session. The results archive files at the end of each run, so race two onward can say "won the first race tonight" only if race one was its own run. Never close the console with the X: that loses the manifest and the lines (only the .bin survives). If you forget and a second race starts inside one run, the booth now treats it as a new race (grid, lights silence, fresh start) but that race is not archived.
 13. **Between sessions, once** (after the practice session's capture exists): `python tests\calibrate_track.py <that .bin>` in a second window, review the corner distances against the estimates in `hoover_tracks.json`, paste them in, set `"calibrated": true`. Skip if it looks wrong; the estimates work.
 14. If audio dies mid-race: the script and audio kit keep being written; let it run, note the time.
 
