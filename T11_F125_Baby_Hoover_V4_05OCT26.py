@@ -5333,9 +5333,26 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
     inter_ok = bool(affect and affect["onset"] == "instant"
                     and affect["intensity"] >= _blob_cfg(cfg, "interjection_min_intensity", 0.8)
                     and (ctx.last_interjection_t is None or now - ctx.last_interjection_t >= inter_gap))
+    # V8: the sentence budget for this slot. The fast lane is always one
+    # sentence. The slow lane may run a passage, sized by the race state: the
+    # grid and a lull have room for the long form, green racing for a short
+    # exchange, a neutralisation in between. The booth airs a passage one
+    # sentence per clip, so a fast-lane call can cut in at a sentence boundary.
+    sentences = 1
+    if lane == "slow":
+        st = getattr(getattr(eng, "model", None), "state", None) if eng is not None else None
+        if lull:
+            sentences = _blob_cfg(cfg, "sentences_lull", 6)
+        elif st in ("pre_start", "formation"):
+            sentences = _blob_cfg(cfg, "sentences_prestart", 6)
+        elif st in ("safety_car", "vsc"):
+            sentences = _blob_cfg(cfg, "sentences_neutralised", 4)
+        else:
+            sentences = _blob_cfg(cfg, "sentences_green", 3)
     licence = {"feel_allowed": feel_ok, "prediction_allowed": pred_ok,
                "humour_allowed": False, "interjection_allowed": inter_ok,
-               "lane": lane, "time_to_air_s": round(time_to_air, 2) if time_to_air is not None else None}
+               "lane": lane, "sentences": int(max(1, sentences)),
+               "time_to_air_s": round(time_to_air, 2) if time_to_air is not None else None}
     if inter_ok:
         licence["interjection"] = {"shock": "Whoa!", "dread": "Oh no.", "delight": "Oh, yes!",
                                    "disappointment": "Oh no.", "tension": "Here we go.",
@@ -6713,6 +6730,13 @@ class V3Booth:
                      or 2.6)
         cl = (config.get("v3", "claims", default={}) or {})
         self.max_age = cl.get("max_age_s", {"default": 12.0})
+        # V8 passages: how long the rest of a passage may wait past the
+        # previous sentence's end before its tail is dropped.
+        self.passage_max_wait = (config.get("v3", "writer", "passage_max_wait_s",
+                                            default=6.0) or 6.0)
+        self.passage_gap = config.get("v3", "writer", "passage_gap_s", default=0.4)
+        if self.passage_gap is None:
+            self.passage_gap = 0.4
         self._abbrevs = config.get("v3", "speech", "abbreviations", default=[])
         self._line_seq = 0
         self._winner_named = False
@@ -6791,8 +6815,40 @@ class V3Booth:
         return self.max_age.get(claim.max_age_key, self.max_age.get("default", 12.0))
 
     # ---- air-time validity against the model -------------------------------
+    def _validate_continuation(self, claim, t):
+        """V8: the rest of a passage. The words were checked when the passage
+        was written; what can change is the race. It airs if the race state
+        still allows its content class, and if it has not waited too long past
+        the previous sentence's end (a cut-in that ran long means the passage
+        has lost its moment, so the tail is dropped, never aired late)."""
+        f = claim.facts
+        m = self.model
+        if f.get("passage_dead"):
+            return "drop:passage_cut"
+        prev_end = f.get("passage_prev_end")
+        if prev_end is None:
+            return "rewrite:passage_wait"    # its predecessor has not aired yet
+        if not m.allows(claim.content_class, False, kind=claim.kind):
+            self._cut_passage(claim)
+            return "drop:state:%s" % m.state
+        if (t - prev_end) > self.passage_max_wait:
+            self._cut_passage(claim)
+            return "drop:passage_stale"
+        return "ok"
+
+    @staticmethod
+    def _cut_passage(claim):
+        """A dropped sentence takes the rest of its passage with it: the tail
+        never airs without its head."""
+        nxt = getattr(claim, "_passage_next", None)
+        while nxt is not None:
+            nxt.facts["passage_dead"] = True
+            nxt = getattr(nxt, "_passage_next", None)
+
     def _validate(self, claim, t):
         m = self.model
+        if (claim.facts or {}).get("continuation"):
+            return self._validate_continuation(claim, t)
         # V7 backstop: a claim whose spoken names are not all distinct is never
         # aired (story layer on). The uniqueness pass should make this
         # unreachable; the count in the manifest says whether it was.
@@ -7091,6 +7147,8 @@ class V3Booth:
         are handled at render by choosing a different variant, not dropped."""
         if claim.kind in self.rp_immune:      # F1: never suppress these
             return None
+        if (claim.facts or {}).get("continuation"):
+            return None                       # V8: the rest of a passage
         if getattr(claim, "lull_desperate", False):
             return None                       # 07 OCT: past hard_silence_s
         if claim.kind.startswith(STORY_KIND_PREFIX) and claim.hard:
@@ -7285,6 +7343,11 @@ class V3Booth:
             return 0.0
         if claim.kind in self.pc_hard:
             return self.pc_min_gap
+        if (claim.facts or {}).get("continuation"):
+            # V8: inside a passage the voices hand over, they do not breathe
+            # the full governor gap; the passage as a whole is still bounded by
+            # the run length rule below through its last sentence.
+            return self.passage_gap
         gap = self.pc_min_gap
         run_len = self.channel_busy_until - (self._run_start
                                              if self._run_start is not None
@@ -7299,7 +7362,17 @@ class V3Booth:
         if claim.kind == "WINNER":
             self._winner_named = True
         past = (t - claim.t_create) > 8.0 and claim.demotable
-        result = self.writer.write_line(self._line_request(claim, past, t))
+        cont = (claim.facts or {}).get("continuation")
+        if cont:
+            # V8: the rest of a passage, already written and checked; no
+            # writer call, no template draw.
+            result = LineResult(text=claim.facts["passage_text"],
+                                speaker=claim.facts["passage_speaker"],
+                                writer="passage",
+                                prompt_version=claim.facts.get("passage_prompt"),
+                                model_id=claim.facts.get("passage_model"))
+        else:
+            result = self.writer.write_line(self._line_request(claim, past, t))
         speaker, text = result.speaker, result.text
         tmpl_key = result.template_id
         self._last_line_result = result
@@ -7471,6 +7544,44 @@ class V3Booth:
                                       "t_unix": round(air_t, 6), "speaker": speaker,
                                       "text": text, "writer": getattr(result, "writer", None)
                                       if result is not None else None, "blob": blob})
+        # V8 passages: this sentence's place in its passage, and the rest of
+        # the passage queued as continuation claims, one clip each. They carry
+        # the parent's priority and its (older) creation time, so they go next
+        # among equals, while a higher-priority call (a pass, an incident) cuts
+        # in at the sentence boundary and the passage resumes or is cut.
+        f = claim.facts or {}
+        if cont:
+            rec["passage"] = {"id": f["passage_id"], "index": f["passage_index"],
+                              "of": f["passage_of"]}
+            # the next sentence (if any) must know when this one ends
+            nxt = getattr(claim, "_passage_next", None)
+            if nxt is not None:
+                nxt.facts["passage_prev_end"] = self._last_air_end
+        elif result is not None and result.passage:
+            n_total = 1 + len(result.passage)
+            rec["passage"] = {"id": line_id, "index": 1, "of": n_total}
+            prev = None
+            for i, (sp, sent) in enumerate(result.passage, start=2):
+                c = Claim(claim.kind, claim.content_class, claim.subjects,
+                          claim.names, claim.t_create,
+                          facts=dict(f, continuation=True, passage_id=line_id,
+                                     passage_index=i, passage_of=n_total,
+                                     passage_text=sent, passage_speaker=sp,
+                                     passage_prompt=result.prompt_version,
+                                     passage_model=result.model_id,
+                                     passage_prev_end=None),
+                          provenance=claim.provenance, priority=claim.priority,
+                          speaker=sp, max_age_key=claim.max_age_key,
+                          demotable=False, hard=False)
+                c.story = getattr(claim, "story", None)
+                c._passage_next = None
+                if prev is None:
+                    c.facts["passage_prev_end"] = self._last_air_end
+                else:
+                    prev._passage_next = c
+                self.queue.append(c)
+                prev = c
+            self.counter_passages = getattr(self, "counter_passages", 0) + 1
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -7820,11 +7931,11 @@ class LineResult:
     """What a writer returns (Part L). `writer` is template / model / fallback."""
     __slots__ = ("text", "speaker", "writer", "template_id", "latency_ms",
                  "dropped_reason", "prompt_version", "model_id", "cache_hit",
-                 "stamps", "error_detail")
+                 "stamps", "error_detail", "passage")
 
     def __init__(self, text, speaker, writer, template_id=None, latency_ms=None,
                  dropped_reason=None, prompt_version=None, model_id=None,
-                 cache_hit=None, stamps=None, error_detail=None):
+                 cache_hit=None, stamps=None, error_detail=None, passage=None):
         self.text = text
         self.speaker = speaker
         self.writer = writer
@@ -7836,6 +7947,9 @@ class LineResult:
         self.cache_hit = cache_hit
         self.stamps = stamps or {}     # Part P: t_request/t_response/t_checked...
         self.error_detail = error_detail   # exc type+message when a call failed
+        # V8: the rest of a passage, [(speaker, sentence), ...] AFTER the first
+        # sentence (which is `text`). The booth airs each as its own clip.
+        self.passage = list(passage or [])
 
 
 class Writer:
@@ -8007,6 +8121,9 @@ class ModelWriter(Writer):
             pd = json.load(f)
         self.prompt_version = pd.get("prompt_version", "unversioned")
         self.system = pd.get("system", "")
+        # V8: the passage form of the booth voice (same rules, several
+        # sentences as an exchange); falls back to the one-line system prompt.
+        self.system_passage = pd.get("system_passage") or self.system
         self.user_preamble = pd.get("user_preamble", "")
         # the API key: read once from --key-var, never stored where it could be
         # written out, never logged, never in an error message.
@@ -8046,9 +8163,30 @@ class ModelWriter(Writer):
             p["over_limit"] = True
             self._pending[request.claim_id] = p
             return
-        p["future"] = self.executor.submit(self._call, self._user_message(request))
+        n = self._sentences_for(request)
+        p["sentences"] = n
+        p["future"] = self.executor.submit(
+            self._call, self._user_message(request),
+            self._max_tokens_for(n), n > 1)
         self._submitted += 1
         self._pending[request.claim_id] = p
+
+    @staticmethod
+    def _sentences_for(request):
+        """V8: the slot's sentence budget, from the blob's licence (1 on the
+        fast lane; up to six on the slow lane by race state)."""
+        try:
+            return int(((request.blob or {}).get("licence") or {}).get("sentences", 1) or 1)
+        except (TypeError, ValueError):
+            return 1
+
+    def _max_tokens_for(self, n):
+        if n <= 1:
+            return self.max_tokens
+        per = self.cfg.get("v3", "writer", "passage_tokens_per_sentence",
+                           default=55) or 55
+        cap = self.cfg.get("v3", "writer", "passage_max_tokens", default=400) or 400
+        return int(min(cap, max(self.max_tokens, per * n + 20)))
 
     # -- resolution, at air --------------------------------------------------
     def write_line(self, request):
@@ -8113,8 +8251,66 @@ class ModelWriter(Writer):
             self._logged_tb = True
             self.log("[model] first failure traceback:\n%s" % tb.rstrip())
 
+    _PASSAGE_TAG = re.compile(r"^\s*(?:\*\*)?(LEAD|ANALYST)(?:\*\*)?\s*:\s*", re.I)
+
+    def _parse_passage(self, text, request):
+        """V8: a passage completion is one sentence per line, each led by
+        LEAD: or ANALYST:. Returns [(speaker, sentence), ...]. A line with no
+        tag continues the previous speaker (or opens with the requested one).
+        Bullets, numbering and quotes are stripped; blank lines skipped."""
+        out = []
+        speaker = request.speaker or "LEAD"
+        for raw in (text or "").splitlines():
+            line = raw.strip().strip('"').strip()
+            line = re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", line)
+            if not line:
+                continue
+            m = self._PASSAGE_TAG.match(line)
+            if m:
+                speaker = m.group(1).upper()
+                line = line[m.end():].strip().strip('"').strip()
+            if line:
+                out.append((speaker, line))
+        return out
+
     def _accept_or_fallback(self, request, text, cache_hit, stamps, latency_ms):
         text = (text or "").strip()
+        n = self._sentences_for(request)
+        writer_label = "model" if self.section == "model" else "local"
+        if n > 1:
+            # V8 passage: check sentence by sentence; keep the leading run that
+            # passes (a passage is cut at its first bad sentence so what airs
+            # stays coherent); the first sentence failing is a full fallback.
+            parts = self._parse_passage(text, request)[:n]
+            kept = []
+            first_reason = None
+            for sp, sent in parts:
+                ok, reason = check_completion(
+                    sent, request.blob, word_budget=request.word_budget,
+                    recent=request.recent, cfg=self.cfg)
+                if not ok:
+                    first_reason = first_reason or reason
+                    self.counter["passage_sentence_dropped"] += 1
+                    break
+                kept.append((sp, sent))
+            if not self.cache_only:
+                stamps["t_checked"] = round(time.time(), 6)
+            if not kept:
+                reason = first_reason or "passage:empty"
+                self.counter["dropped"] += 1
+                self.counter["drop:%s" % (reason or "?").split(":", 1)[0]] += 1
+                return self._fallback(request, reason, cache_hit=cache_hit,
+                                      stamps=stamps, latency_ms=latency_ms)
+            self.counter["model"] += 1
+            self.counter["passages"] += 1
+            self.counter["passage_sentences"] += len(kept)
+            sp0, s0 = kept[0]
+            return LineResult(text=s0, speaker=sp0, writer=writer_label,
+                              template_id=None, latency_ms=latency_ms,
+                              dropped_reason=None, prompt_version=self.prompt_version,
+                              model_id=self.model_id, cache_hit=cache_hit,
+                              stamps=stamps, passage=kept[1:])
+        # single sentence (the fast lane, and every pre-V8 path): unchanged.
         ok, reason = check_completion(text, request.blob,
                                       word_budget=request.word_budget,
                                       recent=request.recent, cfg=self.cfg)
@@ -8130,7 +8326,7 @@ class ModelWriter(Writer):
                                   stamps=stamps, latency_ms=latency_ms)
         self.counter["model"] += 1
         return LineResult(text=text, speaker=request.speaker,
-                          writer="model" if self.section == "model" else "local",
+                          writer=writer_label,
                           template_id=None, latency_ms=latency_ms,
                           dropped_reason=None, prompt_version=self.prompt_version,
                           model_id=self.model_id, cache_hit=cache_hit,
@@ -8162,7 +8358,7 @@ class ModelWriter(Writer):
         return self.fast_timeout
 
     # -- the call ------------------------------------------------------------
-    def _call(self, user_message):
+    def _call(self, user_message, max_tokens=None, passage=False):
         # Capture any failure IN the worker with full detail, so it can never be
         # lost to a bare "error" bucket (the instrumentation defect). The key
         # lives only in the request headers -- never in an exception message or a
@@ -8171,12 +8367,18 @@ class ModelWriter(Writer):
         t_req = time.time()
         try:
             text = (self._transport(user_message) if self._transport is not None
-                    else self._http_post(user_message))
-            # One line, always. The words-file stop sequence used "\n", which the
-            # API rejects as whitespace-only, so single-line is enforced here
-            # instead: keep the first line so a stray newline can't corrupt the
-            # SRT/CSV or air two sentences as one.
-            text = (text or "").split("\n", 1)[0].strip()
+                    else self._http_post(user_message, max_tokens,
+                                         self.system_passage if passage else None))
+            if passage:
+                # V8: a passage is several lines, one sentence each, parsed
+                # and checked one by one at resolution.
+                text = (text or "").strip()
+            else:
+                # One line, always. The words-file stop sequence used "\n",
+                # which the API rejects as whitespace-only, so single-line is
+                # enforced here instead: keep the first line so a stray newline
+                # can't corrupt the SRT/CSV or air two sentences as one.
+                text = (text or "").split("\n", 1)[0].strip()
             return {"text": text, "t_request": t_req, "t_response": time.time()}
         except BaseException as e:               # noqa: BLE001 -- reported, not swallowed
             import traceback as _tb
@@ -8209,25 +8411,49 @@ class ModelWriter(Writer):
             extra += "\nYou may say what %s must be feeling." % ((b.get("affect") or {}).get("whose") or "the driver")
         if lic.get("interjection_allowed") and lic.get("interjection"):
             extra += "\nYou may open with a short exclamation such as '%s'." % lic["interjection"]
+        n = self._sentences_for(request)
+        if n > 1:
+            # V8 passage: an exchange between the two voices, one sentence per
+            # line, each line tagged. The booth airs it one sentence at a time
+            # and may cut it off after any sentence, so the order matters: the
+            # call first, then the why, then the consequence, then what comes
+            # next. The ANALYST may make a call; the LEAD may add colour.
+            shot = b.get("shot") or {}
+            cam = ""
+            if shot.get("on_screen") and not shot.get("subject_on_screen", True):
+                cam = ("\nThe camera is on %s, not on this. The ANALYST should "
+                       "name who it is about and where to look." % shot["on_screen"])
+            return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
+                    "(most recent last):\n%s%s%s\n\nWrite the next passage as an "
+                    "exchange between LEAD and ANALYST: up to %d sentences, ONE "
+                    "sentence per line, every line starting with LEAD: or "
+                    "ANALYST:. Start with the %s voice and alternate at least "
+                    "once. Put the call first, then why, then what it means for "
+                    "the people in it, then what happens next if it holds. Each "
+                    "sentence at most %d words and complete on its own, since "
+                    "the passage may be cut off after any line."
+                    % (self.user_preamble, blob_json, recent, extra, cam, n,
+                       request.speaker or "LEAD", request.word_budget or 24))
         return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
                 "(most recent last):\n%s%s\n\nWrite the single next line for the "
                 "%s voice, at most %d words." %
                 (self.user_preamble, blob_json, recent, extra,
                  request.speaker or "LEAD", request.word_budget or 24))
 
-    def _payload(self, user_message, max_tokens=None):
+    def _payload(self, user_message, max_tokens=None, system=None):
         """The request body for this backend. Anthropic: the Messages API.
         Ollama: /api/chat, non-streaming, the system prompt as the first
         message, the sampling knobs under 'options', keep_alive so the model
         stays resident between lines (the first load is seconds; the rest are
         not)."""
         max_tokens = max_tokens or self.max_tokens
+        system = self.system if system is None else system
         stops = [s for s in (self.stop or []) if s and s.strip()]
         if self.backend == "ollama":
             payload = {
                 "model": self.model_id, "stream": False,
                 "keep_alive": self.keep_alive,
-                "messages": [{"role": "system", "content": self.system},
+                "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": user_message}],
                 "options": {"temperature": self.temperature,
                             "num_predict": max_tokens},
@@ -8238,7 +8464,7 @@ class ModelWriter(Writer):
         payload = {
             "model": self.model_id, "max_tokens": max_tokens,
             "temperature": self.temperature,
-            "system": self.system,
+            "system": system,
             "messages": [{"role": "user", "content": user_message}],
         }
         # The API rejects a whitespace-only stop sequence; send only real ones,
@@ -8247,11 +8473,12 @@ class ModelWriter(Writer):
             payload["stop_sequences"] = stops
         return payload
 
-    def _http_post(self, user_message, max_tokens=None):
+    def _http_post(self, user_message, max_tokens=None, system=None):
         import http.client
         import urllib.parse
         u = urllib.parse.urlsplit(self.endpoint)
-        body = json.dumps(self._payload(user_message, max_tokens)).encode("utf-8")
+        body = json.dumps(self._payload(user_message, max_tokens,
+                                        system)).encode("utf-8")
         if self.backend == "ollama":
             headers = {"content-type": "application/json"}
             default_path = "/api/chat"
@@ -8324,6 +8551,9 @@ class ModelWriter(Writer):
             "dropped": c.get("dropped", 0),
             "timeout": c.get("timeout", 0),
             "error": c.get("error", 0),
+            "passages": c.get("passages", 0),
+            "passage_sentences": c.get("passage_sentences", 0),
+            "passage_sentences_dropped": c.get("passage_sentence_dropped", 0),
             "dropped_by_reason": {k.split(":", 1)[1]: v
                                   for k, v in c.items()
                                   if k.startswith("drop:")},

@@ -574,7 +574,7 @@
       }
     },
     "writer": {
-      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain.",
+      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain. V8: passage_tokens_per_sentence x sentences (capped at passage_max_tokens) is the completion budget for a passage; passage_max_wait_s is how long the rest of a passage may wait past the previous sentence's end before its tail is dropped. passage_gap_s is the handover gap between the sentences of one passage (instead of the governor's min_gap_s).",
       "recent_lines": 4,
       "slot_budget_s": 8.0,
       "slot_budget_by_kind": {},
@@ -592,7 +592,11 @@
         "stage direction",
         "(",
         ")"
-      ]
+      ],
+      "passage_tokens_per_sentence": 55,
+      "passage_max_tokens": 400,
+      "passage_max_wait_s": 6.0,
+      "passage_gap_s": 0.4
     },
     "model": {
       "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",
@@ -633,8 +637,8 @@
       "max_line_delta_s": 0.25
     },
     "blob": {
-      "_about": "V6 state blob (State Blob White Paper V1, 08 OCT 26). The slot sets the size: a line inside slow_lane_min_s of its deadline, a hard interrupt, or a sudden incident is the FAST lane and gets notes_fast notes; everything else is the SLOW lane and gets notes_slow (plus notes_lull_bonus in a race lull). spend_* is how many notes the writer is told to use. feel is licensed when the beat's affect intensity reaches feel_min_intensity and a human is its anchor. An interjection is offered for an instant-onset beat at interjection_min_intensity or more, no more than once per interjection_min_gap_s.",
-      "slow_lane_min_s": 2.5,
+      "_about": "V6 state blob (State Blob White Paper V1, 08 OCT 26). The slot sets the size: a line inside slow_lane_min_s of its deadline, a hard interrupt, or a sudden incident is the FAST lane and gets notes_fast notes; everything else is the SLOW lane and gets notes_slow (plus notes_lull_bonus in a race lull). spend_* is how many notes the writer is told to use. feel is licensed when the beat's affect intensity reaches feel_min_intensity and a human is its anchor. An interjection is offered for an instant-onset beat at interjection_min_intensity or more, no more than once per interjection_min_gap_s. V8 (09 OCT): sentences_* is the slot's sentence budget on the SLOW lane (the fast lane is always one): the grid/formation and a race lull get the long form, green racing a short exchange, a neutralisation in between. The booth airs a passage one sentence per clip and a higher-priority call cuts in at a sentence boundary.",
+      "slow_lane_min_s": 4.0,
       "notes_fast": 4,
       "notes_slow": 12,
       "notes_lull_bonus": 3,
@@ -642,7 +646,11 @@
       "spend_slow": 2,
       "feel_min_intensity": 0.6,
       "interjection_min_intensity": 0.8,
-      "interjection_min_gap_s": 120.0
+      "interjection_min_gap_s": 120.0,
+      "sentences_prestart": 6,
+      "sentences_lull": 6,
+      "sentences_green": 3,
+      "sentences_neutralised": 4
     }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
