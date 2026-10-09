@@ -42,7 +42,7 @@ The JSON files on GitHub are the live tables Hoover reads; the Story Matrix work
 | 1 | 10:30–12:10 | Must 1 lead time · 2 start window · 3 lights · 4 story dwell · 5 fourth wall · 6 phrases · Nice 7 pit box | `eae50b3` (sheet: `docs/Hoover_Cycle1_Tune_Sheet_09OCT26.md`) | `HOOVER_20261009_120510_s01` | Plumbing held; no local lane on Mike's PC; 2 workers throttled the cloud; pits unspoken; 0 predictions |
 | 2 | 12:30–13:05 | Window wide · pit stops · one focus · framing · wreck causes · predictions | `72b4e99` (sheet: `docs/Hoover_Cycle2_Tune_Sheet_09OCT26.md`) | (Mike, pending) | |
 | 3 | 13:25–13:50 | From the OK PC run `HOOVER_20261009_124319_s01` (cycle-1 build, 3 humans, names on): invented colour banned · near-repeats · predictions paid · cooling sanity · start window on our drivers | `c33d351` (sheet: `docs/Hoover_Cycle3_Tune_Sheet_09OCT26.md`) | `HOOVER_20261009_124319_s01` | Model lanes carried the booth; corners, tyres, questions landed; local model invented colour; 7 predictions unsaid |
-| 4 | | League-style test (Dustin driving, AI grid, names on) | | | |
+| 4 | 14:10–14:45 | Driver threads · check-in guaranteed · camera human lock + last-laps lock · freshness check · fast lane cloud | `2606fe1` (sheet: `docs/Hoover_Cycle4_Tune_Sheet_09OCT26.md`) | league 18:30 | |
 
 ## Hard stop
 

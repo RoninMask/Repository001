@@ -1,0 +1,20 @@
+# Cycle 4 tune sheet — 09 OCT 26 (the league-night build)
+
+**Build:** `2606fe1` on `claude/v4-state-blob`. **Both PCs:** Dashboard → Get latest → pre-flight → Start (hybrid preset). Tonight the fast lane is the cloud; Ollama may stay off.
+
+Links: [Story Matrix](https://github.com/RoninMask/Repository001/blob/claude/v4-state-blob/hoover_stories_v4.json) · [Booth / camera / pacing settings](https://github.com/RoninMask/Repository001/blob/claude/v4-state-blob/hoover_config_v4.json) · [Words](https://github.com/RoninMask/Repository001/blob/claude/v4-state-blob/hoover_words_v4.json) · [Prompts](https://github.com/RoninMask/Repository001/blob/claude/v4-state-blob/hoover_prompts_v3.json) · [Commits](https://github.com/RoninMask/Repository001/commits/claude/v4-state-blob)
+
+| # | Story / setting (plain name) | File | What changed | Why |
+|---|---|---|---|---|
+| 1 | **Driver thread** (engine `thread(h)`; blob `threads`; Check-in HUM-07 variants) | code + words | Every human has one live answer to "what is he about right now": in the pit cycle / recovering from contact with X / dropping back and why / holding the lead with X behind / defending Pn from X / chasing X for Pn / on old tyres / running his own race — with "up from fourth on the grid" when it moved. It is in the blob on every line (as a note on any line about him) and the **check-in says it**: "Let us check on Ronin. Ronin is holding the lead with Ben a second behind." | Dustin: "each driver's story crafted into a custom story — what is that racer all about right now?" |
+| 2 | **Check-in guaranteed** (HUM-07 must-call at the debt threshold; debt paid by aired lines only; one per period) | code | Every racer is visited at least every race-length ÷ (humans × 3) seconds (floor 45 s). A racer who is being talked about anyway (Valor in a fight) owes nothing; a quiet one (Ronin leading) gets the check-in. Before: 19 raised, 1 aired, and raised beats about a driver reset his debt even when they never aired. | "At minimum one event per racer." |
+| 3 | **Camera human lock** (`v3.camera.protected.booth_focus` humans only; new `human_finish` priority 90 from 2 laps to go) | settings + code | The shared focus takes the camera only to one of ours (it had followed the booth to Ben, Draven, Multionia). From two laps out the camera locks to the human in the closest fight, or the best placed; only the winner moment, a red flag or a safety car outrank it. | "After lap one focus on the humans until the end; podium check; then hard focus on the humans crossing the line." Replay of the 12:43 capture: humans 67 % → 81 %. |
+| 4 | **Booth human margin** (`v3.dwell.human_bonus` 5) | settings + code | A line about one of ours outranks an AI line by five points more. | Same. |
+| 5 | **Freshness check** (`v3.freshness`: after 3 s, tolerance 0.5 s or 30 %) | settings + code | A story line carrying a gap is re-checked against the live gap at air time; if the race has moved on, the line is not said. 54 stale lines caught in the replay. | The false Valor–Ronin gaps. |
+| 6 | **Fast lane → cloud** (`v3.hybrid.fast_lane` "cloud"); banned words trimmed to faces, eyes, crowd, grandstands, fans, squealing | settings | Haiku writes the fast lane too tonight; llama 3.2 invented gaps and faces. Generic colour (delight, incredible) allowed again. Switch back to `local` when a better local model is proven. | Dustin. |
+
+**Podium:** the last-lap set-up (SF-06) and the winner/result lines already cover who is on the podium; with the thread in the blob the finishing passage can say what each of ours did to get there. A dedicated "podium as it stands" line is cycle 5.
+
+**Tests:** all suites green. **Replay** of the 12:43 capture: 102 lines, two check-ins on Ronin, two prediction payoffs, camera on humans 81 %, no AI car taken by the shared focus.
+
+**If tonight shows:** many `stale_gap` drops and silence → raise `freshness.after_s` to 5. Timeouts in double digits → `lead_cloud_s` 4.0. Too many "Let us check on X" → `HUM-07 mentions_per_human` 2.
