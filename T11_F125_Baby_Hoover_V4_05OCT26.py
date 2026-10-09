@@ -6412,6 +6412,11 @@ class RaceModel:
                         and c.idx != self.road_winner):   # winner: WINNER call
                     self.humans_result_done.add(c.idx)
                     pos = self.finish_pos.get(c.idx)
+                    # V8.1c: two "fifths" aired on 08 OCT while penalties were
+                    # being applied; a position already given stays with its
+                    # car, and this one waits for the classification.
+                    if pos is not None and pos in self.result_aired_pos.values():
+                        continue
                     self.result_aired_pos[c.idx] = pos
                     self.emit(Claim("RESULT", CLASS_RESULT, [c.idx],
                                     [self._name(c.idx)], self.finish_t[c.idx],
@@ -13544,6 +13549,15 @@ class P_RC_05(StoryProcessor):
             rec = self.open(t, [car], fields={"seconds": secs, "pena_type": f.get("pena_type"),
                                               "pos_at_open": _pos_map(eng, [car])},
                             cause=cause, phase="issued")
+            # V8.1c (09 OCT): 22 penalty lines in eight minutes under strict
+            # corner cutting. One penalty line per car per per_car_min_s;
+            # the record still opens so the finish call and relations see it.
+            last = getattr(self, "_last_pen_t", {}).get(car)
+            if last is not None and t - last < self.p("per_car_min_s", 60.0):
+                self.close(t, rec, "repeat")
+                continue
+            self._last_pen_t = getattr(self, "_last_pen_t", {})
+            self._last_pen_t[car] = t
             self.beat(t, rec, "transition", "issued",
                       ctx={"a": eng.name(car), "cause": (cause or {}).get("text"),
                            "seconds": _num_word(int(secs)) if secs else None},
@@ -13982,9 +13996,16 @@ class P_HUM_01(StoryProcessor):
                     rec.participants = list(cl)
                     rec.humans = list(cl)
                     rec.fields["size"] = len(cl)
-                    self.beat(t, rec, "threshold", "joins",
-                              ctx={"a": eng.name(cl[-1]), "count": _num_word(len(cl))},
-                              must=len(cl) >= 3, numbers={"count": len(cl)})
+                    # V8.1c (09 OCT): 25 "makes it N, watch this" lines in one
+                    # race. A join is said at most once per join_min_gap_s per
+                    # group, and a group past max_group is a train, not a fight.
+                    last = rec.fields.get("last_join_t")
+                    if len(cl) <= self.p("max_group", 6) and (
+                            last is None or t - last >= self.p("join_min_gap_s", 25.0)):
+                        rec.fields["last_join_t"] = t
+                        self.beat(t, rec, "threshold", "joins",
+                                  ctx={"a": eng.name(cl[-1]), "count": _num_word(len(cl))},
+                                  must=len(cl) >= 3, numbers={"count": len(cl)})
                 elif len(cl) < rec.fields["size"]:
                     rec.fields["size"] = len(cl)
                     rec.participants = list(cl)

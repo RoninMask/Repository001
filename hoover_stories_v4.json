@@ -125,7 +125,9 @@
   "HUM-01": {
    "disperse_s": 4.0,
    "revisit_laps": 2,
-   "within_s": 3.0
+   "within_s": 3.0,
+   "join_min_gap_s": 25.0,
+   "max_group": 6
   },
   "HUM-05": {
    "hold_s": 3.0
@@ -195,7 +197,8 @@
   "RC-02": {},
   "RC-03": {},
   "RC-05": {
-   "max_age_s": 60.0
+   "max_age_s": 60.0,
+   "per_car_min_s": 60.0
   },
   "REL-02": {
    "incident_lookback_s": 20.0,
@@ -1260,7 +1263,8 @@
    "story": "Contact",
    "valence": "mixed",
    "voice": "lead",
-   "voice_default": "LEAD"
+   "voice_default": "LEAD",
+   "speak_after_close": true
   },
   "INC-02": {
    "anchor": "relate",
