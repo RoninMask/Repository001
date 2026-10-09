@@ -1,52 +1,220 @@
 {
   "format": "hoover_tracks_v1",
-  "_about": "Track reference (State Blob White Paper V1, layer 6). One entry per F1 25 track id. Sector-level location needs nothing from here (the sector start distances come off the wire in the Session packet). Corner-level location is used ONLY when 'calibrated' is true: run tests/calibrate_track.py over a real capture of the track, copy the fitted dist_m values in, review them against a lap you know, then set calibrated to true. Until then the corners list is names only and the booth says 'through the final sector', never 'into turn six'. 'character' and 'overtaking_spots' are plain-language facts the writer may use as colour; every capitalised word in them is licensed when they are offered.",
+  "_about": "Track reference (State Blob White Paper V1, layer 6). One entry per F1 25 track id. Sector-level location needs nothing from here (the sector start distances come off the wire in the Session packet). Corner-level location is used ONLY when 'calibrated' is true: run tests/calibrate_track.py over a real capture of the track, copy the fitted dist_m values in, review them against a lap you know, then set calibrated to true. Until then the corners list is names only and the booth says 'through the final sector', never 'into turn six'. 'character' and 'overtaking_spots' are plain-language facts the writer may use as colour; every capitalised word in them is licensed when they are offered. V8 (09 OCT): a track may also be 'estimated': corner distances laid out from the published layout, not fitted. Then corner names are used with a wider window (the booth may say 'into the chicane' from race one) until calibrate_track.py replaces them and calibrated is set true.",
   "tracks": {
     "14": {
       "name": "Abu Dhabi",
       "length_m": 5281,
       "calibrated": false,
-      "character": "Yas Marina is a power circuit with two long straights and a slow, twisting final sector under the hotel, so the passing comes at the end of the straights and the lap is lost or won in the last sector",
+      "character": "Yas Marina is a power circuit: the North Hairpin opens onto a back straight of over a kilometre into the chicane, then a second straight into the banked Marsa Corner, and the lap finishes in the slow, twisting hotel section, so the passing comes at the chicane and Marsa Corner and the lap is lost or won under the hotel",
       "overtaking_spots": [
-        "the end of the back straight",
-        "the end of the second straight",
-        "turn one, with a good exit from the final corner"
+        "the chicane at the end of the back straight",
+        "Marsa Corner at the end of the second straight",
+        "turn one, with a good exit from the final corner under the hotel"
       ],
       "drs_zones": 2,
       "corners": [
-        {"n": 1, "name": "turn one", "kind": "braking", "dist_m": null},
-        {"n": 2, "name": "turn two", "kind": "medium", "dist_m": null},
-        {"n": 3, "name": "turn three", "kind": "medium", "dist_m": null},
-        {"n": 4, "name": "turn four", "kind": "medium", "dist_m": null},
-        {"n": 5, "name": "the hairpin", "kind": "braking", "dist_m": null},
-        {"n": 6, "name": "turn six", "kind": "braking", "dist_m": null, "note": "end of the back straight"},
-        {"n": 7, "name": "turn seven", "kind": "chicane", "dist_m": null},
-        {"n": 8, "name": "turn eight", "kind": "fast", "dist_m": null},
-        {"n": 9, "name": "turn nine", "kind": "braking", "dist_m": null, "note": "end of the second straight"},
-        {"n": 10, "name": "turn ten", "kind": "medium", "dist_m": null},
-        {"n": 11, "name": "turn eleven", "kind": "medium", "dist_m": null},
-        {"n": 12, "name": "turn twelve", "kind": "medium", "dist_m": null},
-        {"n": 13, "name": "turn thirteen", "kind": "medium", "dist_m": null},
-        {"n": 14, "name": "turn fourteen", "kind": "medium", "dist_m": null},
-        {"n": 15, "name": "turn fifteen", "kind": "medium", "dist_m": null},
-        {"n": 16, "name": "the final corner", "kind": "medium", "dist_m": null}
-      ]
+        {
+          "n": 1,
+          "name": "turn one",
+          "kind": "braking",
+          "dist_m": 300,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "tight right at the end of the pit straight; the first-lap pile-up point"
+        },
+        {
+          "n": 2,
+          "name": "turn two",
+          "kind": "fast",
+          "dist_m": 430,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "fast left-right sweep with three"
+        },
+        {
+          "n": 3,
+          "name": "turn three",
+          "kind": "fast",
+          "dist_m": 520,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "pit exit rejoins on the outside"
+        },
+        {
+          "n": 4,
+          "name": "turn four",
+          "kind": "medium",
+          "dist_m": 720,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "kink into the hairpin"
+        },
+        {
+          "n": 5,
+          "name": "the North Hairpin",
+          "kind": "braking",
+          "dist_m": 1020,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "wide left hairpin onto the back straight; DRS zone one"
+        },
+        {
+          "n": 6,
+          "name": "the chicane at the end of the back straight",
+          "kind": "braking",
+          "dist_m": 2200,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "the main overtaking spot; lock-ups and contact here"
+        },
+        {
+          "n": 7,
+          "name": "the chicane",
+          "kind": "chicane",
+          "dist_m": 2290,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "second part of the chicane"
+        },
+        {
+          "n": 8,
+          "name": "turn eight",
+          "kind": "medium",
+          "dist_m": 2600,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "medium left onto the second straight; DRS zone two"
+        },
+        {
+          "n": 9,
+          "name": "Marsa Corner",
+          "kind": "braking",
+          "dist_m": 3250,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "banked sweeping hairpin at about two hundred and forty kilometres an hour; the second overtaking spot"
+        },
+        {
+          "n": 10,
+          "name": "turn ten",
+          "kind": "fast",
+          "dist_m": 3550,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "fast flowing run toward the hotel"
+        },
+        {
+          "n": 11,
+          "name": "turn eleven",
+          "kind": "fast",
+          "dist_m": 3750,
+          "approach_m": 150,
+          "exit_m": 80
+        },
+        {
+          "n": 12,
+          "name": "turn twelve",
+          "kind": "fast",
+          "dist_m": 3950,
+          "approach_m": 150,
+          "exit_m": 80
+        },
+        {
+          "n": 13,
+          "name": "the hotel section",
+          "kind": "medium",
+          "dist_m": 4300,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "tighter bends under the W Hotel"
+        },
+        {
+          "n": 14,
+          "name": "turn fourteen",
+          "kind": "medium",
+          "dist_m": 4550,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "under the hotel"
+        },
+        {
+          "n": 15,
+          "name": "turn fifteen",
+          "kind": "medium",
+          "dist_m": 4800,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "under the hotel"
+        },
+        {
+          "n": 16,
+          "name": "the final corner",
+          "kind": "medium",
+          "dist_m": 5050,
+          "approach_m": 150,
+          "exit_m": 80,
+          "note": "onto the pit straight"
+        }
+      ],
+      "estimated": true,
+      "_distances_note": "ESTIMATES from the 2021 layout (5.281 km): start/finish to turn one about three hundred metres, North Hairpin at about one kilometre, the 1.15 km back straight to the chicane, turn eight onto the second straight, Marsa Corner at about 3.25 km, the hotel section from about 4.3 km. Replace with tests/calibrate_track.py output from the first Abu Dhabi capture and set calibrated true.",
+      "drs_zones_note": "DRS zone one: the back straight from the North Hairpin to the chicane. DRS zone two: the second straight from turn eight to Marsa Corner."
     },
     "17": {
       "name": "Austria",
       "length_m": 4318,
       "calibrated": false,
       "character": "the Red Bull Ring is short and fast, three big braking zones on the climbs and a quick run back down, so the field stays close and a small mistake costs a place",
-      "overtaking_spots": ["turn three at the top of the hill", "turn four", "turn one"],
+      "overtaking_spots": [
+        "turn three at the top of the hill",
+        "turn four",
+        "turn one"
+      ],
       "drs_zones": 3,
       "corners": [
-        {"n": 1, "name": "turn one", "kind": "braking", "dist_m": null},
-        {"n": 3, "name": "turn three", "kind": "braking", "dist_m": null},
-        {"n": 4, "name": "turn four", "kind": "braking", "dist_m": null},
-        {"n": 6, "name": "turn six", "kind": "fast", "dist_m": null},
-        {"n": 7, "name": "turn seven", "kind": "fast", "dist_m": null},
-        {"n": 9, "name": "turn nine", "kind": "medium", "dist_m": null},
-        {"n": 10, "name": "the final corner", "kind": "medium", "dist_m": null}
+        {
+          "n": 1,
+          "name": "turn one",
+          "kind": "braking",
+          "dist_m": null
+        },
+        {
+          "n": 3,
+          "name": "turn three",
+          "kind": "braking",
+          "dist_m": null
+        },
+        {
+          "n": 4,
+          "name": "turn four",
+          "kind": "braking",
+          "dist_m": null
+        },
+        {
+          "n": 6,
+          "name": "turn six",
+          "kind": "fast",
+          "dist_m": null
+        },
+        {
+          "n": 7,
+          "name": "turn seven",
+          "kind": "fast",
+          "dist_m": null
+        },
+        {
+          "n": 9,
+          "name": "turn nine",
+          "kind": "medium",
+          "dist_m": null
+        },
+        {
+          "n": 10,
+          "name": "the final corner",
+          "kind": "medium",
+          "dist_m": null
+        }
       ]
     }
   }

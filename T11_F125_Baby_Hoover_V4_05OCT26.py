@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "4.3.0"
+SCRIPT_VERSION = "5.0.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -4800,7 +4800,11 @@ class TrackReference:
 
     def corner_at(self, track_id, lap_distance_m):
         tr = self.track(track_id)
-        if not tr or not tr.get("calibrated") or lap_distance_m is None:
+        if not tr or lap_distance_m is None:
+            return None
+        # V8: an 'estimated' table (laid out from the published layout) is
+        # usable for names; a fitted one ('calibrated') replaces it.
+        if not (tr.get("calibrated") or tr.get("estimated")):
             return None
         best = None
         for c in tr.get("corners", []):
@@ -9421,8 +9425,8 @@ class SpeechChannel:
 # stays byte-identical to V4.0.
 
 BUILD_PRODUCT = "Baby Hoover"
-BUILD_VERSION = "V4.3"
-BUILD_DATE = "08OCT26"
+BUILD_VERSION = "V5"
+BUILD_DATE = "09OCT26"
 SETTINGS_ENV = "HOOVER_SETTINGS"
 SETTINGS_FILE_VERSION = 1
 
@@ -9976,6 +9980,114 @@ def writer_check(config, args, out=print):
             "lane OFF" % (endpoint, type(e).__name__),
             "Start Ollama from the Start menu (it sits in the tray), then "
             "run the check again."))
+    code = 1 if any(r["state"] == RED for r in rows) else 0
+    return rows, code
+
+
+# --- --tts-test local (V8): one sentence through the local Windows voice -------
+LOCAL_TTS_TEST_SENTENCE = ("This is Hoover's local voice. If you can hear this, "
+                           "the local speech path works.")
+
+
+def local_tts_wav(text, out_path, rate_hz=24000, timeout_s=30):
+    """V8: synthesise `text` to a 16-bit mono WAV at rate_hz with the Windows
+    speech engine (System.Speech, present on every Windows machine, no
+    install) through PowerShell. Returns (ok, detail). Windows only."""
+    import subprocess
+    if os.name != "nt":
+        return False, "the local voice test needs Windows (System.Speech)"
+    ps = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(%d, "
+        "[System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, "
+        "[System.Speech.AudioFormat.AudioChannel]::Mono); "
+        "$s.SetOutputToWaveFile('%s', $f); "
+        "$s.Speak('%s'); $s.Dispose(); "
+        "Write-Output ('voice=' + (New-Object System.Speech.Synthesis.SpeechSynthesizer).Voice.Name)"
+        % (int(rate_hz), out_path.replace("'", "''"), text.replace("'", "''")))
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                            "-Command", ps],
+                           capture_output=True, text=True, timeout=timeout_s)
+    except Exception as e:
+        return False, "powershell failed: %s: %s" % (type(e).__name__, e)
+    if r.returncode != 0 or not os.path.exists(out_path):
+        return False, "synthesis failed: %s" % " ".join(
+            (r.stderr or r.stdout or "").split())[:300]
+    return True, (r.stdout or "").strip()
+
+
+def _wav_pcm16(path):
+    """(pcm_bytes, sample_rate) from a 16-bit mono WAV."""
+    import wave
+    with wave.open(path, "rb") as w:
+        if w.getsampwidth() != 2 or w.getnchannels() != 1:
+            raise ValueError("expected 16-bit mono, got %d-byte %d-channel"
+                             % (w.getsampwidth(), w.getnchannels()))
+        return w.readframes(w.getnframes()), w.getframerate()
+
+
+def tts_test_local(config, settings, args, sd, out=print):
+    """V8 --tts-test local: one sentence, synthesised by the Windows voice,
+    played down the cable (what OBS records) and the monitor. Proves the
+    local speech path exists; nothing else. Green/yellow/red rows."""
+    rows = []
+    rc = config.get("v3", "speech", "realtime", default={}) or {}
+    rate = rc.get("sample_rate_hz", 24000)
+    tmpdir = os.path.join(os.path.abspath(getattr(args, "out", None) or
+                                          "hoover_v3_out"), "tts_test")
+    os.makedirs(tmpdir, exist_ok=True)
+    wav = os.path.join(tmpdir, "local_voice_test.wav")
+    t0 = time.time()
+    ok, detail = local_tts_wav(LOCAL_TTS_TEST_SENTENCE, wav, rate)
+    ms = (time.time() - t0) * 1000.0
+    if not ok:
+        rows.append(_check("Local voice (Windows speech)", RED, detail,
+                           "This test needs Windows with PowerShell; System."
+                           "Speech ships with Windows."))
+        return rows, 1
+    try:
+        pcm, wr = _wav_pcm16(wav)
+    except Exception as e:
+        rows.append(_check("Local voice (Windows speech)", RED,
+                           "synthesised, but the WAV could not be read: %s" % e))
+        return rows, 1
+    dur = (len(pcm) // 2) / float(wr)
+    rows.append(_check("Local voice (Windows speech)", GREEN,
+                       "%s; %.1f s of audio in %d ms (%s)"
+                       % (detail or "ok", dur, ms, os.path.basename(wav))))
+    if sd is None:
+        rows.append(_check("Cable playback", YELLOW,
+                           "audio packages not installed; the WAV is saved, not played",
+                           "pip install sounddevice soundfile numpy"))
+        return rows, 0
+    cli_dev = getattr(args, "speech_device", None)
+    cs = _settings_device(settings, "device_cable")
+    ms_ = _settings_device(settings, "device_audible")
+    if cli_dev:
+        cable, c_api = cli_dev, None
+    elif cs and cs.get("name"):
+        cable, c_api = cs["name"], cs.get("hostapi")
+    else:
+        cable, c_api = rc.get("device_cable"), None
+    for label, dev, api in (("Cable playback", cable, c_api),
+                            ("Monitor playback",
+                             (ms_ or {}).get("name") or rc.get("device_audible"),
+                             (ms_ or {}).get("hostapi"))):
+        if not dev:
+            rows.append(_check(label, YELLOW, "no device set",
+                               "Run Pick devices (--pick-devices)."))
+            continue
+        hit = resolve_output_device(sd, dev, api)
+        if hit is None:
+            rows.append(_check(label, RED, "%r not found" % dev,
+                               "Run Pick devices."))
+            continue
+        idx, name, hapi = hit
+        okw, det = _write_block(sd, idx, wr, pcm)
+        rows.append(_check(label, GREEN if okw else RED,
+                           "%s -> index %d via %s; %s" % (dev, idx, hapi or "?", det)))
     code = 1 if any(r["state"] == RED for r in rows) else 0
     return rows, code
 
@@ -14554,6 +14666,11 @@ class BabyHooverV3:
         if self.stories is not None:
             manifest["stories"] = self.stories.summary()
             manifest["stories"]["metrics"] = self._story_metrics(t)
+            # V8: the on-air measure that matters most on the 9th -- how much
+            # of the race the camera spent on a human, from the cuts' own
+            # hold times, plus the longest run away from the humans. Story
+            # layer only, so the V3 manifest is unchanged.
+            manifest["camera_v8"] = self._camera_share(t)
             if getattr(self.world, "ext", None) is not None:
                 manifest["decode_v5"] = self.world.ext.summary()
             manifest["blob_v6"] = self._blob_summary()
@@ -14645,6 +14762,40 @@ class BabyHooverV3:
                 self.booth.speech.close()
             except Exception as e:
                 self._log("speech close warning: %s" % e)
+
+    def _camera_share(self, t):
+        cuts = self.gallery.cuts
+        if not cuts:
+            return {"human_share": None, "cuts": 0}
+        held_h = held_all = 0.0
+        longest_away = 0.0
+        away = 0.0
+        runs_over = 0
+        amax = getattr(self.gallery, "away_max", None)
+        for row in cuts:
+            end = row.get("_end")
+            held = (end if end is not None else t) - row["_t"]
+            if held < 0:
+                held = 0.0
+            held_all += held
+            car = self.world.cars[row["car_idx"]]
+            human = car.was_human or car.is_human
+            if human:
+                held_h += held
+                away = 0.0
+            else:
+                away += held
+                if away > longest_away:
+                    longest_away = away
+                if amax is not None and away > amax:
+                    runs_over += 1
+        return {"human_share": round(held_h / held_all, 3) if held_all > 0 else None,
+                "seconds_on_humans": round(held_h, 1),
+                "seconds_total": round(held_all, 1),
+                "longest_away_run_s": round(longest_away, 1),
+                "away_runs_over_max": runs_over,
+                "away_max_s": amax,
+                "cuts": len(cuts)}
 
     def _story_metrics(self, t):
         """Percentage of hold time on human cars, and percentage of aired lines
@@ -14975,6 +15126,10 @@ def main():
     ap.add_argument("--local-model", default=None,
                     help="model name for the local lane (default from config "
                          "v3.local.model, else llama3.2)")
+    ap.add_argument("--tts-test", choices=["local"], default=None,
+                    help="speak ONE test sentence through the local Windows "
+                         "voice, down the cable and the monitor, then exit "
+                         "(V8: proves the local speech path; not used on air)")
     ap.add_argument("--writer-check", action="store_true",
                     help="check the cloud key and the local Ollama server with "
                          "one tiny request each, print green/yellow/red, exit")
@@ -15030,6 +15185,17 @@ def main():
         return 0
     if args.pick_devices:
         return pick_devices(UserSettings(args.settings), _sounddevice)
+    if args.tts_test:
+        cfg_path = args.config or default_config_path()
+        print(build_label())
+        print("Local voice test: one sentence through the Windows voice.")
+        print("")
+        rows, code = tts_test_local(Config(cfg_path), UserSettings(args.settings),
+                                    args, _sounddevice)
+        print(format_check_rows(rows))
+        print("")
+        print("All clear." if code == 0 else "Something is red.")
+        return code
     if args.writer_check:
         cfg_path = args.config or default_config_path()
         print(build_label())

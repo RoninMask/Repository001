@@ -40,6 +40,10 @@ echo   4  Start live      no speech
 echo   5  Replay a capture, fast, no speech
 echo   6  Start live with extra options you type
 echo   7  Open the output folder
+echo   8  Writer check    one tiny request down the cloud lane and the local (Ollama) lane
+echo   9  Start live      HYBRID writer (cloud + local), speech on   [the 9 OCT race setting]
+echo   L  Local voice test   one sentence through the Windows voice, then stop
+echo   R  Replay a capture at real pace, hybrid writer, speech on   [the morning gate]
 echo   Q  Quit
 echo.
 set "CHOICE="
@@ -51,8 +55,47 @@ if /i "%CHOICE%"=="4" goto live_quiet
 if /i "%CHOICE%"=="5" goto replay
 if /i "%CHOICE%"=="6" goto live_custom
 if /i "%CHOICE%"=="7" goto output
+if /i "%CHOICE%"=="8" goto writer_check
+if /i "%CHOICE%"=="9" goto live_hybrid
+if /i "%CHOICE%"=="l" goto tts_local
+if /i "%CHOICE%"=="r" goto replay_hybrid
 if /i "%CHOICE%"=="q" goto end
 goto menu
+
+:writer_check
+echo.
+%PY% "%HOOVER_TOOL%" --writer-check
+echo.
+pause
+goto menu
+
+:tts_local
+echo.
+%PY% "%HOOVER_TOOL%" --tts-test local
+echo.
+pause
+goto menu
+
+:live_hybrid
+call :before_live
+set "NIGHT="
+set /p "NIGHT=Night label (practice or official, Enter = practice): "
+if not defined NIGHT set "NIGHT=practice"
+%PY% "%HOOVER_TOOL%" --source live --writer hybrid --local --speech elevenlabs --log-blobs --night-label %NIGHT%
+goto after_run
+
+:replay_hybrid
+echo.
+echo Drag a .bin capture onto this window, then press Enter.
+set "BIN="
+set /p "BIN=Capture: "
+if not defined BIN goto menu
+set "BIN=%BIN:"=%"
+echo.
+echo Real pace: this takes as long as the race did. Speech is ON (ElevenLabs characters are spent).
+echo Add --speech-dry-run in option 6 instead if you only want the lines.
+%PY% "%HOOVER_TOOL%" --source replay --replay "%BIN%" --writer hybrid --local --speech elevenlabs --log-blobs --night-label practice
+goto after_run
 
 :audio
 echo.

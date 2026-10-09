@@ -224,11 +224,16 @@ class ArchiveFiles(unittest.TestCase):
         tr = v.TrackReference(os.path.join(REPO, "hoover_tracks.json"))
         self.assertIn("Abu Dhabi", tr.names(14))
         self.assertTrue(tr.facts(14))
+        # V8: Abu Dhabi ships 'estimated' distances, so names resolve before
+        # calibration; with neither flag, no corner.
+        self.assertEqual(tr.corner_at(14, 1000.0)["name"], "the North Hairpin")
+        tr.tracks["14"]["estimated"] = False
         self.assertIsNone(tr.corner_at(14, 1000.0))         # not calibrated: no corner
         tr.tracks["14"]["calibrated"] = True
         tr.tracks["14"]["corners"][5]["dist_m"] = 1800
-        self.assertEqual(tr.corner_at(14, 1750.0)["name"], "turn six")
-        self.assertIsNone(tr.corner_at(14, 3000.0))
+        self.assertEqual(tr.corner_at(14, 1750.0)["name"],
+                         "the chicane at the end of the back straight")
+        self.assertIsNone(tr.corner_at(14, 1500.0))
         self.assertEqual(tr.corner_at(99, 10.0), None)
 
     def test_dossier(self):
