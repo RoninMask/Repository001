@@ -39,8 +39,8 @@ The JSON files on GitHub are the live tables Hoover reads; the Story Matrix work
 | # | Time | Requests (Must/Nice) | Build pushed | Run folder | Verdict |
 |---|---|---|---|---|---|
 | 0 | 09:10 | Pre-flight: live key + Ollama rows; Writer check and Local voice test buttons | `d777f6e` | — | — |
-| 1 | 10:30–12:10 | Must 1 lead time · 2 start window · 3 lights · 4 story dwell · 5 fourth wall · 6 phrases · Nice 7 pit box | `eae50b3` (sheet: `docs/Hoover_Cycle1_Tune_Sheet_09OCT26.md`) | | |
-| 2 | | | | | |
+| 1 | 10:30–12:10 | Must 1 lead time · 2 start window · 3 lights · 4 story dwell · 5 fourth wall · 6 phrases · Nice 7 pit box | `eae50b3` (sheet: `docs/Hoover_Cycle1_Tune_Sheet_09OCT26.md`) | `HOOVER_20261009_120510_s01` | Plumbing held; no local lane on Mike's PC; 2 workers throttled the cloud; pits unspoken; 0 predictions |
+| 2 | 12:30–13:05 | Window wide · pit stops · one focus · framing · wreck causes · predictions | `72b4e99` (sheet: `docs/Hoover_Cycle2_Tune_Sheet_09OCT26.md`) | | |
 | 3 | | | | | |
 | 4 | | League-style test (Dustin driving, AI grid, names on) | | | |
 
