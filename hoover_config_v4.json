@@ -581,7 +581,7 @@
       }
     },
     "writer": {
-      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain. V8: passage_tokens_per_sentence x sentences (capped at passage_max_tokens) is the completion budget for a passage; passage_max_wait_s is how long the rest of a passage may wait past the previous sentence's end before its tail is dropped. passage_gap_s is the handover gap between the sentences of one passage (instead of the governor's min_gap_s).",
+      "_about": "Pass 3 Parts L-Q. recent_lines is N in the LineRequest. The word budget is a DURATION budget: slot_budget_s converted to words through speech.duration_model. budget_slack_words is how far a completion may exceed the budget before rejection. sentence_initial_caps_ok is the small allow-list of ordinary capitalised words the checker permits mid-sentence. banned_constructions are substrings a completion may not contain. V8: passage_tokens_per_sentence x sentences (capped at passage_max_tokens) is the completion budget for a passage; passage_max_wait_s is how long the rest of a passage may wait past the previous sentence's end before its tail is dropped. passage_gap_s is the handover gap between the sentences of one passage (instead of the governor's min_gap_s). V8.3 (09 OCT): lead_cloud_s / lead_local_s / lead_passage_s is how long the booth waits for a model answer in flight before airing the template instead; 149 of 170 lines timed out on 09 OCT because the booth aired the instant the channel was free.",
       "recent_lines": 4,
       "slot_budget_s": 8.0,
       "slot_budget_by_kind": {},
@@ -603,7 +603,10 @@
       "passage_tokens_per_sentence": 55,
       "passage_max_tokens": 400,
       "passage_max_wait_s": 6.0,
-      "passage_gap_s": 0.4
+      "passage_gap_s": 0.4,
+      "lead_cloud_s": 2.2,
+      "lead_local_s": 0.6,
+      "lead_passage_s": 3.5
     },
     "model": {
       "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",

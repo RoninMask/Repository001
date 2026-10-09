@@ -7442,6 +7442,13 @@ class V3Booth:
                 # V4: a must-call story beat carries hard=True.
                 if saturated and c.kind not in self.pc_hard and not c.hard:
                     continue
+                # V8.3: a model answer still in flight earns a short lead
+                # before the template is used instead (never past the
+                # claim's own deadline, which _validate enforces).
+                if self.writer.answer_pending(c.claim_id) \
+                        and (t - c.t_create) < self.writer.lead_time_s(c.claim_id):
+                    self.counter_lead_holds = getattr(self, "counter_lead_holds", 0) + 1
+                    continue
                 if best is None or (c.priority, -c.t_create) > (
                         best.priority, -best.t_create):
                     best = c
@@ -8193,6 +8200,16 @@ class Writer:
     """The seam base. write_line(request) -> LineResult."""
     needs_blob = False
 
+    def answer_pending(self, claim_id):
+        """V8.3: True while a model answer for this claim is still in flight.
+        The booth holds such a claim for a short lead time rather than airing
+        the template the instant the channel is free (09 OCT: 149 of 170
+        lines timed out because air time was enqueue time)."""
+        return False
+
+    def lead_time_s(self, claim_id):
+        return 0.0
+
     def submit(self, request):
         """Optional pre-warm hook, called when a claim ENTERS the queue so an
         async writer's round trip happens inside the queue wait that already
@@ -8424,6 +8441,21 @@ class ModelWriter(Writer):
                            default=55) or 55
         cap = self.cfg.get("v3", "writer", "passage_max_tokens", default=400) or 400
         return int(min(cap, max(self.max_tokens, per * n + 20)))
+
+    def answer_pending(self, claim_id):
+        p = self._pending.get(claim_id)
+        if not p:
+            return False
+        fut = p.get("future")
+        return fut is not None and not fut.done()
+
+    def lead_time_s(self, claim_id):
+        p = self._pending.get(claim_id) or {}
+        lc = self.cfg.get("v3", "writer", default={}) or {}
+        if p.get("sentences", 1) > 1:
+            return float(lc.get("lead_passage_s", 3.5))
+        key = "lead_local_s" if self.backend == "ollama" else "lead_cloud_s"
+        return float(lc.get(key, 0.6 if self.backend == "ollama" else 2.2))
 
     # -- resolution, at air --------------------------------------------------
     def write_line(self, request):
@@ -8884,6 +8916,14 @@ class HybridWriter(Writer):
         self.counter["routed:%s" % label] += 1
         if w is not self.template:
             w.submit(request)
+
+    def answer_pending(self, claim_id):
+        w, _ = self._routed.get(claim_id, (None, None))
+        return bool(w is not None and w is not self.template and w.answer_pending(claim_id))
+
+    def lead_time_s(self, claim_id):
+        w, _ = self._routed.get(claim_id, (None, None))
+        return w.lead_time_s(claim_id) if (w is not None and w is not self.template) else 0.0
 
     def write_line(self, request):
         w, label = self._routed.pop(request.claim_id, (None, None))

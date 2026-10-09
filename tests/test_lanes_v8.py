@@ -190,3 +190,74 @@ class HybridLanes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeadTime(unittest.TestCase):
+    """V8.3: a claim whose model answer is in flight waits its lead time."""
+
+    def test_booth_holds_then_airs(self):
+        import test_baby_hoover_v3 as T3
+        os.environ["HOOVER_TOOL_FILE"] = V4_FILE
+        m = T3.make_model()
+        m.cfg = CFG
+        m.on_event(1010.6, {"code": "LGOT"})
+        T3.grid(m.w, 4)
+        m.w.last_lapdata_t = 1100.0
+        T3.lap(m.w, [0, 1, 2, 3])
+        m.observe(1100.0)
+        b = v.V3Booth(m, m.cfg)
+
+        class W(v.Writer):
+            needs_blob = False
+            pending_until = 1101.5
+
+            def answer_pending(self, cid):
+                return b._now < self.pending_until
+
+            def lead_time_s(self, cid):
+                return 2.2
+
+            def write_line(self, request):
+                return v.LineResult("Model line.", "LEAD", "model")
+        w = W()
+        b.writer = w
+        c = v.Claim("LULL_WEATHER", v.CLASS_FILLER, [], [], 1100.0, priority=10.0)
+        b.queue.append(c)
+        for t in (1100.0, 1100.5, 1101.0):
+            b._now = t
+            b.tick(t)
+            self.assertEqual(b.emitted, [])          # held while in flight
+        b._now = 1101.6
+        b.tick(1101.6)
+        self.assertEqual([r["writer"] for r in b.emitted], ["model"])
+
+    def test_lead_expires_to_template(self):
+        import test_baby_hoover_v3 as T3
+        os.environ["HOOVER_TOOL_FILE"] = V4_FILE
+        m = T3.make_model()
+        m.cfg = CFG
+        m.on_event(1010.6, {"code": "LGOT"})
+        T3.grid(m.w, 4)
+        m.w.last_lapdata_t = 1100.0
+        T3.lap(m.w, [0, 1, 2, 3])
+        m.observe(1100.0)
+        b = v.V3Booth(m, m.cfg)
+
+        class W(v.Writer):
+            needs_blob = False
+
+            def answer_pending(self, cid):
+                return True                          # never answers
+
+            def lead_time_s(self, cid):
+                return 2.2
+
+            def write_line(self, request):
+                return v.LineResult("Template line.", "LEAD", "fallback")
+        b.writer = W()
+        c = v.Claim("LULL_WEATHER", v.CLASS_FILLER, [], [], 1100.0, priority=10.0)
+        b.queue.append(c)
+        b.tick(1101.0)
+        self.assertEqual(b.emitted, [])
+        b.tick(1102.3)
+        self.assertEqual([r["writer"] for r in b.emitted], ["fallback"])
