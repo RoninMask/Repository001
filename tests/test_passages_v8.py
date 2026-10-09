@@ -223,15 +223,16 @@ class BoothPassages(unittest.TestCase):
         for _ in range(40):
             b.tick(t)
             t += 0.25
-        texts = [(r["speaker"], r["text"]) for r in b.emitted]
+        texts = [(r["speaker"], r["text"]) for r in b.emitted if r["kind"] == "S_BAT_01"]
         self.assertEqual(texts, [("LEAD", "Kannedy is right with Meadows now."),
                                  ("ANALYST", "He has been quicker all race."),
                                  ("LEAD", "So this is the moment."),
                                  ("ANALYST", "Meadows has nothing left.")])
-        p = [r["passage"] for r in b.emitted]
+        mine = [r for r in b.emitted if r["kind"] == "S_BAT_01"]
+        p = [r["passage"] for r in mine]
         self.assertEqual([x["index"] for x in p], [1, 2, 3, 4])
-        self.assertEqual({x["id"] for x in p}, {b.emitted[0]["line_id"]})
-        self.assertEqual([r["writer"] for r in b.emitted][1:], ["passage"] * 3)
+        self.assertEqual({x["id"] for x in p}, {mine[0]["line_id"]})
+        self.assertEqual([r["writer"] for r in mine][1:], ["passage"] * 3)
         # each clip is timed on its own words, never the whole passage
         self.assertLess(b.emitted[0]["est_duration_s"], 4.0)
         # continuation claim records are JSON-clean (no object references)
@@ -253,7 +254,7 @@ class BoothPassages(unittest.TestCase):
         for _ in range(40):
             b.tick(t)
             t += 0.25
-        order = [r["kind"] for r in b.emitted]
+        order = [r["kind"] for r in b.emitted if r["kind"] in ("S_BAT_01", "PENALTY")]
         # sentence one aired, then the hard call, then the passage resumed
         self.assertEqual(order[0], "S_BAT_01")
         self.assertEqual(order[1], "PENALTY")

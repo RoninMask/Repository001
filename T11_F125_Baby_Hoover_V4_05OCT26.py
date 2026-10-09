@@ -470,13 +470,17 @@ class Car:
                  "level", "possessive_ok", "name_resolved", "show_online_names",
                  "participated",
                  # --- V7 naming uniqueness (08 OCT): a shared name is never spoken
-                 "spoken_dynamic", "unique_fallback", "spoken_frozen")
+                 "spoken_dynamic", "unique_fallback", "spoken_frozen",
+                 # --- V8 participation latch (09 OCT): a human who leaves
+                 "was_human", "left_t")
 
     def __init__(self, idx):
         self.idx = idx
         self.name = None
         self.name_latched = False
         self.ai = None
+        self.was_human = False     # V8: once seen human-controlled this session
+        self.left_t = None         # V8: when the game handed the car to the AI
         self.team = None
         self.race_number = None
         self.platform_id = None
@@ -729,6 +733,14 @@ class Parser:
                 c.name_latched = True
                 w.name_source_ok += 1
             if c.ai is None or ai in (0, 1):
+                # V8 participation latch: a car that was human and is now AI
+                # has been handed to the game (the player left or dropped).
+                # Record it once; the driver-left story reads left_t. The
+                # live flag still flips, so the human set is honest everywhere.
+                if ai == 0:
+                    c.was_human = True
+                elif ai == 1 and c.was_human and c.left_t is None:
+                    c.left_t = t
                 c.ai = ai
             c.team = team
             c.race_number = racenum
@@ -5572,6 +5584,7 @@ class RaceModel:
         self.disqualified = set()
         self.colls = []               # (t, a, b)
         self.penalty_events = []      # (t, car, is_human) -- for the director
+        self.pending_penalty_s = {}   # V8: car idx -> time penalty seconds pending
 
         # finish
         self.leader_finish_t = None
@@ -5656,6 +5669,7 @@ class RaceModel:
         self.disqualified = set()
         self.colls = []
         self.penalty_events = []
+        self.pending_penalty_s = {}      # V8: car idx -> seconds hanging over it
         self._pit_pending = []
         self._pending_order = {}
         self._contest = {}
@@ -5850,6 +5864,15 @@ class RaceModel:
             return
         if pt in (0, 1, 2, 4, 6):
             self.penalty_events.append((t, car, self.w.cars[car].is_human))
+            # V8: a time penalty is applied at the flag, so the finish call
+            # must know it is hanging over the car (08 OCT: the booth called
+            # the win, then corrected itself).
+            if pt == 4 and info.get("time"):
+                try:
+                    self.pending_penalty_s[car] = (
+                        self.pending_penalty_s.get(car, 0.0) + float(info["time"]))
+                except (TypeError, ValueError):
+                    pass
             # A10: name the contact when an AI is penalised after a COLL with
             # a human within cause_lookback_s
             cause = self._penalty_contact_cause(t, car)
@@ -6272,9 +6295,25 @@ class RaceModel:
         self.road_winner = idx
         self._set_state(t, "finishing", "leader finish")
         self.log(">>> LEADER FINISH car %d at %.3f" % (idx, t))
+        pen = self.pending_penalty_s.get(idx, 0.0)
+        second = None
+        gap2 = None
+        if pen > 0:
+            # the gap to the car behind decides whether the penalty costs the win
+            for c in self.w.cars:
+                if c.seen and c.position == 2:
+                    second = c.idx
+                    gap2 = c.delta_front
+                    break
+        facts = {"chequered": True}
+        if pen > 0:
+            # only when something is pending, so a clean finish's claim record
+            # stays byte-identical to V3 (the identity gate)
+            facts.update({"pending_penalty_s": pen,
+                          "penalty_costs_win": bool(gap2 is not None and 0 < gap2 < pen),
+                          "second": second})
         self.emit(Claim("WINNER", CLASS_RESULT, [idx], [self._name(idx)], t,
-                        facts={"chequered": True}, priority=95.0, hard=True,
-                        max_age_key="result"))
+                        facts=facts, priority=95.0, hard=True, max_age_key="result"))
 
     def _maybe_end_states(self, t):
         if self.state == "finishing":
@@ -6544,6 +6583,23 @@ def _ordinal_word(n):
     return _N2W_TENS.get(tens, "") + "-" + onesord[ones]
 
 
+_ONE_PLURAL_RE = re.compile(r"\b(one|a single) (laps|places|seconds|cars|drivers|"
+                            r"tenths|points|swaps|times|changes|corners|metres)\b")
+_SENTENCE_START_RE = re.compile(r"([.!?])\s+([a-z])")
+
+
+def _tidy_line(text):
+    """V8: fix the two wording defects seen on air on 08 OCT without touching
+    the words file: a count of one with a plural noun ("one laps"), and a
+    lower-case letter opening a sentence after a full stop. Never touches a
+    name (names are capitalised already) or a number word mid-sentence."""
+    if not text:
+        return text
+    text = _ONE_PLURAL_RE.sub(lambda m: "%s %s" % (m.group(1), m.group(2)[:-1]), text)
+    text = _SENTENCE_START_RE.sub(lambda m: "%s %s" % (m.group(1), m.group(2).upper()), text)
+    return text
+
+
 def _cap_first_alpha(s):
     """K3: upper-case the first alphabetic character of a finalised line. A
     normalised number word landing at the start ("three point zero ...") reads
@@ -6598,7 +6654,7 @@ KIND_PLACEHOLDERS = {
     "COLLAPSE": {"a", "places", "cause"}, "BATTLE": {"a", "b"},
     "SPEED_TRAP": {"a", "speed"}, "WARNING": {"a", "b"},
     "PENALTY": {"a", "penalty", "seconds", "cause"}, "RETIREMENT": {"a", "cause"},
-    "PIT": {"a", "count"}, "WINNER": {"a"}, "RESULT": {"a", "pos"},
+    "PIT": {"a", "count"}, "WINNER": {"a", "penalty"}, "RESULT": {"a", "pos"},
     "CORRECTION": {"a", "pos"}, "RACE_END": {"a"},
     "LULL_GAP": {"a", "b", "gap"}, "LULL_HUMAN": {"a", "pos"},
     "LULL_WEATHER": {"temp_track", "temp_air"},
@@ -7056,6 +7112,12 @@ class V3Booth:
             ctx["b"] = nm[1]
         if k == "START":
             fv["kind"] = f.get("kind")
+        elif k == "WINNER":
+            pen = f.get("pending_penalty_s")
+            fv["penalty_pending"] = bool(pen)
+            fv["penalty_costs_win"] = bool(f.get("penalty_costs_win"))
+            if pen:
+                ctx["penalty"] = self.words.penalty_noun(4, int(pen)) or "time penalty"
         elif k == "SPEED_TRAP":
             fv["quickest"] = bool(f.get("quickest"))
             ctx["speed"] = "%.0f" % (f.get("speed") or 0.0)
@@ -7442,6 +7504,12 @@ class V3Booth:
         speaker, text = result.speaker, result.text
         tmpl_key = result.template_id
         self._last_line_result = result
+        if self.stories is not None:
+            # V8 wording backstops (08 OCT run): "with one laps left" and a
+            # lower-case sentence start after a full stop inside a line.
+            # Story layer only, so the V3 byte-identity path is untouched.
+            text = _tidy_line(text)
+            result.text = text
         # F-2: every line starts with a capital (never a lower-case letter).
         if text[:1].islower():
             raise WordsFileError("line for %s starts lower-case: %r"
@@ -10755,7 +10823,10 @@ class V3Gallery:
             "t_unix": round(t, 6), "t_rec": self.model._t_rec(t),
             "t_race": self.model.t_race(t), "car_idx": idx,
             "spoken": car.spoken, "position": car.position,
-            "method": "advisory", "held_s": "", "race_state": self.model.state,
+            "method": ("live" if (self.source == "live"
+                                  and self.actuation_state == "live")
+                       else "advisory"),
+            "held_s": "", "race_state": self.model.state,
             "source": self.source, "actuation_state": self.actuation_state,
             "layer": layer, "reason": reason,
             "score": round(score, 2) if isinstance(score, (int, float)) else "",
@@ -13256,6 +13327,28 @@ class P_REL_02(StoryProcessor):
         eng = self.eng
         m = eng.model
         look = self.p("incident_lookback_s", 20.0)
+        # V8 driver-left (identity probe, 08 OCT): a car that was human and
+        # is now AI-controlled has been handed to the game. One honest line,
+        # by name, and it is never a crash: the car keeps running under the
+        # AI, so no retirement claim will ever come for it.
+        for c in eng.w.cars:
+            idx = c.idx
+            if c.left_t is None or idx in self._done or not c.name_resolved:
+                continue
+            if t - c.left_t < self.p("settle_s", 1.0):
+                continue
+            self._done.add(idx)
+            cause = {"text": "lost from the session", "known": True}
+            rec = self.open(t, [idx], fields={"pos": m.last_pos.get(idx),
+                                              "pos_at_open": {str(idx): m.last_pos.get(idx)},
+                                              "left": True},
+                            cause=cause, phase="out")
+            rec.humans = [idx]            # it was ours when it mattered
+            self.beat(t, rec, "transition", "out",
+                      ctx={"a": eng.name(idx), "cause": cause["text"],
+                           "pos": _ordinal(m.last_pos.get(idx)) if m.last_pos.get(idx) else None},
+                      view={"human": True, "disconnected": True}, must=True)
+            self.close(t, rec, "left")
         for idx, rt in list(m.retired_at.items()):
             if idx in self._done:
                 continue

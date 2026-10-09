@@ -191,7 +191,7 @@
     "defer_cut_for_airing_line": true
   },
   "booth": {
-    "speech_rate_wps": 2.92,
+    "speech_rate_wps": 3.85,
     "budgets": {
       "stinger": [
         1,
@@ -237,7 +237,8 @@
     "naming": {
       "names_per_min_target": 6.5,
       "reanchor_max_utterances": 2
-    }
+    },
+    "_speech_rate_note_v8": "V8 (09 OCT): 3.85 words/s measured over Mike's run 2 of 08 OCT (76 ElevenLabs flash lines, LEAD 3.83, ANALYST 4.00). The old 2.92 reserved about a second a line the voice never used (78 s over one race)."
   },
   "phases": {
     "boundaries_lap_fraction": [
@@ -539,11 +540,11 @@
         "VSC",
         "SC"
       ],
-      "_duration_model_about": "Pass 3 Part M. A least-squares fit over the 25 Sep render (r2=0.75): about 0.590 s of fixed per-line overhead (onset, breath, decay) plus ~0.246 s per word. Used for the word-budget conversion. VOICE-SPECIFIC: any change of ElevenLabs voice invalidates these constants. per_speaker keeps one shared pair on purpose -- the sample (LEAD 3.13 wps / ANALYST 2.84 wps over 17/18 lines) is too thin to fit two intercepts. apply_to_est_duration is false so the default template run stays byte-identical to the pre-Pass-3 output (acceptance item 1); est_duration_s keeps fallback_wps until a new byte-identity baseline is taken.",
+      "_duration_model_about": "Pass 3 Part M. A least-squares fit over the 25 Sep render (r2=0.75): about 0.590 s of fixed per-line overhead (onset, breath, decay) plus ~0.246 s per word. Used for the word-budget conversion. VOICE-SPECIFIC: any change of ElevenLabs voice invalidates these constants. per_speaker keeps one shared pair on purpose -- the sample (LEAD 3.13 wps / ANALYST 2.84 wps over 17/18 lines) is too thin to fit two intercepts. apply_to_est_duration is false so the default template run stays byte-identical to the pre-Pass-3 output (acceptance item 1); est_duration_s keeps fallback_wps until a new byte-identity baseline is taken. V8 (09 OCT): refit over run 2 of 08 OCT (76 lines, r2 0.92): overhead about zero (clamped to 0.05), 0.258 s per word; fallback_wps 3.85. Median bias of the old pair on that run was +0.54 s a line.",
       "duration_model": {
-        "overhead_s": 0.59,
-        "seconds_per_word": 0.246,
-        "fallback_wps": 2.92,
+        "overhead_s": 0.05,
+        "seconds_per_word": 0.258,
+        "fallback_wps": 3.85,
         "apply_to_est_duration": false,
         "per_speaker": {}
       },

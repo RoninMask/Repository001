@@ -449,11 +449,39 @@
    "variants": [
     {
      "speaker": "LEAD",
-     "present": "Chequered flag, and {a} takes the win!"
+     "when": {
+      "penalty_costs_win": true
+     },
+     "present": "{a} crosses the line first, but that {penalty} is still to be applied, and it costs him the win."
     },
     {
      "speaker": "LEAD",
-     "present": "{a} wins it!"
+     "when": {
+      "penalty_pending": true,
+      "penalty_costs_win": false
+     },
+     "present": "Chequered flag, {a} takes it, and the {penalty} he is carrying does not change that."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "penalty_pending": true
+     },
+     "present": "{a} is first across the line, with a {penalty} to be added to his time."
+    },
+    {
+     "speaker": "LEAD",
+     "present": "Chequered flag, and {a} takes the win!",
+     "when": {
+      "penalty_pending": false
+     }
+    },
+    {
+     "speaker": "LEAD",
+     "present": "{a} wins it!",
+     "when": {
+      "penalty_pending": false
+     }
     },
     {
      "speaker": "LEAD",
