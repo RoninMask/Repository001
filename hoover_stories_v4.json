@@ -1264,7 +1264,7 @@
   },
   "INC-02": {
    "anchor": "relate",
-   "base": 55,
+   "base": 78,
    "build": "V3-P1",
    "camera": "request",
    "cause_required": "partial",
@@ -1279,7 +1279,7 @@
    "idle_laps": null,
    "min_race": "any",
    "must_call": "yes (human)",
-   "override": "Priority",
+   "override": "Interrupt",
    "register": "fact",
    "revisit": "none",
    "single_party": true,
@@ -1287,7 +1287,9 @@
    "story": "Off track / spin",
    "valence": "down",
    "voice": "lead",
-   "voice_default": "LEAD"
+   "voice_default": "LEAD",
+   "speak_after_close": true,
+   "_v8_1": "09 OCT live run: every off-track beat expired or died with its story (back on inside seconds) before it could air. Raised to interrupt priority, and the open beat may air after the story has closed ('went off and back on')."
   },
   "INC-03": {
    "anchor": "relate",

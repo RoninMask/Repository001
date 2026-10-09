@@ -427,7 +427,12 @@
       "kind_min_s": {
         "LULL_WEATHER": 240.0
       },
-      "hard_silence_s": 30.0
+      "hard_silence_s": 30.0,
+      "min_green_s_for": {
+        "LULL_WEATHER": 120.0,
+        "LULL_DISTANCE": 60.0
+      },
+      "_v8_1": "min_green_s_for: a lull kind may not fire until the race is this many seconds old (the live run of 09 OCT opened on the track temperature)."
     },
     "restart": {
       "reset_on_grid": true,
@@ -440,9 +445,9 @@
       "away_max_s": 12.0,
       "away_margin": 15.0,
       "human_share_window_s": 300.0,
-      "hold_floor_normal_s": 4.0,
-      "hold_floor_incident_s": 2.5,
-      "hold_floor_lull_s": 7.0,
+      "hold_floor_normal_s": 6.0,
+      "hold_floor_incident_s": 5.0,
+      "hold_floor_lull_s": 10.0,
       "max_hold_s": 40.0,
       "lull_top_score_threshold": 45.0,
       "human_share_bands": [
@@ -498,11 +503,11 @@
           "priority": 90
         },
         "retirement": {
-          "hold_s": 5.0,
+          "hold_s": 7.0,
           "priority": 85
         },
         "collision_human": {
-          "hold_s": 5.0,
+          "hold_s": 8.0,
           "priority": 85
         },
         "lead_change": {
@@ -517,11 +522,12 @@
           "hold_s": 3.5,
           "priority": 55
         },
-        "incident_merge_s": 5.0
+        "incident_merge_s": 8.0
       },
       "share_hysteresis_s": 20.0,
       "share_band_inner_margin": 0.03,
-      "lead_battle_merge_s": 8.0
+      "lead_battle_merge_s": 8.0,
+      "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10."
     },
     "naming": {
       "fallback_order": [
@@ -648,10 +654,10 @@
       "feel_min_intensity": 0.6,
       "interjection_min_intensity": 0.8,
       "interjection_min_gap_s": 120.0,
-      "sentences_prestart": 6,
-      "sentences_lull": 6,
-      "sentences_green": 3,
-      "sentences_neutralised": 4
+      "sentences_prestart": 8,
+      "sentences_lull": 8,
+      "sentences_green": 4,
+      "sentences_neutralised": 5
     },
     "tether": {
       "_about": "V8 the lead-to-human tether (09 OCT). The start belongs to the leaders and the run to turn one; by halfway the broadcast is on the humans. The human premium in the camera's participation multiplier and in the story scores is scaled by `start` on the first racing lap, rising linearly to 1.0 by lap ceil(laps_frac x total laps). A five-lap race is full by lap three; a thirty-lap race by lap fifteen. enabled=false restores the 07 OCT weighting everywhere.",

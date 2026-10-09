@@ -180,7 +180,7 @@ class StartStories(unittest.TestCase):
         texts = [n["text"] for n in blob["notes"]]
         self.assertTrue(any("starts third" in x for x in texts), texts)
         self.assertIn("Driver2", blob["allowed_words"])
-        self.assertEqual(blob["licence"]["sentences"], 6)
+        self.assertEqual(blob["licence"]["sentences"], CFG.get("v3", "blob", "sentences_prestart"))
 
     def test_sf04_ledger_notes_every_human(self):
         eng, model, w = self._engine("green", lap=2)

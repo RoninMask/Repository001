@@ -5438,6 +5438,23 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                       "said": n["said"]} for n in notes[:budget]]
     blob["spend"] = _blob_cfg(cfg, "spend_fast", 1) if lane == "fast" else _blob_cfg(cfg, "spend_slow", 2)
     blob["layers"] = layers
+    # V8.1 (09 OCT live run): a spoken name that carries a number ("the
+    # number 67 car", "the car running 15th") is said as words, so the words
+    # must be licensed too, composed and split ("sixty-seven", "sixty",
+    # "seven"); the first live run dropped lines for "nineteen" and "sixty".
+    extra = set()
+    for w in list(allowed):
+        if w and any(ch.isdigit() for ch in w):
+            for tok in speech_normalise(w).replace("-", " - ").split():
+                tok = tok.strip(".,;:!?")
+                if tok and tok != "-":
+                    extra.add(tok)
+            for tok in speech_normalise(w).split():
+                tok = tok.strip(".,;:!?")
+                if tok:
+                    extra.add(tok)
+    for e in extra:
+        allow(e)
     blob["allowed_words"] = [w for w in allowed if w]
     return blob
 
@@ -6882,6 +6899,8 @@ class V3Booth:
         self.lull_window_reserve = ll.get("window_reserve_s", 4.0)  # J3
         self.lull_cooldowns = ll.get("kind_cooldown_s", {}) or {}
         self.lull_kind_min = ll.get("kind_min_s", {}) or {}
+        # V8.1: a lull kind that may not fire until the race is this old
+        self.lull_min_green = (config.get("v3", "lull", "min_green_s_for", default={}) or {})
         self.lull_hard_silence = float(ll.get("hard_silence_s", ll.get("max_silence_s", 50.0)))
         self._lull_times = []
         self._lull_kind_times = {}     # F10: last-aired time per lull kind
@@ -7422,6 +7441,13 @@ class V3Booth:
         if not desperate:
             for k, mn in (self.lull_kind_min or {}).items():
                 if k in self._lull_kind_times and (t - self._lull_kind_times[k]) < mn:
+                    avoid.add(k)
+            # V8.1 (09 OCT live run): the first thing the booth said was the
+            # track temperature. Some fillers have no place in the opening
+            # minutes of a race, whatever the silence.
+            anchor = getattr(self.model, "anchor_t", None)
+            for k, mn in (self.lull_min_green or {}).items():
+                if anchor is not None and (t - anchor) < mn:
                     avoid.add(k)
         # F14: a track/air swing of >=3 C bypasses the weather cooldown.
         if "LULL_WEATHER" in avoid and self._weather_aired is not None:
@@ -8423,6 +8449,10 @@ class ModelWriter(Writer):
             kept = []
             first_reason = None
             for sp, sent in parts:
+                if any(ch.isdigit() for ch in sent):
+                    sent = speech_normalise(sent, self.cfg.get("v3", "speech", "abbreviations",
+                                                               default=[]) or [])
+                    self.counter["digits_normalised"] += 1
                 ok, reason = check_completion(
                     sent, request.blob, word_budget=request.word_budget,
                     recent=request.recent, cfg=self.cfg)
@@ -8448,7 +8478,16 @@ class ModelWriter(Writer):
                               dropped_reason=None, prompt_version=self.prompt_version,
                               model_id=self.model_id, cache_hit=cache_hit,
                               stamps=stamps, passage=kept[1:])
-        # single sentence (the fast lane, and every pre-V8 path): unchanged.
+        # single sentence (the fast lane): a stray speaker tag or quotes are
+        # stripped, and digits are said as words (the speech layer would do
+        # that anyway) so the number licence is checked on the words.
+        parts = self._parse_passage(text, request)
+        if parts:
+            text = parts[0][1]
+        if any(ch.isdigit() for ch in text):
+            text = speech_normalise(text, self.cfg.get("v3", "speech", "abbreviations",
+                                                       default=[]) or [])
+            self.counter["digits_normalised"] += 1
         ok, reason = check_completion(text, request.blob,
                                       word_budget=request.word_budget,
                                       recent=request.recent, cfg=self.cfg)
@@ -8546,7 +8585,11 @@ class ModelWriter(Writer):
             extra += "\n\nNEVER contradict these: " + "; ".join(gates) + "."
         lic = b.get("licence") or {}
         if lic.get("feel_allowed"):
-            extra += "\nYou may say what %s must be feeling." % ((b.get("affect") or {}).get("whose") or "the driver")
+            aff = b.get("affect") or {}
+            extra += "\nSay what %s must be feeling (%s)." % (
+                aff.get("whose") or "the driver", aff.get("emotion") or "the moment")
+        if lic.get("prediction_allowed"):
+            extra += "\nYou may make a prediction from the rate and the gap: who catches whom, and by when."
         if lic.get("interjection_allowed") and lic.get("interjection"):
             extra += "\nYou may open with a short exclamation such as '%s'." % lic["interjection"]
         n = self._sentences_for(request)
@@ -9890,6 +9933,20 @@ def audio_check(config, settings, args, sd, transport=None, inp=None,
 
     code = 1 if any(r["state"] == RED for r in rows) else 0
     return rows, code
+
+
+def _ollama_up(config, timeout_s=1.0):
+    """True when the local lane's Ollama server answers /api/tags."""
+    try:
+        import urllib.request
+        import urllib.parse
+        lc = config.get("v3", "local", default={}) or {}
+        u = urllib.parse.urlsplit(lc.get("endpoint", "http://127.0.0.1:11434/api/chat"))
+        with urllib.request.urlopen("%s://%s/api/tags" % (u.scheme, u.netloc),
+                                    timeout=timeout_s) as r:
+            return r.status == 200
+    except Exception:
+        return False
 
 
 def writer_check(config, args, out=print):
@@ -14182,6 +14239,14 @@ class BabyHooverV3:
         # --local -> local lane off. With both off the hybrid is the template.
         cloud = local = None
         want_local = bool(getattr(self.args, "local", False))
+        if not want_local and not getattr(self.args, "no_local", False):
+            # V8.1: the first live run went out without --local and every
+            # fast-lane line waited on the cloud. If an Ollama server answers
+            # on this machine, the local lane is on; --no-local keeps it off.
+            if _ollama_up(self.config):
+                want_local = True
+                self._log("[writer] hybrid: Ollama answered, local lane on "
+                          "(pass --no-local to keep it off)")
         key_var = getattr(self.args, "key_var", "ANTHROPIC_API_KEY")
         cache_only = bool(getattr(self.args, "cache_only", False))
         if os.environ.get(key_var) or cache_only:
@@ -15123,6 +15188,9 @@ def main():
     ap.add_argument("--local", action="store_true",
                     help="turn the local (Ollama) lane on in --writer hybrid; "
                          "needs an Ollama server on this machine")
+    ap.add_argument("--no-local", action="store_true",
+                    help="keep the local lane off in --writer hybrid even when "
+                         "an Ollama server is running")
     ap.add_argument("--local-model", default=None,
                     help="model name for the local lane (default from config "
                          "v3.local.model, else llama3.2)")
