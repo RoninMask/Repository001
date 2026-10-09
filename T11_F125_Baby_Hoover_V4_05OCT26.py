@@ -4400,6 +4400,37 @@ def _blob_cfg(cfg, key, default):
     return (b or {}).get(key, default)
 
 
+def human_tether(cfg, lap_now, laps_total):
+    """V8 the lead-to-human tether. The start belongs to the leaders and the
+    run to turn one; by the halfway point the broadcast has been drawn onto
+    the humans. Returns the fraction of the human weighting in force: `start`
+    on the first racing lap, 1.0 from lap ceil(laps_frac * total) on, linear
+    between. Camera and booth both read it, so they are drawn the same way.
+    Off (1.0) when disabled, when the race length is unknown, or before the
+    first racing lap."""
+    if cfg is None:
+        return 1.0
+    tc = cfg.get("v3", "tether", default=None)
+    if not tc or not tc.get("enabled", False):
+        return 1.0        # no v3.tether block (the frozen V3 config): off
+    try:
+        total = int(laps_total or 0)
+        lap = int(lap_now or 0)
+    except (TypeError, ValueError):
+        return 1.0
+    if total <= 0 or lap <= 0:
+        return 1.0
+    start = float(tc.get("start", 0.5))
+    first = int(tc.get("first_racing_lap", 2))
+    done_lap = max(first, int(math.ceil(float(tc.get("laps_frac", 0.5)) * total)))
+    if lap >= done_lap:
+        return 1.0
+    if lap <= first:
+        return start
+    span = max(1, done_lap - first)
+    return start + (1.0 - start) * (lap - first) / float(span)
+
+
 def _trend_word(hist, now_t, window_s=20.0, thresh=0.15):
     """'closing' / 'stretching' / 'steady' / None from a (t, gap) history."""
     pts = [(t, g) for t, g in hist if g is not None and 0.0 < g < 900.0
@@ -5305,6 +5336,17 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
         if gates:
             blob["session"]["gates"] = gates
     blob["stakes"] = stakes
+
+    # ---- processor-supplied notes (V8) -----------------------------------------
+    # A processor may hand the writer facts it alone can see (the lap-one
+    # ledger: who gained, who lost, who had contact), as plain sentences in
+    # rec.fields["notes"]. Capitalised words in them are licensed; number words
+    # are licensed by note() itself.
+    if rec is not None:
+        for txt in (rec.fields or {}).get("notes") or []:
+            if isinstance(txt, str) and txt.strip():
+                allow(*_caps_words(txt))
+                note(txt, "story", rec.id, ("what", "means"), False, 0.75)
 
     # ---- affect --------------------------------------------------------------
     affect = None
@@ -6737,6 +6779,8 @@ class V3Booth:
         self.passage_gap = config.get("v3", "writer", "passage_gap_s", default=0.4)
         if self.passage_gap is None:
             self.passage_gap = 0.4
+        self._lights_cleared = False     # V8: start-light silence armed once
+        self._lights_t = None
         self._abbrevs = config.get("v3", "speech", "abbreviations", default=[])
         self._line_seq = 0
         self._winner_named = False
@@ -7187,9 +7231,31 @@ class V3Booth:
         self.queue.remove(claim)
 
     # ---- per-tick scheduling ------------------------------------------------
+    def _lights(self, t):
+        """V8: from the first start light to lights out the booth is silent.
+        allows() already admits nothing in start_sequence; this clears what
+        was queued (it would air stale after lights out), stops any clip still
+        playing, and frees the channel so the lights-out call airs the instant
+        LGOT arrives. Once per start sequence; reset on green."""
+        st = self.model.state
+        if st == "start_sequence":
+            if not self._lights_cleared:
+                self._lights_cleared = True
+                for c in list(self.queue):
+                    if c.kind not in ("START", "RESTART"):
+                        self._drop(c, "lights", t)
+                if self.speech is not None:
+                    self.speech.hush()
+                self.channel_busy_until = min(self.channel_busy_until, t)
+                self._last_air_end = t if self._last_air_end is not None else None
+                self._lights_t = t
+        elif self._lights_cleared and st not in ("start_sequence",):
+            self._lights_cleared = False
+
     def tick(self, t):
         # drain claims that are ready and valid, one per free channel slot,
         # spread by the pacing governor (Part C).
+        self._lights(t)
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
@@ -9114,6 +9180,24 @@ class SpeechChannel:
             a = np.clip(a * gain, -full, full - 1)
         return a.astype(np.int16).tobytes(), round(pre_db, 2), round(trimmed_ms, 1)
 
+    def hush(self):
+        """V8: stop whatever is playing on the cable, now (the start lights).
+        Best effort; a failure here is logged, never raised."""
+        self.counter["hushed"] += 1
+        if self._player is not None or _sounddevice is None:
+            return
+        try:
+            _sounddevice.stop()
+        except Exception as e:
+            self.log("[speech] hush: %s" % type(e).__name__)
+        try:
+            st = self._audible_stream
+            if st is not None:
+                st.abort()
+                self._audible_stream = None
+        except Exception:
+            pass
+
     def _play(self, pcm):
         if self._player is not None:
             # test stub: record every routed device (cable, then monitor).
@@ -10169,12 +10253,27 @@ class V3Gallery:
         cars = [c for c in cars if c is not None]
         humans = sum(1 for c in cars if c.is_human)
         if len(cars) <= 1:
-            return p.get("human_alone", 1.4) if humans else p.get("ai_vs_ai", 0.5)
-        if humans >= 2:
-            return p.get("human_vs_human", 2.2)
-        if humans == 1:
-            return p.get("human_vs_ai", 2.2)
-        return p.get("ai_vs_ai", 0.5)
+            m = p.get("human_alone", 1.4) if humans else p.get("ai_vs_ai", 0.5)
+        elif humans >= 2:
+            m = p.get("human_vs_human", 2.2)
+        elif humans == 1:
+            m = p.get("human_vs_ai", 2.2)
+        else:
+            m = p.get("ai_vs_ai", 0.5)
+        if humans:
+            # V8 tether: the human premium above 1.0 is eased in over the
+            # opening laps (the start belongs to the leaders), full by halfway.
+            f = human_tether(self.cfg, self._lap_now(), self.model.w.total_laps)
+            m = 1.0 + (m - 1.0) * f
+        return m
+
+    def _lap_now(self):
+        li = self.model.leader_idx
+        w = self.model.w
+        if li is not None:
+            return w.cars[li].lap
+        bp = w.by_position()
+        return bp[0].lap if bp else 0
 
     def _score(self, c):
         """Standing score for one running on-track car, ported from the tuned
@@ -11285,6 +11384,13 @@ class StoryScorer:
                 mult = hs * hv
             else:
                 mult = hs
+            # V8 tether: the ordinary human premium is eased in over the
+            # opening laps, like the camera. Interrupt rows (contact, a car
+            # off, a retirement) and must-calls are never tethered: on lap
+            # one a human in trouble is the first thing said, not the last.
+            if str(row.get("override", "")).lower() != "interrupt":
+                f = human_tether(self.eng.cfg, self.eng.lap_now(), self.eng.laps_total())
+                mult = 1.0 + (mult - 1.0) * f
         if row.get("cluster") and humans:
             n = len(humans)
             cm = self.cluster_mult[min(n, len(self.cluster_mult) - 1)]
@@ -13218,7 +13324,35 @@ class P_SF_02(StoryProcessor):
         rec = self.live()[0] if self.live() else None
         if eng.model.state == "formation":
             if rec is None:
-                rec = self.open(t, [], fields={}, phase="rolling")
+                # V8: the expectations passage. Opened on every human with
+                # the grid as its facts, so the slow-lane writer has the
+                # whole picture (race.humans, top three, laps) and the notes
+                # below while the field is still on the formation lap. The
+                # template fallback is unchanged (one line). It is written
+                # here and aired well before the lights; from the first light
+                # the booth is silent.
+                humans = list(eng.humans())
+                grid = {str(h): (eng.w.cars[h].grid or eng.pos(h)) for h in humans}
+                notes = []
+                tl = eng.laps_total()
+                if tl:
+                    notes.append("the race is %s laps" % _num_word(tl))
+                for h in sorted(humans, key=lambda i: grid.get(str(i)) or 99):
+                    g = grid.get(str(h))
+                    if g:
+                        notes.append("%s starts %s" % (eng.name(h), _ordinal(g)))
+                        if g <= 3:
+                            notes.append("%s starts on the front rows, a podium is on"
+                                         % eng.name(h))
+                        elif g >= 10:
+                            notes.append("%s has the long way through the field from %s"
+                                         % (eng.name(h), _ordinal(g)))
+                if len(humans) >= 2:
+                    notes.append("%s of our drivers are in this race" % _num_word(len(humans)))
+                notes.append("turn one is tight and the first lap is where places are lost and won")
+                rec = self.open(t, humans, fields={"grid": grid, "notes": notes,
+                                                   "pos_at_open": _pos_map(eng, humans)},
+                                phase="rolling")
                 self.beat(t, rec, "transition", "rolling", ctx={})
         elif rec is not None:
             self.close(t, rec, "lights")
@@ -13290,22 +13424,67 @@ class P_SF_04(StoryProcessor):
             return
         if eng.lap_now() > first and rec.phase == "lap_one":
             rec.phase = "settled"
+            # V8: the lap-one ledger. One ANALYST passage owing a line to
+            # every human: places gained or lost, contact or clean, and what
+            # it means. The notes carry every human; the template fallback
+            # names the biggest mover (the old "net" line) so the ledger is
+            # never silent.
+            m = eng.model
+            t0 = m.anchor_t if m.anchor_t is not None else (
+                rec.opened_t if rec.opened_t is not None else t - 120.0)
+            touched = {}
+            for (ct, a, b) in m.colls:
+                if ct >= t0:
+                    for i in (a, b):
+                        if eng.is_human(i):
+                            touched[i] = eng.name(b if i == a else a)
+            offs = set()
+            for r in eng.store.closed[-30:]:
+                if r.row_id == "INC-02" and (r.opened_t or 0) >= t0:
+                    offs.update(h for h in r.participants if eng.is_human(h))
             lines = []
+            notes = []
             for h in eng.humans():
                 g = rec.fields["grid"].get(str(h))
                 p = eng.pos(h)
-                if g is None or p is None or g == p:
+                name = eng.name(h)
+                if m.is_retired(h):
+                    notes.append("%s is out of the race on the first lap" % name)
                     continue
-                lines.append((h, g - p, p))
+                if g is None or p is None:
+                    continue
+                d = g - p
+                lines.append((h, d, p))
+                if d > 0:
+                    what = "up %s to %s" % (_places_word(d), _ordinal(p))
+                elif d < 0:
+                    what = "down %s to %s" % (_places_word(-d), _ordinal(p))
+                else:
+                    what = "holds %s" % _ordinal(p)
+                if h in touched:
+                    notes.append("%s had contact with %s on the first lap and is %s"
+                                 % (name, touched[h], what))
+                elif h in offs:
+                    notes.append("%s went off on the first lap and is %s" % (name, what))
+                else:
+                    notes.append("%s came through the first lap clean, %s" % (name, what))
+            rec.fields["notes"] = notes
             lines.sort(key=lambda x: -abs(x[1]))
-            for (h, d, p) in lines[:self.p("max_named", 2)]:
-                if eng.model.is_retired(h):
-                    continue
+            movers = [x for x in lines if x[1] != 0]
+            if movers:
+                h, d, p = movers[0]
                 self.beat(t, rec, "threshold", "net",
                           ctx={"a": eng.name(h), "places": _places_word(abs(d)),
                                "pos": _ordinal(p)},
                           view={"up": d > 0}, numbers={"places": abs(d)},
-                          subjects=[h])
+                          subjects=[x[0] for x in lines], speaker="ANALYST",
+                          must=True)
+            elif lines:
+                h, d, p = lines[0]
+                self.beat(t, rec, "threshold", "net",
+                          ctx={"a": eng.name(h), "pos": _ordinal(p)},
+                          view={}, numbers={},
+                          subjects=[x[0] for x in lines], must=True)
             self.close(t, rec, "settled")
 
 

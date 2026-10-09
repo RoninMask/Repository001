@@ -651,6 +651,13 @@
       "sentences_lull": 6,
       "sentences_green": 3,
       "sentences_neutralised": 4
+    },
+    "tether": {
+      "_about": "V8 the lead-to-human tether (09 OCT). The start belongs to the leaders and the run to turn one; by halfway the broadcast is on the humans. The human premium in the camera's participation multiplier and in the story scores is scaled by `start` on the first racing lap, rising linearly to 1.0 by lap ceil(laps_frac x total laps). A five-lap race is full by lap three; a thirty-lap race by lap fifteen. enabled=false restores the 07 OCT weighting everywhere.",
+      "enabled": true,
+      "start": 0.5,
+      "laps_frac": 0.5,
+      "first_racing_lap": 2
     }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
