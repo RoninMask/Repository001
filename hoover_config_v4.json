@@ -675,6 +675,15 @@
       "frac": 0.5,
       "max_s": 75.0,
       "fallback_s": 45.0
+    },
+    "dwell": {
+      "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
+      "enabled": true,
+      "dwell_s": 25.0,
+      "idle_release_s": 10.0,
+      "must_after_s": 10.0,
+      "min_for_bridge_s": 6.0,
+      "bridge_window_s": 20.0
     }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."

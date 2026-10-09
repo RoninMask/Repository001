@@ -5241,10 +5241,11 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                 "hold_remaining_s": round(remaining, 1) if remaining is not None else None,
                 "subject_on_screen": (cur in subj_idx) if cur is not None else None}
         blob["shot"] = shot
+        # V8.3 fix 5 (09 OCT): the shot stays structural (the writer may use
+        # on_screen to choose what to describe) but no note invites the booth
+        # to talk about the camera; the fourth wall is a prompt rule now.
         if shot["on_screen"] and not shot["subject_on_screen"]:
             allow(shot["on_screen"])
-            note("the camera is on %s, not on this" % shot["on_screen"], "shot",
-                 None, ("what",), False, 0.7)
 
     # ---- booth memory --------------------------------------------------------
     mem = {}
@@ -5252,6 +5253,17 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
         layers.append("memory")
         ov = ctx.said.other_voice_last(speaker) if speaker else None
         mem["other_voice_last"] = ov["text"] if ov else None
+        # V8.3 fix 4: the story the booth is leaving, so the line can turn
+        # from it instead of jumping. Names in it are licensed.
+        ps = (claim.facts or {}).get("previous_story")
+        if ps:
+            mem["previous_story"] = {"type": ps.get("type"), "names": ps.get("names") or [],
+                                     "last_text": ps.get("last_text"),
+                                     "ago_s": ps.get("ago_s")}
+            allow(*(ps.get("names") or []))
+            who = " and ".join(ps.get("names") or []) or "that"
+            note("we are leaving %s for this, turn from it in half a sentence" % who,
+                 "memory", None, ("what", "means"), False, 0.8)
         for i in subj_idx:
             ld = ctx.said.last_on_driver(i)
             if ld and ld.get("t") is not None:
@@ -6734,7 +6746,13 @@ def _tidy_line(text):
         return text
     text = _ONE_PLURAL_RE.sub(lambda m: "%s %s" % (m.group(1), m.group(2)[:-1]), text)
     text = _SENTENCE_START_RE.sub(lambda m: "%s %s" % (m.group(1), m.group(2).upper()), text)
-    return text
+    # V8.3 (09 OCT replay): "down to 19th" -- a numeric ordinal from the V3
+    # helper inside a story line is said as a word
+    text = _DIGIT_ORDINAL_RE.sub(lambda m: _ordinal_word(int(m.group(1))), text)
+    return text[:1].upper() + text[1:]
+
+
+_DIGIT_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\b")
 
 
 def _cap_first_alpha(s):
@@ -6974,6 +6992,24 @@ class V3Booth:
             self.passage_gap = 0.4
         self._lights_cleared = False     # V8: start-light silence armed once
         self._lights_t = None
+        # V8.3 fix 4 (09 OCT, Dustin + Mike): story dwell. Once a story beat
+        # airs the booth stays on that story for dwell_s (or until it closes
+        # or runs out of things to say); only Interrupt rows and the hard
+        # race-state kinds break in, must-calls after must_after_s. Absent
+        # from hoover_config_v3.json, so the V3 path never sees it.
+        dw = config.get("v3", "dwell", default=None) or {}
+        self.dwell_enabled = bool(dw.get("enabled", False))
+        self.dwell_s = float(dw.get("dwell_s", 25.0))
+        self.dwell_idle_s = float(dw.get("idle_release_s", 8.0))
+        self.dwell_must_after_s = float(dw.get("must_after_s", 12.0))
+        self.dwell_min_for_bridge_s = float(dw.get("min_for_bridge_s", 6.0))
+        self.dwell_bridge_window_s = float(dw.get("bridge_window_s", 20.0))
+        self._focus = None               # the story the booth is dwelling on
+        self._focus_last = None          # the one it just left
+        self.counter_dwell_holds = 0
+        self._dwell_held_ids = set()
+        self.counter_dwell_focus = 0     # focus changes (stories told)
+        self.counter_dwell_bridges = 0   # lines written with a previous_story
         self._abbrevs = config.get("v3", "speech", "abbreviations", default=[])
         self._line_seq = 0
         self._winner_named = False
@@ -7110,11 +7146,98 @@ class V3Booth:
             return None                              # a crash: one line, we come back
         return "rewrite:start_window"
 
+    # ---- V8.3 fix 4: story dwell -------------------------------------------
+    @staticmethod
+    def _story_of(claim):
+        f = claim.facts or {}
+        return f.get("story_id"), f.get("story_type")
+
+    def _dwell_release(self, t):
+        """Drop the focus when its story has closed, its dwell has run, or it
+        has had nothing to say for idle_release_s with nothing queued."""
+        fo = self._focus
+        if fo is None:
+            return
+        rec = fo.get("rec")
+        done = (t - fo["t_start"]) >= self.dwell_s
+        if not done and rec is not None and not rec.live \
+                and not rec.row.get("speak_after_close", False):
+            done = True
+        if not done and (t - fo["t_last"]) >= self.dwell_idle_s \
+                and not any(self._story_of(c)[0] == fo["story_id"] for c in self.queue):
+            done = True
+        if done:
+            fo["t_end"] = t
+            self._focus_last = fo        # the next story may still turn from it
+            self._focus = None
+
+    def _dwell_hold(self, claim, t):
+        """Inside a dwell, a line about another story waits unless it is an
+        Interrupt row, a hard race-state kind, or (after must_after_s) a
+        must-call. Held claims keep their own expiry clock."""
+        if not self.dwell_enabled or self.stories is None:
+            return None
+        self._dwell_release(t)
+        fo = self._focus
+        if fo is None:
+            return None
+        sid, _st = self._story_of(claim)
+        if sid is not None and sid == fo["story_id"]:
+            return None
+        if claim.kind in self.pc_hard or claim.kind in self._FRONT_KINDS:
+            return None
+        rec = getattr(claim, "story", None)
+        if rec is not None and str((rec.row or {}).get("override", "")).lower() == "interrupt":
+            return None
+        if claim.hard and (t - fo["t_start"]) >= self.dwell_must_after_s:
+            return None
+        if claim.claim_id not in self._dwell_held_ids:
+            self._dwell_held_ids.add(claim.claim_id)
+            self.counter_dwell_holds += 1          # claims held, not ticks
+        return "rewrite:dwell"
+
+    def _dwell_note(self, claim, t):
+        """Before a story line is written: if the booth is moving from one
+        story to another, the claim carries the story it leaves so the writer
+        can turn from it; then the focus moves. Called from _air."""
+        if not self.dwell_enabled or self.stories is None:
+            return
+        sid, st = self._story_of(claim)
+        if sid is None:
+            return
+        fo = self._focus
+        if fo is not None and fo["story_id"] == sid:
+            fo["t_last"] = t
+            return
+        if fo is None:
+            # a focus released a moment ago (idle, closed, dwell run) is
+            # still the story the viewer was watching
+            fl = getattr(self, "_focus_last", None)
+            if fl is not None and (t - fl.get("t_end", t)) <= self.dwell_bridge_window_s \
+                    and fl["story_id"] != sid:
+                fo = fl
+            self._focus_last = None
+        if fo is not None and (fo.get("t_end", t) - fo["t_start"]) >= self.dwell_min_for_bridge_s \
+                and not (claim.facts or {}).get("continuation"):
+            last = self.said.last_on_story(fo["story_id"]) if self.said else None
+            claim.facts["previous_story"] = {
+                "type": fo["story_type"], "names": list(fo.get("names") or []),
+                "last_text": (last or {}).get("text"),
+                "ago_s": round(t - fo["t_last"], 1)}
+            self.counter_dwell_bridges += 1
+        self._focus = {"story_id": sid, "story_type": st, "t_start": t, "t_last": t,
+                       "names": [n for n in (claim.names or []) if n],
+                       "rec": getattr(claim, "story", None)}
+        self.counter_dwell_focus += 1
+
     def _validate(self, claim, t):
         m = self.model
         if (claim.facts or {}).get("continuation"):
             return self._validate_continuation(claim, t)
         held = self._front_only(claim, t)
+        if held:
+            return held
+        held = self._dwell_hold(claim, t)
         if held:
             return held
         # V7 backstop: a claim whose spoken names are not all distinct is never
@@ -7689,7 +7812,11 @@ class V3Booth:
                                 writer="passage",
                                 prompt_version=claim.facts.get("passage_prompt"),
                                 model_id=claim.facts.get("passage_model"))
+            if self._focus is not None \
+                    and self._focus["story_id"] == self._story_of(claim)[0]:
+                self._focus["t_last"] = t
         else:
+            self._dwell_note(claim, t)
             result = self.writer.write_line(self._line_request(claim, past, t))
         speaker, text = result.speaker, result.text
         tmpl_key = result.template_id
@@ -11298,7 +11425,7 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "pos", "n", "lap", "remaining", "count", "swaps", "speed",
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
-                      "seconds"}
+                      "seconds", "guess"}
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -11448,7 +11575,8 @@ class StoryStore:
     def __init__(self, engine):
         self.eng = engine
         self.live = {}            # id -> record
-        self.closed = []
+        self.closed = []          # this race's closed stories
+        self.closed_prev = []     # V8.3: earlier races' (a restart or a new race)
         self.events = []          # stories file lines (dicts)
 
     def open(self, t, row_id, participants, fields=None, cause=None,
@@ -12131,6 +12259,12 @@ class StoryEngine:
         live = list(self.store.live.values())
         for rec in live:
             self.store.close(t, rec, "restart")
+        # V8.3 (09 OCT replay of the two-race capture): the one-shot stories
+        # (grid intros, the lap-one ledger, the last-lap set-up) look for a
+        # closed record of their own type and never fired in the second
+        # race. The closed list is the race's; earlier races keep theirs.
+        self.store.closed_prev.extend(self.store.closed)
+        self.store.closed = []
         self.pace.reset()
         self.relate.reset()
         self._mention_t = {}
@@ -12607,12 +12741,13 @@ class StoryEngine:
         return out
 
     def summary(self):
-        by_type = collections.Counter(r.row_id for r in self.store.closed)
+        closed_all = self.store.closed_prev + self.store.closed
+        by_type = collections.Counter(r.row_id for r in closed_all)
         by_type.update(r.row_id for r in self.store.live.values())
         return {"stories_file": self.scfg.path and os.path.basename(self.scfg.path),
                 "stories_hash": self.scfg.hash,
                 "processors": [p.ID for p in self.processors],
-                "opened": len(self.store.closed) + len(self.store.live),
+                "opened": len(closed_all) + len(self.store.live),
                 "still_live_at_close": len(self.store.live),
                 "beats": self.beat_count, "relate_beats": self.relate_count,
                 "by_type": dict(sorted(by_type.items()))}
@@ -13154,9 +13289,12 @@ class P_POS_03(StoryProcessor):
                                     fields={"places": lost, "from": marks[0][1],
                                             "pos_at_open": _pos_map(eng, [c.idx])},
                                     cause=cause, phase="collapsing")
+                    guess = None if cause.get("known") else self._guess(t, c)
+                    if guess:
+                        rec.fields["guess"] = guess
                     self.beat(t, rec, "transition", "open",
                               ctx={"a": eng.name(c.idx), "places": _places_word(lost),
-                                   "cause": cause["text"]},
+                                   "cause": cause["text"], "guess": guess},
                               view={"cause_known": cause.get("known", False)},
                               numbers={"places": lost}, must=eng.is_human(c.idx))
                 continue
@@ -13175,6 +13313,32 @@ class P_POS_03(StoryProcessor):
                           numbers={"places": rec.fields["places"]})
                 self.close(t, rec, "arrested")
                 marks.clear()
+
+    def _guess(self, t, c):
+        """V8.3 fix 6 (09 OCT, Dustin): when nothing on the wire explains the
+        places lost, the booth makes an educated guess from what it does
+        know (no contact seen, the car's speed, the corner it is in) instead
+        of saying there is no obvious reason."""
+        eng = self.eng
+        sp = eng.model.speeds.get(c.idx)
+        corner = None
+        tracks = getattr(getattr(eng, "blobctx", None), "tracks", None)
+        if tracks is not None:
+            try:
+                cn = tracks.corner_at(eng.w.track_id, c.lap_distance)
+                if cn:
+                    corner = cn.get("name") or ("turn %s" % _num_word(cn.get("n", 0)))
+            except Exception:
+                corner = None
+        where = (" at %s" % corner) if corner else ""
+        if sp is not None and sp < 60.0:
+            return ("He has slowed right down%s, so that looks like damage or a spin, "
+                    "no contact that we saw." % where)
+        if corner:
+            return ("No contact that we saw, so most likely a mistake of his own%s, "
+                    "a lock up or a trip across the gravel." % where)
+        return ("No contact that we saw, so most likely a mistake of his own, "
+                "a lock up or a moment off line.")
 
     def _cause(self, t, idx):
         eng = self.eng
@@ -13353,6 +13517,27 @@ class P_STR_01(StoryProcessor):
             if c.pit_status == 2 and rec.phase == "in":
                 rec.phase = "stationary"
                 rec.fields["t_box"] = t
+                # V8.3 nice 7 (09 OCT, Mike): the car on screen is in the box,
+                # so the booth talks about the stop it is watching: who he
+                # will come out near, and what the stop costs him.
+                g = getattr(getattr(eng, "blobctx", None), "gallery", None)
+                if g is not None and getattr(g, "current", None) == c.idx \
+                        and not rec.fields.get("box_said"):
+                    rec.fields["box_said"] = True
+                    behind = eng.car_behind(c.idx)
+                    gb = eng.gap_ahead(behind) if behind is not None else None
+                    notes = ["%s is stationary in the box, the %s stop of his race"
+                             % (eng.name(c.idx), _ordinal(rec.fields.get("stops", 1)))]
+                    if behind is not None and gb is not None:
+                        notes.append("%s was %s behind on the road and will go past while he is in"
+                                     % (eng.name(behind), _gap_words(gb) or "close"))
+                    rec.fields["notes"] = notes
+                    self.beat(t, rec, "threshold", "stationary",
+                              ctx={"a": eng.name(c.idx), "pos": _ordinal(rec.fields.get("pos_in", c.position)),
+                                   "count": _ordinal(rec.fields.get("stops", 1)),
+                                   "b": eng.name(behind) if behind is not None else None},
+                              view={"human": eng.is_human(c.idx), "has_behind": behind is not None},
+                              speaker="ANALYST")
             if not c.pit_status and rec.phase in ("in", "stationary"):
                 rec.phase = "out"
                 rec.fields["pos_out"] = c.position
@@ -14401,8 +14586,10 @@ class P_HUM_08(StoryProcessor):
                 continue
             if c.telemetry_public == 0:
                 self._restricted_said.add(c.idx)
+                # V8.3 fix 5 (09 OCT, Dustin): the restriction is recorded
+                # for the archive but never spoken; "running with limited
+                # data" breaks the fourth wall.
                 rec = self.open(t, [c.idx], fields={"restricted": True}, phase="restricted")
-                self.beat(t, rec, "transition", "restricted", ctx={"a": eng.name(c.idx)})
                 self.close(t, rec, "restricted")
 
 
@@ -14590,6 +14777,9 @@ class BabyHooverV3:
                 predictions=self.stories.predictions, archive=self.archive,
                 tracks=TrackReference(tpath, self._log), dossier=Dossier(dpath, self._log),
                 rules=rules, cfg=self.config)
+            # V8.3: the processors read the track table through the same
+            # context (the off and the places-lost guess name the corner)
+            self.stories.blobctx = self.booth.blobctx
             self.booth.log_blobs = bool(getattr(args, "log_blobs", False))
         else:
             self.archive = None
@@ -14947,7 +15137,8 @@ class BabyHooverV3:
                 fastest_key, fastest_ms = key, best
         arcs = []
         if self.stories is not None:
-            for rec in list(self.stories.store.closed) + list(self.stories.store.live.values()):
+            for rec in (list(self.stories.store.closed_prev) + list(self.stories.store.closed)
+                        + list(self.stories.store.live.values())):
                 a = story_arc(rec, self.stories.lap_now())
                 a["type"] = rec.row_id
                 a["participants"] = [_driver_key(w.cars[i]) for i in rec.participants]
@@ -15118,6 +15309,16 @@ class BabyHooverV3:
             # hold times, plus the longest run away from the humans. Story
             # layer only, so the V3 manifest is unchanged.
             manifest["camera_v8"] = self._camera_share(t)
+            b = self.booth
+            manifest["booth_v8"] = {
+                "lead_holds": getattr(b, "counter_lead_holds", 0),
+                "dwell": {"enabled": b.dwell_enabled, "dwell_s": b.dwell_s,
+                          "holds": b.counter_dwell_holds,
+                          "stories_told": b.counter_dwell_focus,
+                          "bridges": b.counter_dwell_bridges},
+                "start_window_holds": sum(
+                    1 for r in b.claim_records if r.get("outcome_reason") == "start_window"),
+            }
             if getattr(self.world, "ext", None) is not None:
                 manifest["decode_v5"] = self.world.ext.summary()
             manifest["blob_v6"] = self._blob_summary()

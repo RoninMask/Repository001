@@ -782,7 +782,7 @@
      "when": {
       "beat": "attack_range"
      },
-     "present": "{a} is right on the back of {b}. Nose to tail for the lead."
+     "present": "{a} is right on the back of {b}, and the lead is on the line."
     },
     {
      "speaker": "ANALYST",
@@ -955,7 +955,7 @@
      "when": {
       "beat": "attack_range"
      },
-     "present": "{a} is right on {b} for {pos}. Nose to tail."
+     "present": "{a} is right on {b} for {pos}, close enough to try something."
     },
     {
      "speaker": "LEAD",
@@ -1184,7 +1184,7 @@
       "beat": "open",
       "cause_known": false
      },
-     "present": "{a} has dropped {places}. No obvious reason yet.",
+     "present": "{a} has dropped {places}. {guess}",
      "past": "{a} dropped {places}."
     },
     {
@@ -1193,7 +1193,7 @@
       "beat": "open",
       "cause_known": false
      },
-     "present": "Something has happened to {a}. {places} gone, and we do not know why yet."
+     "present": "Something has happened to {a}. {places} gone. {guess}"
     },
     {
      "speaker": "ANALYST",
@@ -1376,7 +1376,7 @@
       "beat": "rejoined",
       "into_human": true
      },
-     "present": "{a} rejoins in {pos}, right with {b}. That is a fight."
+     "present": "{a} rejoins in {pos}, right with {b}, and they will not give each other an inch."
     },
     {
      "speaker": "LEAD",
@@ -1402,6 +1402,29 @@
       "beat": "rejoined"
      },
      "present": "{a} rejoins in {pos}, {gap} behind {b}. He will want that place back."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "stationary",
+      "has_behind": true
+     },
+     "present": "{a} is in the box now, the {count} stop. He came in from {pos}, and {b} goes past while he sits there."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "stationary"
+     },
+     "present": "{a} stationary in the pit lane for the {count} stop. In from {pos}, and the clock is running."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "stationary",
+      "human": true
+     },
+     "present": "Here is {a} in the box, {count} stop of his race. He gave up {pos} to come in, and every second here is a place on the road."
     }
    ]
   },
@@ -1956,7 +1979,7 @@
      "when": {
       "beat": "open"
      },
-     "present": "{a} and {b} are together on the road. This is the race."
+     "present": "{a} and {b} are together on the road, and that is where our evening is."
     },
     {
      "speaker": "ANALYST",
@@ -1978,14 +2001,14 @@
      "when": {
       "beat": "joins"
      },
-     "present": "{a} joins the group. That is {count} of our drivers nose to tail."
+     "present": "{a} joins the group. That is {count} of our drivers in one train."
     },
     {
      "speaker": "ANALYST",
      "when": {
       "beat": "joins"
      },
-     "present": "{a} makes it {count}. Watch this."
+     "present": "{a} makes it {count}. Something has to give here."
     },
     {
      "speaker": "ANALYST",
@@ -2092,7 +2115,7 @@
      "when": {
       "beat": "check_in"
      },
-     "present": "Let us not forget {a}, {pos} and running his own race."
+     "present": "Meanwhile {a}, {pos} and running his own race."
     },
     {
      "speaker": "LEAD",
@@ -2166,7 +2189,7 @@
       "ctype": "defend",
       "fight": true
      },
-     "present": "{a} has {b} right behind him for {pos}. That is a fight now."
+     "present": "{a} has {b} right behind him for {pos}, and this one is live now."
     },
     {
      "speaker": "ANALYST",
