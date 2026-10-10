@@ -10,3 +10,6 @@ tests/pass0_reports_*.zip
 # V6: the results store is an artefact of the machine that ran the races, never a repo file
 hoover_archive.json
 hoover_archive.json.tmp
+
+# interview ingest: raw calls hold drivers' own words; keep them on the PC
+ingest/interviews/raw/

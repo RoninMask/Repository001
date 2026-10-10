@@ -1,7 +1,7 @@
 {
   "league": "league_2026",
-  "roster_version": "2",
-  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names stay the gamertag-derived forms from the naming rules (Ronin0700VII -> Ronin, etc.); real-name association is a later project; the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming).",
+  "roster_version": "3",
+  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names stay the gamertag-derived forms from the naming rules (Ronin0700VII -> Ronin, etc.); real-name association is a later project; the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming). V3 (09 OCT 26): real_name and platform added for the interview ingest (rivals named by first name resolve through real_name); d_ecx (ECxR6) and d_shockin (Shockin05, restricted) added. real_name is never spoken on air.",
   "drivers": [
     {
       "driver_id": "d_pure",
@@ -19,7 +19,9 @@
       },
       "participation": "human",
       "team": "McLaren",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "real_name": "Alex",
+      "platform": "Xbox"
     },
     {
       "driver_id": "d_valor",
@@ -37,7 +39,9 @@
       },
       "participation": "human",
       "team": "McLaren",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "real_name": "Mike",
+      "platform": "Steam"
     },
     {
       "driver_id": "d_ronin",
@@ -55,7 +59,9 @@
       },
       "participation": "human",
       "team": "Mercedes",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines."
+      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "real_name": "Dustin",
+      "platform": "Xbox"
     },
     {
       "driver_id": "d_faze",
@@ -73,7 +79,9 @@
       },
       "participation": "human",
       "team": "Red Bull",
-      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here."
+      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here.",
+      "real_name": "Cade",
+      "platform": "Xbox"
     },
     {
       "driver_id": "d_raider",
@@ -91,7 +99,53 @@
       },
       "participation": "human",
       "team": "Ferrari",
-      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here."
+      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here.",
+      "real_name": "Alan",
+      "platform": "PlayStation"
+    },
+    {
+      "driver_id": "d_ecx",
+      "match": {
+        "handle": "ECxR6",
+        "network_id": null,
+        "race_number": null
+      },
+      "level": "B",
+      "spoken": {
+        "short": "ECX",
+        "full": "E C X",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": null,
+      "real_name": "Evan",
+      "platform": "Xbox",
+      "_note": "New for 21 OCT. Spoken full is spelled out so TTS says the letters. Set team and a unique race number."
+    },
+    {
+      "driver_id": "d_shockin",
+      "match": {
+        "handle": "Shockin05",
+        "network_id": null,
+        "race_number": null
+      },
+      "level": "B",
+      "spoken": {
+        "short": "Shockin",
+        "full": "Shockin",
+        "rung": 2,
+        "possessive_ok": true
+      },
+      "participation": "human",
+      "team": null,
+      "real_name": "Evan",
+      "platform": "Xbox",
+      "restricted_telemetry": true,
+      "_note": "Races restricted: the game sends 'Player' with no handle, so the handle never matches. Set his real, unique race number so the roster matches him by number; otherwise he falls to d_the_car. Was aired as 'Sholly' on 08 SEP.",
+      "aliases": [
+        "Sholly"
+      ]
     },
     {
       "driver_id": "d_the_car",

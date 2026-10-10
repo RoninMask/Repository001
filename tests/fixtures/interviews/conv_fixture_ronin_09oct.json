@@ -1,0 +1,184 @@
+{
+  "_fixture": "Built from Dustin's 09 OCT 26 test call transcript. data_collection_results are a hand-written stand-in (the real ones were not exported); everything else is the real transcript.",
+  "conversation_id": "conv_fixture_ronin_09oct",
+  "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+  "status": "done",
+  "metadata": {
+    "start_time_unix_secs": 1791586800,
+    "call_duration_secs": 271
+  },
+  "conversation_initiation_client_data": {
+    "dynamic_variables": {
+      "driver_name": "Ronin",
+      "gamertag": "Ronin0700VII",
+      "track": "Abu Dhabi",
+      "race_day": "21 October"
+    }
+  },
+  "transcript": [
+    {
+      "role": "agent",
+      "message": "Hey Ronin, it's Sienna from V1 Decision Speed Broadcasting! Got five minutes before Abu Dhabi? Quick heads-up \u2014 I'm an AI reporter, and some of what you tell me might make it onto the broadcast. Ready to go?"
+    },
+    {
+      "role": "user",
+      "message": "I'm ready to go."
+    },
+    {
+      "role": "agent",
+      "message": "[cheerful] Fantastic, let's jump straight in! First things first, how do you want the commentators to say your name on air, and do you have a nickname we should know about?"
+    },
+    {
+      "role": "user",
+      "message": "I go by Ronan."
+    },
+    {
+      "role": "agent",
+      "message": "[cheerful] Got it, Ronan, nice and clear for the booth! Now, let's talk predictions: where do you see yourself finishing today at Abu Dhabi? Give me a specific position number."
+    },
+    {
+      "role": "user",
+      "message": "I think I'm gonna be either in first, second, or third."
+    },
+    {
+      "role": "agent",
+      "message": "[impressed] Ooh, aiming straight for the podium, I like that confidence! But you know I need a specific number for the commentators, so are we talking a bold win in first, or settling for second?"
+    },
+    {
+      "role": "user",
+      "message": "I'm gonna settle for second and be realistic about my competition."
+    },
+    {
+      "role": "agent",
+      "message": "[playful] Second place it is, a smart and realistic call against tough competition! So, who is the one driver you most want to beat today to secure that spot, and why them specifically?"
+    },
+    {
+      "role": "user",
+      "message": "I wanna beat Mike the most, but I think Cade has the highest chance of winning."
+    },
+    {
+      "role": "agent",
+      "message": "[teasing] Oh, so Mike is the personal rival while Cade is the one to watch, that is a juicy dynamic for the commentators! Let's rewind to Silverstone where things got a bit scrappy with contact and a penalty; what went wrong in those battles, and are you racing more patiently today?"
+    },
+    {
+      "role": "user",
+      "message": "Yes, I think I am."
+    },
+    {
+      "role": "agent",
+      "message": "[encouraging] That's the spirit, patience is definitely a virtue when the championship is on the line! Now, thinking about the Abu Dhabi circuit, which specific corner scares you the most or tends to be where things usually go wrong for you?"
+    },
+    {
+      "role": "user",
+      "message": "I don't know the corner number, but it's, uh, it's kind of a zigzag, uh, and it's like a, a 90 followed by 90 and a straight out into a DRS and a long, long straightaway, and I think that's gonna be the trickiest not to spin out randomly."
+    },
+    {
+      "role": "agent",
+      "message": "[excited] You are definitely talking about that tight chicane right before the long straight where everyone holds their breath! It's the perfect spot to lose time if you spin, so nailing that exit will be your golden ticket to the podium. Now, quick tech check: are you running on wheel or controller, and do you have any assists turned on for this race?"
+    },
+    {
+      "role": "user",
+      "message": "No, I'm gonna be on a wheel, and all assists are off."
+    },
+    {
+      "role": "agent",
+      "message": "[impressed] Wheel with no assists, now that is proper old-school racing bravery! Since you're going raw, do you have a specific tyre strategy or race plan in mind to protect that second place?"
+    },
+    {
+      "role": "user",
+      "message": "I think we're gonna be on softs all day, just based on the configuration of the races with shorter five-lap races."
+    },
+    {
+      "role": "agent",
+      "message": "[excited] Softs all day for those short five-lap sprints, that is going to make for some absolutely wheel-to-wheel action! Before I let you go, give me one bold prediction: which other driver is going to surprise us today, or who ends up in the wall?"
+    },
+    {
+      "role": "user",
+      "message": "I think Shally has been underperforming and will surprise everybody today."
+    },
+    {
+      "role": "agent",
+      "message": "[excited] Love that underdog pick, a surprise surge from Shally would definitely spice up the grid! Now for the final touch, tell me one thing about you off the track, maybe a job, a hometown, or a weird pre-race ritual?"
+    },
+    {
+      "role": "user",
+      "message": "..."
+    },
+    {
+      "role": "agent",
+      "message": "[gentle] Hey Ronan, are you still..."
+    },
+    {
+      "role": "user",
+      "message": "Yeah, uh, yeah, I'm just thinking. Um, what was the question?"
+    },
+    {
+      "role": "agent",
+      "message": "[warm] No worries at all, I asked for one thing about you off the track, like a job, hometown, or maybe a weird pre-race ritual? Just give me a little colour the commentators can use while we wait for the lights to go out!"
+    },
+    {
+      "role": "user",
+      "message": "I'm a pilot when I'm not a dr- a race car driver."
+    },
+    {
+      "role": "agent",
+      "message": "[amazed] A real-life pilot, that is absolutely perfect for an F1 driver and the commentators are going to love that story! [cheerful] Thanks so much for your time Ronan, good luck out there today, and I'll be watching your every move from the pit lane!"
+    },
+    {
+      "role": "user",
+      "message": "How do we hang up?"
+    },
+    {
+      "role": "agent",
+      "message": "[laugh] You can just say goodbye or tell me you're done, and I'll wrap up the call for you! Thanks again Ronan, over and out!"
+    },
+    {
+      "role": "user",
+      "message": "Goodbye."
+    },
+    {
+      "role": "agent",
+      "message": "[cheerful] Bye Ronan, see you at the finish line!"
+    }
+  ],
+  "analysis": {
+    "data_collection_results": {
+      "spoken_name": {
+        "value": "Ronan"
+      },
+      "predicted_finish": {
+        "value": 2
+      },
+      "rival": {
+        "value": "Mike"
+      },
+      "rival_reason": {
+        "value": null
+      },
+      "fear_corner": {
+        "value": "A zigzag of two ninety-degree turns leading onto the long DRS straight"
+      },
+      "setup": {
+        "value": "Wheel, all assists off"
+      },
+      "strategy": {
+        "value": "Softs all day for the five-lap races"
+      },
+      "driver_prediction": {
+        "value": "Shally has been underperforming and will surprise everybody"
+      },
+      "personal_colour": {
+        "value": "He's a pilot when he's not racing"
+      },
+      "best_quotes": {
+        "value": "I'm gonna settle for second and be realistic about my competition. | I wanna beat Mike the most, but I think Cade has the highest chance of winning. | I'm a pilot when I'm not a race car driver."
+      },
+      "off_record": {
+        "value": null
+      },
+      "interview_complete": {
+        "value": true
+      }
+    }
+  }
+}
