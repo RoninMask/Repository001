@@ -394,7 +394,7 @@ class TestGapSanity(unittest.TestCase):
         eng._now = 1001.0
         self.assertAlmostEqual(eng.gap_ahead(2), 2.4)
         w.cars[2].delta_front = 65.5                 # a real 65 s gap persists
-        eng._now = 1010.0                            # past the window
+        eng._now = 1001.0 + eng.scfg.e("gap_jump_window_s", 5.0) + 1.0   # past the window
         self.assertAlmostEqual(eng.gap_ahead(2), 65.5)
 
 
