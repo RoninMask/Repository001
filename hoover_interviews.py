@@ -53,6 +53,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---- small helpers ------------------------------------------------------------
 
+try:                                    # a Windows console must never crash on a curly quote
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
+
+
 def say(msg=""):
     print(msg, flush=True)
 
