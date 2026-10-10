@@ -1,0 +1,258 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Hoover League Night Findings</title>
+<style>
+@page{size:A4;margin:0}
+:root{--red:#e10600;--ink:#181c25;--mute:#5b6070;--rule:#dde0e6;--soft:#f4f5f7;--amb:#d9a40b;--grn:#1d6b33}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Poppins',sans-serif;color:var(--ink);font-size:8.6pt;line-height:1.36}
+.page{width:210mm;height:297mm;padding:14mm 17mm 16mm;position:relative;overflow:hidden;page-break-after:always}
+.page:last-child{page-break-after:auto}
+.band{background:var(--ink);color:#fff;margin:-14mm -17mm 5mm;padding:8mm 17mm 5.5mm}
+.band .k{color:var(--red);font-weight:700;letter-spacing:1.4pt;font-size:8pt;margin-bottom:3mm}
+.band h1{margin:0 0 1.5mm;font-size:19pt;font-weight:700;line-height:1.2}
+.band .s{color:#d5d8df;font-weight:300;font-size:9.6pt}
+.mini{background:var(--ink);color:#fff;margin:-14mm -17mm 4mm;padding:5.5mm 17mm 4.5mm;font-size:7.8pt;letter-spacing:1.2pt;font-weight:700}
+.mini span{color:var(--red)}
+h2{font-size:11pt;margin:3mm 0 1.4mm;font-weight:700;display:flex;gap:3mm;align-items:baseline}
+h2 .n{color:var(--red);font-size:9pt;letter-spacing:1pt;min-width:6mm}
+h3{font-size:9.2pt;margin:2.4mm 0 1mm;font-weight:700}
+p{margin:0 0 1.8mm}
+ul{margin:0 0 2mm;padding-left:4.5mm}
+li{margin:0 0 0.8mm}
+.lead{font-size:9.4pt;margin-bottom:2.2mm}
+.box{background:var(--soft);border-radius:2mm;padding:2.2mm 3.5mm;margin:1.5mm 0 2.2mm}
+.box b.r{color:var(--red)}
+.verdict{border-left:3pt solid var(--red);background:var(--soft);padding:2.5mm 4mm;margin:1mm 0 3mm;font-size:9.2pt}
+table{width:100%;border-collapse:collapse;margin:1mm 0 2.2mm;font-size:8pt}
+th{text-align:left;border-bottom:1.2pt solid var(--ink);padding:1mm 1.6mm;font-weight:700}
+td{border-bottom:0.5pt solid var(--rule);padding:0.9mm 1.6mm;vertical-align:top}
+td.num,th.num{text-align:right;white-space:nowrap}
+.tiles{display:flex;gap:3mm;margin:2mm 0 2.5mm}
+.tile{flex:1;background:var(--soft);border-radius:2mm;padding:2.4mm 3mm}
+.tile .v{font-size:17pt;font-weight:700;line-height:1.05;color:var(--ink)}
+.tile .v.r{color:var(--red)}
+.tile .l{font-size:7.4pt;color:var(--mute);margin-top:0.8mm;line-height:1.25}
+img.chart{width:100%;display:block;margin:1mm 0 1.5mm}
+.cap{font-size:7.3pt;color:var(--mute);margin:0 0 2.5mm}
+.q{font-style:italic;color:#2a2f3a;border-left:2pt solid var(--rule);padding-left:3mm;margin:1mm 0 1.6mm;font-size:8.3pt}
+.q b{font-style:normal;color:var(--red);font-size:7.4pt;letter-spacing:0.8pt}
+.two{display:flex;gap:6mm}
+.two>div{flex:1}
+.dot{display:inline-block;width:2.6mm;height:2.6mm;border-radius:50%;margin-right:1.2mm;vertical-align:-0.2mm}
+.g{background:#1d9a4f}.y{background:#d9a40b}.rd{background:#e10600}.gr{background:#9aa0ad}
+.pill{display:inline-block;border-radius:1.2mm;padding:0 1.6mm;font-size:7pt;font-weight:700;letter-spacing:0.4pt;color:#fff;background:var(--ink)}
+.pill.fixed{background:var(--grn)}.pill.ops{background:var(--amb);color:var(--ink)}.pill.next{background:var(--mute)}
+code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--soft);padding:0 1mm}
+.foot{position:absolute;left:17mm;right:17mm;bottom:9mm;display:flex;justify-content:space-between;font-size:7pt;color:var(--mute);border-top:0.6pt solid var(--rule);padding-top:2mm}
+.foot b{color:var(--red)}
+</style></head><body>
+
+<!-- PAGE 1 -->
+<div class="page">
+<div class="band"><div class="k">PROJECT HOOVER · LEAGUE NIGHT FINDINGS · V1 · 10 OCT 26</div><h1>League night, 09 October: what Hoover did, what it didn't, and why</h1><div class="s">Five Hoover runs, 2 h 52 min, eleven race starts plus a practice session on the Oklahoma PC. Read from the run files, not from memory. For Dustin and Mike.</div></div>
+
+<div class="verdict"><b>Bottom line.</b> The product worked for exactly one race (Race 2, 22:14–22:24): model commentary, names, corners, tyres, a question-and-answer passage, check-ins by driver, camera on our drivers 83 % of the time. Everything after that was lost to three faults that have nothing to do with the writing: a start-lights event the game repeats after lights out put the booth into its silent start sequence for <b>five whole races</b>; the Anthropic API account ran out of credit at 22:47 and every model line after that failed; and the late five-car private lobby never passed the "session open" gate, so the story layer never ran. The practice session at 21:36 was called for 21 minutes as a race's final lap. All of this is mechanical and all of it is fixed in build <code>976f330</code> (merged to your branch as <code>bfec553</code>) — except the credit, which is a top-up.</div>
+
+<div class="tiles">
+<div class="tile"><div class="v">11</div><div class="l">race starts seen (2 aborted) plus one practice session</div></div>
+<div class="tile"><div class="v r">1</div><div class="l">race with the full product: model lanes, stories, camera</div></div>
+<div class="tile"><div class="v r">5</div><div class="l">races called in silence (stuck in start sequence)</div></div>
+<div class="tile"><div class="v">360</div><div class="l">lines on air, 191 written by the model — 126 of them in the practice session</div></div>
+<div class="tile"><div class="v">30.7k</div><div class="l">ElevenLabs characters spoken — past the old 25k per-run cap; the 150k raise was right</div></div>
+</div>
+
+<h2><span class="n">1</span>The night at a glance</h2>
+<img class="chart" src="charts/timeline.png">
+<p class="cap">Hoover was restarted four times (Runs 2–5) as it went quiet. Each silent block is a race where the lights came on, the booth said "Lights coming on", and then nothing until the chequered flag. The practice session (amber) was fluent and confident — and wrong about what it was watching.</p>
+
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>1 / 7</span></div>
+</div>
+
+<!-- PAGE 2 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>RACE BY RACE</span></div>
+<h2><span class="n">2</span>What each race got</h2>
+<table>
+<tr><th>Race</th><th>Time</th><th class="num">Min</th><th class="num">Lines</th><th class="num">Model</th><th class="num">Template</th><th class="num">Longest silence</th><th>What the viewer got</th></tr>
+<tr><td>Practice / qualifying</td><td>21:37–22:05</td><td class="num">27.5</td><td class="num">148</td><td class="num">126</td><td class="num">22</td><td class="num">5 min</td><td><span class="dot y"></span>Race commentary on a practice session: "final lap", "first win locked down", sixty-second gaps</td></tr>
+<tr><td>Race 1</td><td>22:11–22:14</td><td class="num">2.7</td><td class="num">20</td><td class="num">12</td><td class="num">8</td><td class="num">21 s</td><td><span class="dot gr"></span>Joined on its last lap; results read</td></tr>
+<tr><td><b>Race 2</b></td><td>22:14–22:24</td><td class="num">9.1</td><td class="num">66</td><td class="num">34</td><td class="num">32</td><td class="num">46 s</td><td><span class="dot g"></span><b>The full product.</b> Lights, start, lead battle, pit calls, check-ins, finish, corrections</td></tr>
+<tr><td>Race 3</td><td>22:29–22:39</td><td class="num">9.9</td><td class="num">2</td><td class="num">0</td><td class="num">2</td><td class="num">9.8 min</td><td><span class="dot rd"></span>"Lights coming on" — then silence. Run stopped by hand at 22:39</td></tr>
+<tr><td>Race 3 tail</td><td>22:48–22:52</td><td class="num">4.1</td><td class="num">33</td><td class="num">8</td><td class="num">25</td><td class="num">15 s</td><td><span class="dot gr"></span>Rejoined mid-race; credit ran out during it</td></tr>
+<tr><td>Race 4</td><td>22:52–23:00</td><td class="num">8.1</td><td class="num">1</td><td class="num">0</td><td class="num">1</td><td class="num">8.1 min</td><td><span class="dot rd"></span>Silent (and no credit)</td></tr>
+<tr><td>Race 5</td><td>23:06–23:16</td><td class="num">9.1</td><td class="num">3</td><td class="num">0</td><td class="num">3</td><td class="num">8.9 min</td><td><span class="dot rd"></span>Silent</td></tr>
+<tr><td>Race 6</td><td>23:22–23:34</td><td class="num">11.5</td><td class="num">2</td><td class="num">0</td><td class="num">2</td><td class="num">11.4 min</td><td><span class="dot rd"></span>Silent</td></tr>
+<tr><td>Race 7</td><td>23:40–23:48</td><td class="num">7.7</td><td class="num">2</td><td class="num">0</td><td class="num">2</td><td class="num">7.6 min</td><td><span class="dot rd"></span>Silent</td></tr>
+<tr><td>Race 8 (5 cars)</td><td>23:52–23:59</td><td class="num">7.0</td><td class="num">18</td><td class="num">0</td><td class="num">18</td><td class="num">48 s</td><td><span class="dot gr"></span>V3 templates only: lobby too small to "open"</td></tr>
+<tr><td>Races 9–10</td><td>00:03–00:07</td><td class="num">2.2</td><td class="num">9</td><td class="num">0</td><td class="num">9</td><td class="num">48 s</td><td><span class="dot gr"></span>Aborted starts</td></tr>
+<tr><td>Race 11 (5 cars)</td><td>00:08–00:16</td><td class="num">8.2</td><td class="num">19</td><td class="num">0</td><td class="num">19</td><td class="num">33 s</td><td><span class="dot gr"></span>V3 templates only</td></tr>
+</table>
+<h2><span class="n">3</span>Lines per race</h2>
+<img class="chart" src="charts/lines.png">
+<p class="cap">Dark is the model, grey the template. The practice session was the model's best material of the night — on the wrong premise. The silent races show their longest gap in red.</p>
+
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>2 / 7</span></div>
+</div>
+
+<!-- PAGE 3 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>THE FIVE FAULTS</span></div>
+<p class="lead">Ranked by how much of the night they cost. Each one is read from the state log and the claims file; the fix column says what is already in the build you will pull.</p>
+
+<h2><span class="n">F1</span>A repeated start-lights event silenced five races <span class="pill fixed">FIXED</span></h2>
+<p><b>What you heard.</b> "Lights coming on" … and nothing more until the result, for Races 3, 4, 5, 6 and 7 — about 46 minutes of racing in total.</p>
+<p><b>What the files show.</b> The game sends the start-lights event (<code>STLG</code>) again 0.1–15 s <i>after</i> lights out (<code>LGOT</code>). Every race tonight: <code>22:52:21.40 LGOT → 22:52:21.49 STLG</code>; <code>23:07:01 → 23:07:16</code>; <code>23:23:03 → :05</code>; <code>23:40:59 → 23:41:00</code>. The race model treats a start-lights event in green as the start sequence beginning again, and in the start sequence the booth may say only the lights line. Nothing brings it back out until the session ends. In Race 4 the lights-out call itself was dropped because the state flipped 90 ms after it was raised. In Race 2 the same thing happened at 22:15:05 but a second lights-out event at 22:15:10 rescued it — and produced two false "Racing resumes / Green flag, and we go again" lines.</p>
+<p><b>Fix.</b> A start-lights event inside 30 s of lights out is the same start and is ignored; a repeated lights-out event inside 30 s is not a restart. Proven on the 12:43 replay (lights line, lights-out call, no false restart).</p>
+
+<h2><span class="n">F2</span>The session packet says "qualifying, one lap" until after lights out <span class="pill fixed">FIXED</span></h2>
+<p><b>What you heard.</b> "Final lap." six seconds after the start of every race; "on the final lap" in a third of Race 2's lines; the practice session called as a race for 21 minutes ("Faze's got his first win locked down", "Ronin's sixty point five back").</p>
+<p><b>What the files show.</b> Through the lights and lights out the Session packet still carries the previous session: type 9 (one-shot qualifying), total laps 1. It flips to race, five laps, only after the cars are moving. The model saw leader on lap 1 of 1 and latched <i>final lap</i>, which also switched on the last-two-laps camera lock from lap one. In practice it stayed that way for 1,289 s.</p>
+<p><b>Fix.</b> A final lap needs a race of at least two laps; if the lap count grows after the latch the race goes back to green. Outside a race session (practice, qualifying, time trial) the booth is quiet, and a start-lights event declares the race so the stale packet cannot gag the start.</p>
+
+<h2><span class="n">F3</span>The API account ran dry at 22:47 <span class="pill ops">OPS</span> <span class="pill fixed">LATCH FIXED</span></h2>
+<p><b>What the files show.</b> <code>api status 400: Your credit balance is too low to access the Anthropic API</code> from 22:48:04 on. Run 4 then submitted 2,421 requests, cancelled 1,736 and got 8 lines; Run 5 routed nothing to the cloud. Every model line after 22:47 was a template.</p>
+<p><b>Fix.</b> Top up the account and set a balance alert (ops). In the tool, the first "credit balance" or 401/403 answer now latches the cloud lane off with one loud log line and the booth stays on templates without burning 1,700 cancelled calls. The Dashboard's pre-flight Writer check makes a real call, so this shows before a race, not during one.</p>
+
+<h2><span class="n">F4</span>A five-car lobby never "opened" the session <span class="pill fixed">FIXED</span></h2>
+<p><b>What the files show.</b> Races 8–11 were a private lobby of five humans and no AI. The session guard waits for ten cars before the story layer is allowed to run; it never saw ten, so Run 5 produced 56 V3 template lines, no stories, no check-ins, no camera stories. <b>Fix.</b> The guard now opens at three cars.</p>
+
+<h2><span class="n">F5</span>Writing faults in the one real race <span class="pill fixed">FIXED</span> <span class="pill next">SOME NEXT</span></h2>
+<ul>
+<li>"E C X started <b>minus fifth</b>" (three times): the game reports an unknown grid slot as 255. Now read as unknown.</li>
+<li>"The gap back to Faze is <b>64.1 seconds</b>", "sixty point nine seconds down": lap-count artefacts at the line. Gaps over 45 s are never said as a number; the line-crossing filter window is 5 → 20 s.</li>
+<li>"Faze's done it at the chicane" <b>four times in twenty seconds</b>: the lead flapped between the same pair four times. A second swap inside 25 s is recorded, not spoken; the near-repeat threshold is tighter.</li>
+<li>Four back-marker check-ins on the final lap while the lead was decided. No check-ins on the final lap now.</li>
+<li>Seven predictions planted, six came true, none said or paid off — the second night running. Still open (§9).</li>
+<li>"Oh, yes!" opened four lines in Race 2; "fresh softs" four times. Prompt tics to trim next cycle.</li>
+</ul>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>3 / 7</span></div>
+</div>
+
+<!-- PAGE 3 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>RACE 2 — WHAT WORKED</span></div>
+<p class="lead">Race 2 (22:14–22:24, seven of our drivers in a 20-car lobby, Abu Dhabi, five laps) is the only complete look at the product tonight. It is worth reading closely, because it is what every race would have sounded like without faults F1 and F3.</p>
+
+<div class="two"><div>
+<h3>The start</h3>
+<div class="q"><b>LEAD</b> Lights coming on. … Lights go out, and the race is on. … Aedonvina's the story now, third place on fresh softs with overtake mode live, and Ronin's right there two tenths behind.</div>
+<h3>Lead battle with context</h3>
+<div class="q"><b>ANALYST</b> Faze knows he's down from pole and he's got five laps to make this count, so he's hunting the slow corners where Valor can't use that straight line speed.</div>
+<h3>Pit stops called (first time on a league night)</h3>
+<div class="q"><b>ANALYST</b> Box for Ronin. He was running thirteenth. <b>LEAD</b> Ronin comes out of the pits in seventeenth, straight into Pure. Four places down, and a battle on his hands. <b>ANALYST</b> Raider's back out on fresh softs from nineteenth, and with three laps left he's got the tyre advantage to make moves at the chicane and Marsa.</div>
+<h3>Driver threads and check-ins</h3>
+<div class="q"><b>ANALYST</b> Let us check on Valor. Valor is holding the lead with Faze one point three seconds behind. … E C X is sitting third in clear air, six point one second adrift of Faze, and he's got to find something in these final two laps or that podium spot's gone.</div>
+</div><div>
+<h3>The last lap, as a conversation</h3>
+<div class="q"><b>ANALYST</b> Faze's got to be feeling the weight of it now, nine tenths back on the final lap with nowhere left to go. <b>LEAD</b> Can he make a move stick at the chicane, or is Valor's line through there just too clean? <b>LEAD</b> And Faze takes it, he's done it, first place at Yas Marina!</div>
+<h3>A retirement with a reason</h3>
+<div class="q"><b>LEAD</b> Oh no. Shockin's stopped out on track, no contact that we saw, so it's damage or a problem with the car that's ended his race down in twentieth.</div>
+<h3>Results and the penalty correction</h3>
+<div class="q"><b>LEAD</b> Faze wins it! … Valor finishes second. … Correction: Valor is classified first. The revised classification puts Ronin second.</div>
+<p>Faze crossed the line first carrying a penalty; the booth called the road winner, then corrected itself when the classification arrived. That is the right behaviour, but the winner call should be held when a penalty is pending (§9).</p>
+</div></div>
+
+<h2><span class="n">3</span>Race 2 by the numbers</h2>
+<div class="tiles">
+<div class="tile"><div class="v">66</div><div class="l">lines in 9.1 min — one every 8.3 s; 261 s of speech (48 % of the race)</div></div>
+<div class="tile"><div class="v">34</div><div class="l">written by the model (cloud + passage sentences); 32 templates</div></div>
+<div class="tile"><div class="v">83 %</div><div class="l">camera time on our drivers across Run 3; longest run away 24 s</div></div>
+<div class="tile"><div class="v">9</div><div class="l">check-ins aired (driver threads); 5 pit-stop lines; 1 question-and-answer passage</div></div>
+<div class="tile"><div class="v r">0/7</div><div class="l">predictions said aloud (7 planted, 6 confirmed)</div></div>
+</div>
+
+<h2><span class="n">4</span>Why the model still wrote only half the lines</h2>
+<div class="two"><div>
+<img class="chart" src="charts/funnel.png">
+<p class="cap">Run 3 (22:09–22:39): every claim that enters the queue is sent to the model, whether or not it will ever air.</p>
+</div><div>
+<p>The booth raised <b>4,070</b> model requests in 28 minutes to air <b>99</b> lines. Two thirds were cancelled before they ran because the claim behind them was dropped (expired, story closed, repeat). Of the lines that did air, 49 fell back to a template: 29 timeouts and 18 number-word rejections, where the model wrote a number the state had not licensed. That ratio — forty submissions per aired line — is also what drained the account.</p>
+<p><b>Recommendation (§9):</b> submit a request only when the claim is in the top few of the queue by priority, or is a must-call. Expect the same model share from a tenth of the calls, and the cloud lane to breathe.</p>
+<p>The ElevenLabs side held: 360 lines written, 358 spoken, 4 synth failures on network resets at 21:50–21:55 (the internet dropped twice; the model saw <code>getaddrinfo failed</code> at the same moments).</p>
+</div></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>4 / 7</span></div>
+</div>
+
+<!-- PAGE 4 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>CAMERA AND LINES</span></div>
+<div class="two"><div>
+<h2><span class="n">6</span>The camera</h2>
+<img class="chart" src="charts/camera.png">
+<p class="cap">Share of camera time on one of our drivers, per run. Run 5 is 100 % because a five-human lobby has nobody else to show.</p>
+</div><div>
+<h2><span class="n">7</span>What the camera got right</h2>
+<p>Run 3 (the real races) kept the camera on our drivers 83 % of the time with a longest run away of 24 s. In Run 4, with the booth silent and the credit gone, it still held 76 %. The booth's dwell focus took the camera to a human 27 times in Race 2 and never to an AI car; the pit-stop moment followed Ronin and Raider into the box. The lock in the last two laps engaged — but from lap one, because of F2, which is why the camera sat on one driver for long stretches in the middle of races. With F2 fixed that lock returns to the last two laps only.</p>
+<h3>Driver threads on air</h3>
+<p>Every human had a live thread all night ("Valor is holding the lead with Faze a second behind", "Ronin is recovering from contact with Fried, eighth now, down from second on the grid"). Check-ins aired nine times in Race 2 and told the thread rather than a status line. In the practice session the mention debt fired 134 check-in claims — the thread machinery worked, the session did not deserve it.</p>
+</div></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>5 / 7</span></div>
+</div>
+
+<!-- PAGE 5 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>RECOMMENDATIONS</span></div>
+<h2><span class="n">8</span>Before the next league night — operations</h2>
+<table>
+<tr><th style="width:28mm">Who</th><th>Do</th><th style="width:40mm">Why</th></tr>
+<tr><td>Dustin</td><td><b>Top up the Anthropic API account</b> and set a low-balance e-mail alert. Budget by the funnel: last night's 28-minute race window spent roughly 1,400 answered calls.</td><td>F3. Everything after 22:47 was templates.</td></tr>
+<tr><td>Dustin / Mike</td><td>Dashboard → <b>Get latest</b> → version block must show <code>claude/interview-ingest @ bfec553</code> or later.</td><td>Carries F1, F2, F4, F5 and the billing latch.</td></tr>
+<tr><td>Dustin / Mike</td><td><b>Pre-flight must show Cloud lane green.</b> It makes a real model call now; a red row means no credit or no key. Do not start a race on red.</td><td>Catches F3 before the lobby forms.</td></tr>
+<tr><td>Dustin</td><td>Start Hoover once the lobby is a <b>race</b> lobby. Practice and qualifying will now be quiet; that is deliberate, not a fault.</td><td>F2.</td></tr>
+<tr><td>Mike</td><td>If the booth goes quiet for more than a minute in green, the <b>state line</b> on the Dashboard now shows session kind, type and laps next to the state. Screenshot it. Do not restart unless it stays quiet past the lights of the next race.</td><td>Diagnosis without stopping the run.</td></tr>
+</table>
+
+<h2><span class="n">9</span>Engineering — in order</h2>
+<table>
+<tr><th style="width:8mm">#</th><th>Item</th><th>What and why</th><th style="width:22mm">Size</th></tr>
+<tr><td>1</td><td><b>Cost control on submissions</b></td><td>Submit a model request only for the top three queue entries by priority and for must-calls; cancel on drop stays. Forty submissions per aired line is both the credit burn and the timeout pressure. Target: under five.</td><td>Small</td></tr>
+<tr><td>2</td><td><b>Predictions said and paid</b></td><td>Two nights, 14 predictions planted, 13 confirmed, zero spoken. The projection is right; the line that carries it is not being written. Make the prediction its own beat ("X catches Y by lap five, that's the call") with a must-call payoff, rather than hoping a battle line mentions it.</td><td>Small</td></tr>
+<tr><td>3</td><td><b>Winner held while a penalty is pending</b></td><td>Faze was called the winner and corrected to second. The classification logic already knows a penalty is pending for the leader; hold the winner call for it, say "first across the line, with a penalty to come".</td><td>Small</td></tr>
+<tr><td>4</td><td><b>Prompt tics</b></td><td>"Oh, yes!" as an opener, "absolutely", "fresh softs" every other line, "the story now". Add to the banned list and vary the opener instruction.</td><td>Config</td></tr>
+<tr><td>5</td><td><b>Practice and qualifying programme</b></td><td>Now quiet by design. When wanted: a different, lighter programme — who is quickest, who just went purple, who is still to set a time — not the race programme.</td><td>Medium</td></tr>
+<tr><td>6</td><td><b>Podium line and tyre row</b></td><td>Carried over from cycle 4: a "podium as it stands" line at two laps to go, and a stint-age story row now that compound and age are on the wire with public telemetry.</td><td>Medium</td></tr>
+<tr><td>7</td><td><b>Capture-driven proof</b></td><td>Stage last night's Race 2 capture (<code>HOOVER_20261009_220958_s01.bin</code>, 346 MB) and replay it with the fixes before the next night, so F1 and F2 are proven on the league's own events, not only on the 12:43 practice capture.</td><td>Ops</td></tr>
+</table>
+
+<div class="box"><b class="r">What to expect next time.</b> With F1–F4 in place and credit on the account, every race should sound like Race 2 from lights to flag; the practice session is silent; the five-car lobby gets the full story layer. The remaining gap to the Baku/Monza reference booths is quality of material, not plumbing: predictions out loud, the podium frame, and a tighter prompt.</div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>6 / 7</span></div>
+</div>
+
+<!-- PAGE 6 -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>APPENDIX</span></div>
+<h2><span class="n">A</span>Run inventory</h2>
+<table style="table-layout:fixed;font-size:7.3pt">
+<colgroup><col style="width:24mm"><col style="width:11mm"><col style="width:11mm"><col style="width:10mm"><col style="width:11mm"><col style="width:9mm"><col style="width:12mm"><col style="width:12mm"><col style="width:11mm"><col></colgroup>
+<tr><th>Run folder</th><th>Start</th><th>Stop</th><th class="num">Lines</th><th class="num">Model</th><th class="num">T/O</th><th class="num">Calls</th><th class="num">Canc.</th><th class="num">Cam.</th><th>Note</th></tr>
+<tr><td><code style="font-size:6.8pt">…212500_s01</code></td><td>21:25</td><td>21:25</td><td class="num">0</td><td class="num">0</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>Empty start</td></tr>
+<tr><td><code style="font-size:6.8pt">…212525_s01</code></td><td>21:25</td><td>21:31</td><td class="num">12</td><td class="num">9</td><td class="num">0</td><td class="num">70</td><td class="num">21</td><td class="num">78 %</td><td>Lobby / end of a practice</td></tr>
+<tr><td><code style="font-size:6.8pt">…213656_s01</code></td><td>21:36</td><td>22:05</td><td class="num">150</td><td class="num">127</td><td class="num">2</td><td class="num">292</td><td class="num">1</td><td class="num">95 %</td><td>Practice session, called as a race</td></tr>
+<tr><td><code style="font-size:6.8pt">…220958_s01</code></td><td>22:09</td><td>22:39</td><td class="num">99</td><td class="num">47</td><td class="num">29</td><td class="num">4,070</td><td class="num">2,674</td><td class="num">83 %</td><td>Races 1–3; Race 2 is the reference</td></tr>
+<tr><td><code style="font-size:6.8pt">…224334_s01</code></td><td>22:43</td><td>23:35</td><td class="num">43</td><td class="num">8</td><td class="num">18</td><td class="num">2,421</td><td class="num">1,736</td><td class="num">76 %</td><td>Races 3–6; credit gone at 22:47</td></tr>
+<tr><td><code style="font-size:6.8pt">…233534_s01</code></td><td>23:35</td><td>00:17</td><td class="num">56</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">100 %</td><td>Races 6–11; five-car lobby, story layer never opened</td></tr>
+</table>
+<p class="cap">T/O = model timeouts, Calls = cloud requests submitted, Canc. = cancelled before they ran, Cam. = camera time on our drivers. Folder names are <code>HOOVER_20261009_HHMMSS_s01</code>, all in <code>C:\Users\dustin\Repository001\hoover_v3_out</code> on the Oklahoma PC. Lines, claims, blobs, cuts, state and the manifest were read for every run; captures (<code>.bin</code>) were not replayed — they are 160 MB to 916 MB each.</p>
+
+<h2><span class="n">B</span>Builds</h2>
+<table>
+<tr><th>Commit</th><th>Branch</th><th>What</th></tr>
+<tr><td><code>a944931</code></td><td>interview-ingest</td><td>The build that ran all night: cycle 4 league build plus interviews and lore on air.</td></tr>
+<tr><td><code>976f330</code></td><td>v4-state-blob</td><td>V8.7 league-night fixes: start-lights guard, final-lap guard, session gate, small lobbies, grid 255, gap words, lead flap, final-lap check-ins, state-call priority, billing latch. All suites green; 12:43 and 08 OCT captures replayed clean.</td></tr>
+<tr><td><code>bfec553</code></td><td>interview-ingest</td><td>The same fixes merged onto your branch. <b>This is the one to pull.</b></td></tr>
+</table>
+
+<h2><span class="n">C</span>Settings touched (for the tune sheet)</h2>
+<table>
+<tr><th>Setting (plain name)</th><th>File</th><th>Was → now</th></tr>
+<tr><td>Start guard: lights event after lights out / repeated lights-out</td><td>config <code>v3.start_guard</code></td><td>none → 30 s / 30 s</td></tr>
+<tr><td>Session gate: quiet outside a race</td><td>config <code>v3.session_gate.quiet_kinds</code></td><td>none → practice, qualifying, time trial</td></tr>
+<tr><td>Session guard: cars needed to open</td><td>config <code>v3.session_guard.min_cars</code></td><td>10 → 3</td></tr>
+<tr><td>Near-repeat threshold</td><td>config <code>v3.repetition.near_repeat_jaccard</code></td><td>0.6 → 0.5</td></tr>
+<tr><td>Line-crossing gap filter window</td><td>matrix <code>engine.gap_jump_window_s</code></td><td>5 → 20 s</td></tr>
+<tr><td>Lead battle: same pair swapping again is not spoken within</td><td>matrix <code>LEAD-02.flap_s</code></td><td>none → 25 s</td></tr>
+<tr><td>Speech characters per run</td><td>config <code>v3.speech.character_budget</code></td><td>25,000 → 150,000 (set before the night; 30.7k used)</td></tr>
+</table>
+<p class="cap">Links to the live tables: <b>github.com/RoninMask/Repository001</b> → branch <code>claude/interview-ingest</code> → <code>hoover_config_v4.json</code>, <code>hoover_stories_v4.json</code>, <code>hoover_words_v4.json</code>, <code>hoover_prompts_v3.json</code>.</p>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>7 / 7</span></div>
+</div>
+</body></html>
