@@ -393,9 +393,12 @@ class TestGapSanity(unittest.TestCase):
         w.cars[2].delta_front = 2.4
         eng._now = 1001.0
         self.assertAlmostEqual(eng.gap_ahead(2), 2.4)
-        w.cars[2].delta_front = 65.5                 # a real 65 s gap persists
+        w.cars[2].delta_front = 50.0                 # a real 50 s gap persists
         eng._now = 1001.0 + eng.scfg.e("gap_jump_window_s", 5.0) + 1.0   # past the window
-        self.assertAlmostEqual(eng.gap_ahead(2), 65.5)
+        self.assertAlmostEqual(eng.gap_ahead(2), 50.0)
+        w.cars[2].delta_front = 65.5                 # V8.8: the wire's "unknown"
+        eng._now += eng.scfg.e("gap_jump_window_s", 5.0) + 1.0
+        self.assertIsNone(eng.gap_ahead(2))
 
 
 class TestBattleLifecycle(unittest.TestCase):
@@ -434,6 +437,8 @@ class TestBattleLifecycle(unittest.TestCase):
         h.position, ahead.position = 2, 3
         h.delta_front, ahead.delta_front = 2.5, 0.5
         self._tick(eng, model, t + 3)
+        self.assertTrue(rec.live)          # V8.8: the new order must settle first
+        self._tick(eng, model, t + 3 + eng.scfg.e("order_hold_s", 1.5) + 0.1)
         self.assertFalse(rec.live)
         self.assertEqual(rec.outcome, "passed")
         names = [b[2] for b in rec.beats]
