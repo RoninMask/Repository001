@@ -7455,6 +7455,26 @@ class V3Booth:
         # V8.6 (OK run 12:43: false gaps between Valor and Ronin): a line
         # carrying a gap is checked against the live gap at air time; if the
         # race has moved on, the line is not said.
+        # V8.8 (league night audit: "Faze's got the lead clear of Valor" with
+        # Valor three tenths in front): a pass or lead-change beat airs only
+        # if the order it describes is the order now; a chase beat only if
+        # the chaser is still behind.
+        if self.stories is not None and self.stale_gap_s > 0 and len(claim.subjects) >= 2 \
+                and f.get("story_type") in ("BAT-01", "BAT-03", "LEAD-02", "LEAD-03", "HUM-06"):
+            a, b = claim.subjects[0], claim.subjects[1]
+            posf = getattr(self.stories, "pos", None)
+            pa, pb = (posf(a), posf(b)) if callable(posf) else (None, None)
+            view = f.get("view") or {}
+            beat = f.get("beat")
+            if pa is not None and pb is not None:
+                says_ahead = view.get("outcome") == "passed" or beat in ("cleared",) \
+                    or f.get("story_type") == "LEAD-03"
+                says_behind = beat in ("open", "closing", "attack_range", "new_chaser",
+                                       "big_catch", "cooling", "status", "drs")
+                if says_ahead and not pa < pb:
+                    return "drop:stale_order"
+                if says_behind and not pa > pb:
+                    return "drop:stale_order"
         g0 = f.get("gap")
         if g0 is not None and self.stale_gap_s > 0 and (t - claim.t_create) > self.stale_gap_s \
                 and len(claim.subjects) >= 2 and self.stories is not None:
@@ -11994,9 +12014,9 @@ class PaceModel:
 
     def _project(self, t):
         eng = self.eng
-        order = [c for c in eng.w.by_position() if eng.running(c.idx)]
+        order = [c for c in eng.ordered() if eng.running(c.idx)]
         rem = eng.laps_remaining()
-        proj = {c.idx: c.position for c in order}
+        proj = {c.idx: eng.pos(c.idx) for c in order}
         ceil = {}
         for i, c in enumerate(order):
             # ceiling: walk up the order while the cumulative gap is closable
@@ -12407,26 +12427,75 @@ class StoryEngine:
     def running(self, idx):
         return self.model.running(idx) and not self.model.is_retired(idx)
 
+    # ---- V8.8 (league night audit): the settled order ----------------------
+    # Side by side, the wire swaps two cars' positions every packet (the lead
+    # changed "seventy-nine times" in the first seventy seconds of Race 2),
+    # and every swap was a pass to the story layer. A position counts only
+    # once a car has held it for engine.order_hold_s.
+    def _settle_order(self, t):
+        hold = float(self.scfg.e("order_hold_s", 1.5))
+        cand = getattr(self, "_pos_cand", None)
+        if cand is None:
+            cand = self._pos_cand = {}
+            self._pos_settled = {}
+        for c in self.w.cars:
+            if not c.seen or c.position <= 0:
+                continue
+            raw = c.position
+            cur = cand.get(c.idx)
+            if cur is None or cur[0] != raw:
+                cand[c.idx] = (raw, t)
+                if c.idx not in self._pos_settled:
+                    self._pos_settled[c.idx] = raw         # first sighting
+                continue
+            if (t - cur[1]) >= hold:
+                self._pos_settled[c.idx] = raw
+        # the settled map must stay a permutation: a car whose settled slot
+        # is now taken by another settled car yields to the raw order
+        by = {}
+        for idx, p in list(self._pos_settled.items()):
+            if p in by:
+                other = by[p]
+                # keep the one whose raw position still agrees
+                keep = idx if self.w.cars[idx].position == p else other
+                lose = other if keep == idx else idx
+                self._pos_settled[lose] = self.w.cars[lose].position or p
+            by[self._pos_settled[idx]] = idx
+        self._settled_by_pos = {p: i for i, p in self._pos_settled.items()}
+
     def pos(self, idx):
+        st = getattr(self, "_pos_settled", None)
+        if st and idx in st:
+            return st[idx]
         p = self.model.last_pos.get(idx)
         if p is None:
             c = self.w.cars[idx]
             p = c.position if c.position > 0 else None
         return p
 
+    def ordered(self):
+        """Running cars in the settled order (V8.8)."""
+        cars = [c for c in self.w.cars if c.seen and c.position > 0]
+        return sorted(cars, key=lambda c: (self.pos(c.idx) or 99, c.idx))
+
+    def car_at(self, p):
+        bp = getattr(self, "_settled_by_pos", None)
+        if bp and p in bp:
+            return bp[p]
+        c = self.w.car_at_position(p)
+        return c.idx if c is not None else None
+
     def car_ahead(self, idx):
         p = self.pos(idx)
         if p is None or p <= 1:
             return None
-        c = self.w.car_at_position(p - 1)
-        return c.idx if c is not None else None
+        return self.car_at(p - 1)
 
     def car_behind(self, idx):
         p = self.pos(idx)
         if p is None:
             return None
-        c = self.w.car_at_position(p + 1)
-        return c.idx if c is not None else None
+        return self.car_at(p + 1)
 
     def gap_ahead(self, idx):
         """Gap to the car ahead, with the start/finish-line artefact removed:
@@ -12439,6 +12508,11 @@ class StoryEngine:
         g = c.delta_front
         if not (0.0 < g < 900.0):
             return None
+        # V8.8: while a car's raw position has not settled, its delta is to
+        # a different car than the settled order says -- no reading
+        st = getattr(self, "_pos_settled", None)
+        if st and idx in st and st[idx] != c.position:
+            return None
         t = getattr(self, "_now", None)
         last = self._gap_last.get(idx)
         jump = self.scfg.e("gap_jump_max_s", 15.0)
@@ -12447,6 +12521,11 @@ class StoryEngine:
             lt, lg = last
             if (t - lt) <= win and abs(g - lg) > jump:
                 return lg
+        # V8.8: 65.5 s is the wire's "unknown" (65535 ms); the readings just
+        # under it are the same artefact decaying. Nothing over
+        # gap_unknown_s is a gap the booth can say.
+        if g >= float(self.scfg.e("gap_unknown_s", 60.0)):
+            return None
         if t is not None:
             self._gap_last[idx] = (t, g)
         return g
@@ -12550,11 +12629,9 @@ class StoryEngine:
     # the live stories he is in, ranked: pit cycle, recovering / dropping
     # back, the lead, a fight, old tyres, or running his own race.
     def grid_pos(self, h):
-        for r in list(self.store.live.values()) + self.store.closed:
-            if r.row_id in ("SF-04", "SF-02"):
-                g = (r.fields or {}).get("grid") or {}
-                if str(h) in g and g[str(h)]:
-                    return g[str(h)]
+        # V8.8: the car's own grid slot only (the ledger's "grid" was the
+        # running position when the ledger opened: "down from first on the
+        # grid" for a driver whose grid slot was unknown)
         c = self.w.cars[h]
         return c.grid if getattr(c, "grid", None) else None
 
@@ -12692,6 +12769,7 @@ class StoryEngine:
     # ---- the tick -----------------------------------------------------------
     def observe(self, t):
         self._now = t
+        self._settle_order(t)
         lap = self.lap_now()
         if lap and lap not in self._lap_t:
             self._lap_t[lap] = t
@@ -13441,7 +13519,7 @@ class P_BAT_01(StoryProcessor):
         fail_gap = self.p("fail_gap_s", 4.0)
         top_n = self.p("ai_only_top_n", 3)
         min_laps = self.p("min_laps_live", 1)
-        order = [c for c in eng.w.by_position() if eng.running(c.idx)]
+        order = [c for c in eng.ordered() if eng.running(c.idx)]
         seen_pairs = set()
         for i in range(1, len(order)):
             behind, ahead = order[i].idx, order[i - 1].idx
@@ -13522,6 +13600,15 @@ class P_BAT_01(StoryProcessor):
             pb, pa = eng.pos(behind), eng.pos(ahead)
             if pb is None or pa is None:
                 self.close(t, rec, "lost")
+                continue
+            # V8.8: a car in or just out of the pits did not pass anybody;
+            # a jump of several places is a stop or a spin, not a pass
+            cb, ca = eng.w.cars[behind], eng.w.cars[ahead]
+            p0 = rec.fields.get("pos_at_open") or {}
+            if cb.pit_status or ca.pit_status \
+                    or (p0 and abs((p0.get(str(behind)) or pb) - pb) >= 3) \
+                    or (p0 and abs((p0.get(str(ahead)) or pa) - pa) >= 3):
+                self.close(t, rec, "pit_cycle")
                 continue
             if pb < pa:
                 outcome = "passed"
@@ -14026,7 +14113,9 @@ class P_STR_01(StoryProcessor):
                 into = None
                 for o in (ahead, behind):
                     if o is not None and eng.is_human(o):
-                        into = o
+                        og = eng.gap_ahead(c.idx) if o == ahead else eng.gap_ahead(o)
+                        if og is not None and og <= self.p("action_gap_s", 1.5) * 2:
+                            into = o          # V8.8: "straight into Pure" only if he is there
                 g = eng.gap_ahead(c.idx)
                 gb = eng.gap_ahead(behind) if behind is not None else None
                 lost = max(0, pos_out - rec.fields.get("pos_in", pos_out))

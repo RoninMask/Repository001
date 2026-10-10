@@ -100,7 +100,9 @@
   "gap_jump_max_s": 15.0,
   "gap_jump_window_s": 20.0,
   "prediction_min_feasibility": 0.8,
-  "projection_min_laps": 2
+  "projection_min_laps": 2,
+  "order_hold_s": 1.5,
+  "gap_unknown_s": 60.0
  },
  "params": {
   "BAT-01": {
