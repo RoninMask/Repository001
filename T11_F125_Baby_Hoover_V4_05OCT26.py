@@ -4853,14 +4853,140 @@ class Dossier:
             except Exception as e:
                 self.log("[dossier] could not read %s: %s" % (path, type(e).__name__))
 
+        # 09 OCT: the session's no-repeat ledger (shared with Material). A fact
+        # the booth has been handed as a line of its own is not offered again.
+        self.used = set()
+        # 09 OCT: live runs do not load the roster, so a human's driver_id is
+        # car_NN and _driver_key falls to the spoken name. Entries written by
+        # the interview ingest carry match.handle / match.spoken; index both
+        # so an entry keyed d_ronin is found for the car named Ronin0700VII.
+        self._alias = {}
+        for key, d in self.drivers.items():
+            m = (d or {}).get("match") or {}
+            for a in [key, m.get("handle"), m.get("spoken")] + list(m.get("aliases") or []):
+                if a:
+                    self._alias.setdefault(_alias_norm(a), key)
+
+    def key_for(self, car):
+        """The dossier key for a car: its _driver_key if that has an entry,
+        else the entry whose gamertag or spoken name matches the car."""
+        k = _driver_key(car)
+        if k in self.drivers:
+            return k
+        for a in (getattr(car, "name", None), getattr(car, "spoken", None), k):
+            hit = self._alias.get(_alias_norm(a)) if a else None
+            if hit:
+                return hit
+        return k
+
     def facts(self, key, conditions=()):
         d = self.drivers.get(key) or {}
-        out = list(d.get("facts", []))[:3]
+        out = [f for f in d.get("facts", []) if f not in self.used][:3]
         armed = d.get("armed", {}) or {}
         for c in conditions:
-            if armed.get(c):
+            if armed.get(c) and armed[c] not in self.used:
                 out.append(armed[c])
         return out
+
+
+LORE_FILE_NAME = "hoover_lore.json"            # 09 OCT: F1 history / track lore
+
+
+def _alias_norm(s):
+    return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
+
+
+class Material:
+    """09 OCT: the outside material for the quiet parts of the broadcast --
+    the drivers' interviews (hoover_dossier.json, written by
+    hoover_interviews.py) and the F1 and track lore (hoover_lore.json, written
+    by hoover_lore.py). Used before the lights, in a race lull and after the
+    flag; never in the middle of the action. One ledger for the session: a
+    line handed out once is never handed out again."""
+
+    def __init__(self, dossier, lore_path=None, log=None):
+        self.log = log or (lambda m: None)
+        self.dossier = dossier
+        self.used = dossier.used if dossier is not None else set()
+        self.lore = []
+        if lore_path and os.path.exists(lore_path):
+            try:
+                with open(lore_path, encoding="utf-8") as f:
+                    doc = json.load(f)
+                self.lore = [c for c in doc.get("cards", [])
+                             if c.get("status") == "ok" and c.get("line")]
+                self.log("[lore] %d cards from %s" % (len(self.lore), os.path.basename(lore_path)))
+            except Exception as e:
+                self.log("[lore] could not read %s: %s" % (lore_path, type(e).__name__))
+        self.taken = []                    # (t, kind, key, text): what aired
+        self.pending = {}                  # text -> t handed out, not yet aired
+        self._origin = {}
+
+    # ---- interviews ----------------------------------------------------------
+    def _entry(self, key):
+        if self.dossier is None:
+            return {}
+        return self.dossier.drivers.get(key) or {}
+
+    def interview(self, key):
+        """{predicted_finish, rival_id, rival} from the ingest, or {}."""
+        return dict(self._entry(key).get("interview") or {})
+
+    # A line handed to the booth is 'pending' until it airs (commit) or its
+    # hold runs out, so the same line is never queued twice and a line that
+    # expired in the queue comes round again later.
+    PENDING_HOLD_S = 45.0
+
+    def _free(self, text, t):
+        if text in self.used:
+            return False
+        pt = self.pending.get(text)
+        return pt is None or t is None or (t - pt) > self.PENDING_HOLD_S
+
+    def commit(self, text, t=None):
+        if text and text not in self.used:
+            self.used.add(text)
+            self.pending.pop(text, None)
+            kind, key = self._origin.get(text, ("?", None))
+            self.taken.append((t, kind, key, text))
+
+    def fresh_facts(self, key, t=None):
+        return [f for f in self._entry(key).get("facts", []) if self._free(f, t)]
+
+    def take_fact(self, key, t=None):
+        fresh = self.fresh_facts(key, t)
+        if not fresh:
+            return None
+        self.pending[fresh[0]] = t
+        self._origin[fresh[0]] = ("interview", key)
+        return fresh[0]
+
+    # ---- lore ----------------------------------------------------------------
+    def take_lore(self, track_id, hook, t=None):
+        """The first unused card for this track (or a general card) that
+        carries the hook. Track cards come before general ones."""
+        tid = None if track_id is None else str(track_id)
+        best = None
+        for c in self.lore:
+            if not self._free(c["line"], t) or hook not in (c.get("hooks") or []):
+                continue
+            ct = c.get("track")
+            if ct is not None and str(ct) != tid:
+                continue
+            rank = 0 if ct is not None else 1
+            if best is None or rank < best[0]:
+                best = (rank, c)
+                if rank == 0:
+                    break
+        if best is None:
+            return None
+        c = best[1]
+        self.pending[c["line"]] = t
+        self._origin[c["line"]] = ("lore", c.get("id"))
+        return c
+
+    def summary(self):
+        return [{"t": t, "kind": k, "key": key, "text": x} for t, k, key, x in self.taken]
 
 
 # ---- affect: what the moment should feel like ---------------------------------
@@ -4924,7 +5050,8 @@ class BlobContext:
     on the booth by the run loop when the story layer is on."""
 
     def __init__(self, stories=None, gallery=None, said=None, predictions=None,
-                 archive=None, tracks=None, dossier=None, rules=None, cfg=None):
+                 archive=None, tracks=None, dossier=None, rules=None, cfg=None,
+                 material=None):
         self.stories = stories
         self.gallery = gallery
         self.said = said
@@ -4932,6 +5059,7 @@ class BlobContext:
         self.archive = archive
         self.tracks = tracks
         self.dossier = dossier
+        self.material = material          # 09 OCT: interviews + lore
         self.rules = rules or []
         self.cfg = cfg
         self.last_interjection_t = None
@@ -5373,7 +5501,7 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                     conds.append("on_podium")
                 if c.position == 1:
                     conds.append("on_lead")
-                df = ctx.dossier.facts(_driver_key(c), conds)
+                df = ctx.dossier.facts(ctx.dossier.key_for(c), conds)
                 if df:
                     stakes.setdefault("dossier", {})[subj_say.get(i) or c.spoken] = df
                     for s in df:
@@ -6837,6 +6965,8 @@ KIND_PLACEHOLDERS = {
     "LULL_WEATHER": {"temp_track", "temp_air"},
     "LULL_DISTANCE": {"laps", "remaining"}, "LULL_FASTEST": {"a", "time"},
     "LULL_PROGRESS": {"a", "places"},
+    # 09 OCT: finished lines from the interview and lore ingests
+    "LULL_INTERVIEW": {"a", "line"}, "LULL_LORE": {"line"},
 }
 
 # F2: kinds allowed to consist only of fallback (subject-less) variants. A
@@ -7221,6 +7351,11 @@ class V3Booth:
             return None
         if claim.kind in self.pc_hard or claim.kind in self._FRONT_KINDS:
             return None
+        # 09 OCT: interview and lore lines are built only to fill a silence in
+        # a race lull; they are not another story competing with the focus,
+        # so a dwell does not hold them (held, they expired unsaid)
+        if claim.kind in ("LULL_INTERVIEW", "LULL_LORE"):
+            return None
         rec = getattr(claim, "story", None)
         if rec is not None and str((rec.row or {}).get("override", "")).lower() == "interrupt":
             return None
@@ -7498,6 +7633,8 @@ class V3Booth:
             fv["penalty_costs_win"] = bool(f.get("penalty_costs_win"))
             if pen:
                 ctx["penalty"] = self.words.penalty_noun(4, int(pen)) or "time penalty"
+        elif k in ("LULL_INTERVIEW", "LULL_LORE"):
+            ctx["line"] = f.get("line")
         elif k == "SPEED_TRAP":
             fv["quickest"] = bool(f.get("quickest"))
             ctx["speed"] = "%.0f" % (f.get("speed") or 0.0)
@@ -8147,6 +8284,13 @@ class V3Booth:
                 self.queue.append(c)
                 prev = c
             self.counter_passages = getattr(self, "counter_passages", 0) + 1
+        # 09 OCT: interview and lore material is spent when it airs, not when
+        # it is offered -- a line that expires in the queue comes round again
+        mat = getattr(self.blobctx, "material", None) if self.blobctx is not None else None
+        if mat is not None and not cont:
+            for used in (f.get("line"), (f.get("display") or {}).get("hook")):
+                if used:
+                    mat.commit(used, air_t)
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -11627,7 +11771,7 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "pos", "n", "lap", "remaining", "count", "swaps", "speed",
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
-                      "seconds", "guess", "thread"}
+                      "seconds", "guess", "thread", "hook", "said"}
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -12298,6 +12442,7 @@ class StoryEngine:
         self._lull_rot = 0
         self._lull_item_t = {}
         self._lull_human_t = {}
+        self._lull_iv_t = {}             # 09 OCT: interview rotation
         self._lull_human_last = {}
         self._lull_stat_t = {}
         self._lull_stat_last = {}
@@ -12329,6 +12474,32 @@ class StoryEngine:
     def name(self, idx):
         c = self.w.cars[idx]
         return c.spoken if c else ("car %d" % idx)
+
+    def material(self):
+        """09 OCT: the interviews and lore (Material), or None."""
+        return getattr(getattr(self, "blobctx", None), "material", None)
+
+    def interview_of(self, idx):
+        """(key, {predicted_finish, rival_id, rival}) for a human car, or
+        (key, {}). The key is the dossier key (_driver_key)."""
+        mat = self.material()
+        key = self.dossier_key(idx)
+        return key, (mat.interview(key) if mat is not None else {})
+
+    def dossier_key(self, idx):
+        mat = self.material()
+        c = self.w.cars[idx]
+        if mat is not None and mat.dossier is not None:
+            return mat.dossier.key_for(c)
+        return _driver_key(c)
+
+    def idx_of_driver(self, driver_id):
+        if not driver_id:
+            return None
+        for c in self.w.cars:
+            if c.seen and (c.driver_id == driver_id or self.dossier_key(c.idx) == driver_id):
+                return c.idx
+        return None
 
     def is_human(self, idx):
         return bool(self.w.cars[idx].is_human)
@@ -12833,7 +13004,7 @@ class StoryEngine:
         if forced:
             order = sorted(rotation, key=lambda k: self._lull_item_t.get(k, -1e9))
         for item in order:
-            if item in ("human_race", "stats") and not self.lull_active:
+            if item in ("human_race", "stats", "interview", "lore") and not self.lull_active:
                 continue
             last = self._lull_item_t.get(item)
             if not forced and last is not None and (t - last) < cool.get(item, 90.0):
@@ -12953,6 +13124,41 @@ class StoryEngine:
                 "has_behind": behind is not None, "human": True}
         return self._lull_claim("S_LULL_HUMAN", subjects, t, display, view,
                                 speaker="LEAD")
+
+    def _lull_interview(self, t, cfg, forced):
+        """09 OCT: one unused line from a driver's pre-race interview, rotating
+        across the humans still running (least recently featured first). The
+        line was written by the ingest as a finished booth sentence, so it
+        airs as it stands (LULL_INTERVIEW is a template kind)."""
+        mat = self.material()
+        if mat is None:
+            return None
+        hs = [h for h in self.humans() if self.running(h)]
+        hs.sort(key=lambda h: self._lull_iv_t.get(h, -1e9))
+        for h in hs:
+            key = self.dossier_key(h)
+            if not mat.fresh_facts(key, t):
+                continue
+            line = mat.take_fact(key, t)
+            self._lull_iv_t[h] = t
+            claim = Claim("LULL_INTERVIEW", CLASS_FILLER, [h], [self.name(h)], t,
+                          facts={"line": line, "source": "interview"},
+                          priority=11.0, speaker="ANALYST", demotable=True)
+            return claim
+        return None
+
+    def _lull_lore(self, t, cfg, forced):
+        """09 OCT: one unused F1 or track lore line (hoover_lore.json, hook
+        'lull'). Track cards first, then general F1 ones."""
+        mat = self.material()
+        if mat is None:
+            return None
+        card = mat.take_lore(self.w.track_id, "lull", t)
+        if card is None:
+            return None
+        return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
+                     facts={"line": card["line"], "source": "lore", "card": card.get("id")},
+                     priority=9.0, speaker="ANALYST", demotable=True)
 
     def _lull_stats(self, t, cfg, forced):
         """Stats of record: laps led, the fastest lap, cars out. Rotates."""
@@ -14472,11 +14678,19 @@ class P_SF_01(StoryProcessor):
             if h in self._named or not c.name_resolved:
                 continue
             self._named.add(h)
-            rec = self.open(t, [h], fields={"grid": c.grid or c.position,
-                                            "pos_at_open": _pos_map(eng, [h])},
-                            phase="on_grid")
-            self.beat(t, rec, "transition", "on_grid",
-                      ctx={"a": eng.name(h), "grid": _ordinal(c.grid or c.position)})
+            # 09 OCT: the grid intro carries the driver's interview headline
+            # (one unused fact, then spent for the session)
+            mat = eng.material()
+            hook = mat.take_fact(eng.dossier_key(h), t) if mat is not None else None
+            fields = {"grid": c.grid or c.position, "pos_at_open": _pos_map(eng, [h])}
+            if hook:
+                fields["notes"] = ["from the pre-race interview: " + hook]
+            rec = self.open(t, [h], fields=fields, phase="on_grid")
+            ctx = {"a": eng.name(h), "grid": _ordinal(c.grid or c.position)}
+            if hook:
+                ctx["hook"] = hook
+            self.beat(t, rec, "transition", "on_grid", ctx=ctx,
+                      view={"hook": bool(hook)})
             self.close(t, rec, "on_grid")
 
 
@@ -14523,6 +14737,23 @@ class P_SF_02(StoryProcessor):
                                          % (eng.name(h), _ordinal(g)))
                 if len(humans) >= 2:
                     notes.append("%s of our drivers are in this race" % _num_word(len(humans)))
+                # 09 OCT: what the drivers told Sienna before the race --
+                # predictions and rivals, for the writer to use, not just offer
+                for h in sorted(humans, key=lambda i: grid.get(str(i)) or 99):
+                    _key, iv = eng.interview_of(h)
+                    pf = iv.get("predicted_finish")
+                    if pf:
+                        notes.append("before the race %s told our reporter Sienna he expects "
+                                     "to finish %s" % (eng.name(h), _ordinal(int(pf))))
+                    ri = eng.idx_of_driver(iv.get("rival_id")) if iv.get("rival_id") else None
+                    if ri is not None:
+                        notes.append("%s named %s as the driver he most wants to beat"
+                                     % (eng.name(h), eng.name(ri)))
+                mat = eng.material()
+                card = mat.take_lore(eng.w.track_id, "pre_race", t) if mat is not None else None
+                if card:
+                    notes.append("history here: " + card["line"])
+                    mat.commit(card["line"], t)
                 notes.append("turn one is tight and the first lap is where places are lost and won")
                 rec = self.open(t, humans, fields={"grid": grid, "notes": notes,
                                                    "pos_at_open": _pos_map(eng, humans)},
@@ -14767,6 +14998,61 @@ class P_SF_07(StoryProcessor):
                        "b": eng.name(ranked[1]) if len(ranked) > 1 else None},
                   view={"only": len(ranked) == 1})
         self.close(t, rec, "best_human")
+        self._interview_payoffs(t, hs)
+
+    def _interview_payoffs(self, t, hs):
+        """09 OCT: the pre-race interview, checked against the result. Every
+        human who gave Sienna a finishing prediction gets it marked (hit,
+        better, worse, or did not finish), and a named rival gets settled:
+        who came out ahead. Best finisher first; capped by config."""
+        eng = self.eng
+        m = eng.model
+        cap = int(self.p("interview_payoffs_max", 4))
+        order = sorted(hs, key=lambda h: m.finish_pos.get(h, 99))
+        said = 0
+        for h in order:
+            if said >= cap:
+                break
+            _key, iv = eng.interview_of(h)
+            pf = iv.get("predicted_finish")
+            pos = m.finish_pos.get(h)
+            out = m.is_retired(h) and pos is None
+            if pf:
+                pf = int(pf)
+                view = {"hit": pos == pf, "better": bool(pos and pos < pf),
+                        "worse": bool(pos and pos > pf), "retired": bool(out)}
+                ctx = {"a": eng.name(h), "said": _ordinal(pf)}
+                note = "before the race %s told Sienna he expected to finish %s" % (
+                    eng.name(h), _ordinal(pf))
+                if pos:
+                    ctx["pos"] = _ordinal(pos)
+                    note += "; he finished %s" % _ordinal(pos)
+                elif out:
+                    note += "; he did not finish"
+                if pos or out:
+                    rec = self.open(t, [h], fields={"notes": [note]}, phase="prediction")
+                    self.beat(t, rec, "transition", "prediction", ctx=ctx, view=view)
+                    self.close(t, rec, "prediction")
+                    said += 1
+            ri = eng.idx_of_driver(iv.get("rival_id")) if iv.get("rival_id") else None
+            if ri is not None and said < cap:
+                pr = m.finish_pos.get(ri)
+                if pos and pr:
+                    ahead = pos < pr
+                elif pos and m.is_retired(ri):
+                    ahead = True
+                elif pr and out:
+                    ahead = False
+                else:
+                    continue
+                note = "%s named %s before the race as the driver he most wanted to beat; %s" % (
+                    eng.name(h), eng.name(ri),
+                    "he finished ahead" if ahead else "%s finished ahead" % eng.name(ri))
+                rec = self.open(t, [h, ri], fields={"notes": [note]}, phase="rival")
+                self.beat(t, rec, "transition", "rival",
+                          ctx={"a": eng.name(h), "b": eng.name(ri)}, view={"ahead": ahead})
+                self.close(t, rec, "rival")
+                said += 1
 
 
 @story_processor
@@ -15209,11 +15495,14 @@ class BabyHooverV3:
                         rules = list(json.load(f).get("gates", []))
                 except Exception as e:
                     self._log("[rules] could not read %s: %s" % (rpath, type(e).__name__))
+            dossier = Dossier(dpath, self._log)
+            lpath = getattr(args, "lore", None) or os.path.join(here_, LORE_FILE_NAME)
             self.booth.blobctx = BlobContext(
                 stories=self.stories, gallery=self.gallery, said=self.booth.said,
                 predictions=self.stories.predictions, archive=self.archive,
-                tracks=TrackReference(tpath, self._log), dossier=Dossier(dpath, self._log),
-                rules=rules, cfg=self.config)
+                tracks=TrackReference(tpath, self._log), dossier=dossier,
+                rules=rules, cfg=self.config,
+                material=Material(dossier, lpath, self._log))
             # V8.3: the processors read the track table through the same
             # context (the off and the places-lost guess name the corner)
             self.stories.blobctx = self.booth.blobctx
@@ -15746,6 +16035,11 @@ class BabyHooverV3:
             # hold times, plus the longest run away from the humans. Story
             # layer only, so the V3 manifest is unchanged.
             manifest["camera_v8"] = self._camera_share(t)
+            # 09 OCT: which interview and lore lines aired, in order
+            mat = getattr(self.booth.blobctx, "material", None) if self.booth.blobctx else None
+            if mat is not None:
+                manifest["material_v1"] = {"aired": mat.summary(),
+                                           "lore_cards": len(mat.lore)}
             b = self.booth
             manifest["booth_v8"] = {
                 "lead_holds": getattr(b, "counter_lead_holds", 0),
@@ -16195,6 +16489,7 @@ def main():
                          "official nights count as season record)")
     ap.add_argument("--tracks", default=None, help="path to hoover_tracks.json")
     ap.add_argument("--dossier", default=None, help="path to hoover_dossier.json")
+    ap.add_argument("--lore", default=None, help="path to hoover_lore.json")
     ap.add_argument("--rules", default=None, help="path to hoover_rules_league.json")
     ap.add_argument("--writer", choices=["template", "model", "local", "hybrid"],
                     default="template",

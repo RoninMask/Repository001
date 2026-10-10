@@ -1836,16 +1836,34 @@
     {
      "speaker": "LEAD",
      "when": {
-      "beat": "on_grid"
+      "beat": "on_grid",
+      "hook": false
      },
      "present": "{a} starts from {grid}."
     },
     {
      "speaker": "ANALYST",
      "when": {
-      "beat": "on_grid"
+      "beat": "on_grid",
+      "hook": false
      },
      "present": "{a} lines up {grid} on the grid."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "on_grid",
+      "hook": true
+     },
+     "present": "{a} starts from {grid}. {hook}"
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "on_grid",
+      "hook": true
+     },
+     "present": "{a} lines up {grid} on the grid. {hook}"
     }
    ]
   },
@@ -2063,6 +2081,54 @@
       "only": true
      },
      "present": "That is {a}'s night done, {pos} at the flag."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "prediction",
+      "hit": true
+     },
+     "present": "Before the race {a} told Sienna {said} was the target, and {said} is exactly where he finished."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "prediction",
+      "better": true
+     },
+     "present": "{a} predicted {said} before the race and has done better than that, home in {pos}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "prediction",
+      "worse": true
+     },
+     "present": "{a} told Sienna he was aiming for {said}. He finished {pos}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "prediction",
+      "retired": true
+     },
+     "present": "{a} had talked about {said} before the race. It did not get that far tonight."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "rival",
+      "ahead": true
+     },
+     "present": "And {a} got the one he wanted most: he finished ahead of {b}."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "rival",
+      "ahead": false
+     },
+     "present": "{a} said {b} was the driver he most wanted to beat. {b} had the better of him tonight."
     }
    ]
   },
@@ -2678,6 +2744,26 @@
     {
      "speaker": "LEAD",
      "present": "The lights are on."
+    }
+   ]
+  },
+  "LULL_INTERVIEW": {
+   "variants": [
+    {
+     "speaker": "ANALYST",
+     "present": "{line}"
+    },
+    {
+     "speaker": "LEAD",
+     "present": "{line}"
+    }
+   ]
+  },
+  "LULL_LORE": {
+   "variants": [
+    {
+     "speaker": "ANALYST",
+     "present": "{line}"
     }
    ]
   }

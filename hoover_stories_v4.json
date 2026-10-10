@@ -79,12 +79,17 @@
    ],
    "rotation": [
     "revisit",
+    "interview",
     "human_race",
+    "lore",
     "stats"
    ],
+   "_about_material": "09 OCT: 'interview' airs one unused line from a driver's pre-race interview (hoover_dossier.json); 'lore' one unused F1 or track history line (hoover_lore.json). Both only inside a race lull, never repeated in a session. Remove either from the rotation to switch it off.",
    "cooldown_s": {
     "revisit": 60.0,
+    "interview": 90.0,
     "human_race": 120.0,
+    "lore": 150.0,
     "stats": 180.0
    },
    "revisit_quiet_s": 30.0,

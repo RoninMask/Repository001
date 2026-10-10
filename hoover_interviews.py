@@ -396,6 +396,16 @@ def build(args, roster, paths, log):
                 if ok:
                     armed[k] = ok[0]
                 dropped += bad
+        pf = card.get("predicted_finish")
+        try:
+            pf = int(pf) if pf not in (None, "") else None
+        except (TypeError, ValueError):
+            pf = None
+        rid = None
+        if card.get("rival"):
+            rid, _why = roster.resolve(card["rival"])
+            if rid == did:
+                rid = None
         card_out = {
             "format": "hoover_card_v1",
             "layer": "interview",
@@ -412,6 +422,9 @@ def build(args, roster, paths, log):
             "built_by": {"tool": TOOL_VERSION, "pass": used},
             "facts": facts[:3],
             "armed": armed,
+            "interview": {"predicted_finish": pf if pf and 1 <= pf <= 22 else None,
+                          "rival_id": rid,
+                          "rival": roster.on_air(rid) if rid else None},
             "dropped": [{"line": l, "why": w} for l, w in dropped],
             "fields": {k: card.get(k) for k in (
                 "predicted_finish", "rival", "rival_reason", "favourite_named", "dark_horse",
@@ -427,6 +440,14 @@ def build(args, roster, paths, log):
             ent = dossier["drivers"].setdefault(did, {})
             ent["facts"] = card_out["facts"]
             ent["armed"] = card_out["armed"]
+            # the prediction and rival as data, so Hoover can check them
+            # against the result after the flag
+            ent["interview"] = card_out["interview"]
+            # live runs do not load the roster, so Hoover finds this entry by
+            # the car's gamertag or spoken name
+            rd = roster.by_id[did]
+            ent["match"] = {"handle": rd["match"]["handle"], "spoken": rd["spoken"]["short"],
+                            "aliases": list(rd.get("aliases") or [])}
             ent["_source"] = "interview %s (%s pass)" % (conv.get("conversation_id"), used)
     if not args.dry_run and built:
         dossier["_interviews"] = {"tool": TOOL_VERSION,

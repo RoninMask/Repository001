@@ -191,8 +191,11 @@ K["S_REL_02"] = [
 ]
 
 K["S_SF_01"] = [
-    v(L, "{a} starts from {grid}.", beat="on_grid"),
-    v(A, "{a} lines up {grid} on the grid.", beat="on_grid"),
+    v(L, "{a} starts from {grid}.", beat="on_grid", hook=False),
+    v(A, "{a} lines up {grid} on the grid.", beat="on_grid", hook=False),
+    # 09 OCT: the grid intro carries the driver's interview headline
+    v(L, "{a} starts from {grid}. {hook}", beat="on_grid", hook=True),
+    v(A, "{a} lines up {grid} on the grid. {hook}", beat="on_grid", hook=True),
 ]
 
 K["S_SF_02"] = [
@@ -236,6 +239,13 @@ K["S_SF_07"] = [
     v(L, "{a} is the top finisher of our drivers, in {pos}.", beat="best_human", only=False),
     v(L, "{a} brings it home in {pos}.", beat="best_human", only=True),
     v(A, "That is {a}'s night done, {pos} at the flag.", beat="best_human", only=True),
+    # 09 OCT: the pre-race interview checked against the result
+    v(A, "Before the race {a} told Sienna {said} was the target, and {said} is exactly where he finished.", beat="prediction", hit=True),
+    v(A, "{a} predicted {said} before the race and has done better than that, home in {pos}.", beat="prediction", better=True),
+    v(A, "{a} told Sienna he was aiming for {said}. He finished {pos}.", beat="prediction", worse=True),
+    v(A, "{a} had talked about {said} before the race. It did not get that far tonight.", beat="prediction", retired=True),
+    v(L, "And {a} got the one he wanted most: he finished ahead of {b}.", beat="rival", ahead=True),
+    v(L, "{a} said {b} was the driver he most wanted to beat. {b} had the better of him tonight.", beat="rival", ahead=False),
 ]
 
 K["S_HUM_01"] = [

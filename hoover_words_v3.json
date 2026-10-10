@@ -607,6 +607,17 @@
           "present": "{a} is on the move, {places} places to the good."
         }
       ]
+    },
+    "LULL_INTERVIEW": {
+      "variants": [
+        {"speaker": "ANALYST", "present": "{line}"},
+        {"speaker": "LEAD", "present": "{line}"}
+      ]
+    },
+    "LULL_LORE": {
+      "variants": [
+        {"speaker": "ANALYST", "present": "{line}"}
+      ]
     }
   }
 }

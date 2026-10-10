@@ -1,0 +1,1048 @@
+{
+  "format": "hoover_lore_v1",
+  "tool": "lore_v1_09OCT26",
+  "built": "2026-10-10T00:37:10Z",
+  "_about": "Lore cards for Baby Hoover V4. Only status 'ok' cards air: hook 'pre_race' in the expectations passage, hook 'lull' in a race lull, each once per session. Edit a 'line' by hand if you like; rebuilding overwrites it.",
+  "cards": [
+    {
+      "id": "ABU_GEN_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2009,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Yas Marina Circuit was designed by Hermann Tilke and debuted in two thousand and nine as Formula One's inaugural day-into-night twilight race.",
+      "fact": "Yas Marina Circuit was designed by Hermann Tilke and debuted in 2009 as Formula 1's inaugural day-into-night twilight race.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_PIT_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "pit"
+      ],
+      "line": "The standard pit lane loss at Yas Marina under green flag conditions is approximately twenty-one point nine to twenty-two point zero seconds.",
+      "fact": "The standard pit lane loss at Yas Marina under green flag conditions is approximately 21.9 to 22.0 seconds.",
+      "source": "https://www.formula1.com/en/latest/article/need-to-know-the-most-important-facts-stats-and-trivia-ahead-of-the-2024-abu.Fm5DEInET1KfwRhLnxWrj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_PIT_02",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2009,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "crash",
+        "pit"
+      ],
+      "line": "The pit exit features a unique subterranean tunnel running underneath Turn one that feeds cars back onto the racing line on track left.",
+      "fact": "The pit exit features a unique subterranean tunnel running underneath Turn 1 that feeds cars back onto the racing line on track left.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_SEC3_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2009,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "The final sector threads underneath the illuminated, color-shifting canopy of the luxury W Abu Dhabi hotel.",
+      "fact": "The final sector threads underneath the illuminated, color-shifting canopy of the luxury W Abu Dhabi hotel.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_ENV_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "pit",
+        "tyres"
+      ],
+      "line": "Because Yas Marina starts in late afternoon sunshine and finishes under floodlights, track temperatures drop significantly during the race, shifting the balance from rear thermal degradation to front-tyre graining.",
+      "fact": "Because Yas Marina starts in late afternoon sunshine and finishes under floodlights, track temperatures drop significantly during the race, shifting the balance from rear thermal degradation to front-tyre graining.",
+      "source": "https://www.formula1.com/en/latest/article/need-to-know-the-most-important-facts-stats-and-trivia-ahead-of-the-2024-abu.Fm5DEInET1KfwRhLnxWrj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LAY_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "overtake"
+      ],
+      "line": "In twenty twenty-one, Yas Marina was shortened from five point five five four kilometres with twenty-one corners to five point two eight one kilometres with sixteen corners to remove slow chicanes and promote slipstreaming.",
+      "fact": "In 2021, Yas Marina was shortened from 5.554 km with 21 corners to 5.281 km with 16 corners to remove slow chicanes and promote slipstreaming.",
+      "source": "https://www.formula1.com/en/latest/article/the-track-changes-at-the-2021-abu-dhabi-grand-prix.4nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "held",
+      "why": [
+        "too long to say (34 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T01_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 1,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "crash",
+        "lap_one"
+      ],
+      "line": "Turn one is a rapid medium-speed ninety-degree left-hander where cars brake heavily from over three hundred kilometres per hour, creating the primary bottleneck for multi-car contact on lap one.",
+      "fact": "Turn 1 is a rapid medium-speed 90-degree left-hander where cars brake heavily from over 300 km/h, creating the primary bottleneck for multi-car contact on lap one.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T02_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 2,
+      "year": 2024,
+      "hooks": [
+        "lull"
+      ],
+      "line": "Turns two and three form an uphill, high-speed flick taken nearly flat out that heavily loads the right-side suspension before plunging toward Turn four.",
+      "fact": "Turns 2 and 3 form an uphill, high-speed flick taken nearly flat out that heavily loads the right-side suspension before plunging toward Turn 4.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "held",
+      "why": [
+        "held: Turns 2-3 are not uphill; Yas Marina is flat"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T05_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 5,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "battle"
+      ],
+      "line": "Turn five is a tight, low-speed left-hand hairpin that serves as the critical launchpad for the first DRS zone on the primary one point two-kilometer straight.",
+      "fact": "Turn 5 is a tight, low-speed left-hand hairpin that serves as the critical launchpad for the first DRS zone on the primary 1.2-kilometer straight.",
+      "source": "https://www.formula1.com/en/latest/article/the-track-changes-at-the-2021-abu-dhabi-grand-prix.4nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T05_02",
+      "category": "circuit",
+      "track": "14",
+      "corner": 5,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "overtake",
+        "finish"
+      ],
+      "line": "Max Verstappen overtook Lewis Hamilton down the inside of Turn five on the fifty-eighth and final lap of the twenty twenty-one Abu Dhabi Grand Prix to secure his first World Championship.",
+      "fact": "Max Verstappen overtook Lewis Hamilton down the inside of Turn 5 on the 58th and final lap of the 2021 Abu Dhabi Grand Prix to secure his first World Championship.",
+      "source": "https://www.formula1.com/en/latest/article/abu-dhabi-2021-race-report.6xUoR6kUoZ7r0b8sU3nQ2G",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T06_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 6,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "overtake"
+      ],
+      "line": "Turn six sits at the end of the long back straight where drivers brake from three hundred and thirty kilometres per hour down to eighty kilometres per hour, making it the circuit's primary overtaking zone.",
+      "fact": "Turn 6 sits at the end of the long back straight where drivers brake from 330 km/h down to 80 km/h, making it the circuit's primary overtaking zone.",
+      "source": "https://www.formula1.com/en/latest/article/the-track-changes-at-the-2021-abu-dhabi-grand-prix.4nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "held",
+      "why": [
+        "too long to say (35 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T06_02",
+      "category": "circuit",
+      "track": "14",
+      "corner": 6,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "battle"
+      ],
+      "line": "Sergio Perez used defensive positioning through the Turn six to seven chicane in twenty twenty-one to hold up Lewis Hamilton and erase a nine-second deficit for his teammate.",
+      "fact": "Sergio Perez used defensive positioning through the Turn 6–7 chicane in 2021 to hold up Lewis Hamilton and erase a nine-second deficit for his teammate.",
+      "source": "https://www.formula1.com/en/latest/article/abu-dhabi-2021-race-report.6xUoR6kUoZ7r0b8sU3nQ2G",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T07_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 7,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "overtake",
+        "drs"
+      ],
+      "line": "Turn seven is a tight left-hander that triggers the second DRS zone, giving the defender from Turn six a chance to fight back with slipstream momentum down the secondary straight.",
+      "fact": "Turn 7 is a tight left-hander that triggers the second DRS zone, giving the defender from Turn 6 a chance to fight back with slipstream momentum down the secondary straight.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "held",
+      "why": [
+        "held: second DRS zone placement disagrees with hoover_tracks.json (turn eight to Marsa Corner)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T09_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 9,
+      "year": 2024,
+      "hooks": [
+        "lull"
+      ],
+      "line": "Turn nine, known as Marsa, is a fast, banked left-hander where carrying high apex speed is essential to prevent cars behind from gaining a slipstream into the marina complex.",
+      "fact": "Turn 9, known as Marsa, is a fast, banked left-hander where carrying high apex speed is essential to prevent cars behind from gaining a slipstream into the marina complex.",
+      "source": "https://www.formula1.com/en/latest/article/the-track-changes-at-the-2021-abu-dhabi-grand-prix.4nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T10_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 10,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "tyres"
+      ],
+      "line": "Turns ten and eleven form a technical off-camber right-left transition where drivers frequently lock up their inside front tyre as lateral load shifts under braking.",
+      "fact": "Turns 10 and 11 form a technical off-camber right-left transition where drivers frequently lock up their inside front tyre as lateral load shifts under braking.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T12_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 12,
+      "year": 2024,
+      "hooks": [
+        "lull"
+      ],
+      "line": "Turn twelve sweeps right beneath the hotel and represents a prime track-limits enforcement hot spot where running wide over the exit kerb invalidates lap times.",
+      "fact": "Turn 12 sweeps right beneath the hotel and represents a prime track-limits enforcement hot spot where running wide over the exit kerb invalidates lap times.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T14_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": null,
+      "year": 2018,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "crash",
+        "safety_car"
+      ],
+      "line": "Nico Hulkenberg was pitched into a violent barrel roll at Turn fourteen on lap one of the twenty eighteen Grand Prix following contact with Romain Grosjean.",
+      "fact": "Nico Hulkenberg was pitched into a violent barrel roll at Turn 14 on lap one of the 2018 Grand Prix following contact with Romain Grosjean.",
+      "source": "https://www.formula1.com/en/latest/article/2018-abu-dhabi-grand-prix-report.1j19rFhF4o2mOQ0GqYsU48.html",
+      "status": "held",
+      "why": [
+        "held: Turn 14 is old-layout numbering (2018); needs the location under the current layout"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T14_02",
+      "category": "circuit",
+      "track": "14",
+      "corner": 14,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "crash",
+        "safety_car",
+        "finish"
+      ],
+      "line": "Nicholas Latifi crashed into the barriers at the exit of Turn fourteen while battling Mick Schumacher on lap fifty-three in twenty twenty-one, triggering the safety car that decided the world championship.",
+      "fact": "Nicholas Latifi crashed into the barriers at the exit of Turn 14 while battling Mick Schumacher on lap 53 in 2021, triggering the safety car that decided the world championship.",
+      "source": "https://www.formula1.com/en/latest/article/abu-dhabi-2021-race-report.6xUoR6kUoZ7r0b8sU3nQ2G",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_T15_01",
+      "category": "circuit",
+      "track": "14",
+      "corner": 15,
+      "year": 2024,
+      "hooks": [
+        "lull"
+      ],
+      "line": "Turns fifteen and sixteen form a final double right-hander where rear traction on throttle exit dictates a car's top speed down the main straightaway.",
+      "fact": "Turns 15 and 16 form a final double right-hander where rear traction on throttle exit dictates a car's top speed down the main straightaway.",
+      "source": "https://www.formula1.com/en/racing/2024/abu-dhabi/circuit",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2010",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2010,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "pit",
+        "finish"
+      ],
+      "line": "Sebastian Vettel won the twenty ten Abu Dhabi Grand Prix from pole to become the youngest World Champion in history after championship leader Fernando Alonso spent forty laps stuck behind Vitaly Petrov.",
+      "fact": "Sebastian Vettel won the 2010 Abu Dhabi Grand Prix from pole to become the youngest World Champion in history after championship leader Fernando Alonso spent 40 laps stuck behind Vitaly Petrov.",
+      "source": "https://www.formula1.com/en/results/2010/races/877/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2012_01",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2012,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "safety_car",
+        "lap_one",
+        "finish"
+      ],
+      "line": "Kimi Raikkonen scored Lotus's first modern victory in twenty twelve after famously telling his race engineer over team radio to leave him alone because he knew what he was doing.",
+      "fact": "Kimi Raikkonen scored Lotus's first modern victory in 2012 after famously telling his race engineer over team radio to leave him alone because he knew what he was doing.",
+      "source": "https://www.formula1.com/en/results/2012/races/935/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2012_02",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2012,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "pit",
+        "lap_one"
+      ],
+      "line": "Sebastian Vettel drove from the pit lane to finish on the podium in third place during the chaotic twenty twelve race.",
+      "fact": "Sebastian Vettel drove from the pit lane to finish on the podium in third place during the chaotic 2012 race.",
+      "source": "https://www.formula1.com/en/results/2012/races/935/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2014",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2014,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "finish"
+      ],
+      "line": "The twenty fourteen season finale awarded double championship points, with Lewis Hamilton winning the race and title after Nico Rosberg suffered an ERS hybrid failure.",
+      "fact": "The 2014 season finale awarded double championship points, with Lewis Hamilton winning the race and title after Nico Rosberg suffered an ERS hybrid failure.",
+      "source": "https://www.formula1.com/en/results/2014/races/916/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2016",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2016,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "finish"
+      ],
+      "line": "Lewis Hamilton backed teammate Nico Rosberg into the chasing pack in twenty sixteen in a calculated attempt to make him lose positions, but Rosberg held second place to claim his sole World Championship.",
+      "fact": "Lewis Hamilton backed teammate Nico Rosberg into the chasing pack in 2016 in a calculated attempt to make him lose positions, but Rosberg held second place to claim his sole World Championship.",
+      "source": "https://www.formula1.com/en/results/2016/races/957/abu-dhabi/race-result",
+      "status": "held",
+      "why": [
+        "too long to say (33 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2020",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2020,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Max Verstappen converted pole position into a lights-to-flag victory in twenty twenty, ending Mercedes' undefeated six-year win streak at Yas Marina.",
+      "fact": "Max Verstappen converted pole position into a lights-to-flag victory in 2020, ending Mercedes' undefeated six-year win streak at Yas Marina.",
+      "source": "https://www.formula1.com/en/results/2020/races/1060/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2021",
+      "category": "history",
+      "track": "14",
+      "corner": 5,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "safety_car",
+        "lap_one",
+        "finish"
+      ],
+      "line": "The twenty twenty-one championship concluded with a controversial one-lap shootout following a late safety car restart, where Max Verstappen passed Lewis Hamilton on fresher soft tyres on the final lap.",
+      "fact": "The 2021 championship concluded with a controversial one-lap shootout following a late safety car restart, where Max Verstappen passed Lewis Hamilton on fresher soft tyres on the final lap.",
+      "source": "https://www.formula1.com/en/latest/article/abu-dhabi-2021-race-report.6xUoR6kUoZ7r0b8sU3nQ2G",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2023",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2023,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Max Verstappen completed his one,zeroth leading lap of the twenty twenty-three season at Abu Dhabi, becoming the first driver in Formula One history to lead one thousand laps in a single year.",
+      "fact": "Max Verstappen completed his 1,000th leading lap of the 2023 season at Abu Dhabi, becoming the first driver in Formula 1 history to lead 1,000 laps in a single year.",
+      "source": "https://www.formula1.com/en/results/2023/races/1226/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_HIST_2024",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "finish"
+      ],
+      "line": "Lando Norris led from pole to victory at the twenty twenty-four Abu Dhabi Grand Prix to secure McLaren's first Constructors' World Championship since nineteen ninety-eight.",
+      "fact": "Lando Norris led from pole to victory at the 2024 Abu Dhabi Grand Prix to secure McLaren's first Constructors' World Championship since 1998.",
+      "source": "https://www.formula1.com/en/results/2024/races/1252/abu-dhabi/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_STAT_POLE",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Between twenty fifteen and twenty twenty-four, nine out of ten Abu Dhabi Grands Prix were won by the driver starting from pole position.",
+      "fact": "Between 2015 and 2024, nine out of ten Abu Dhabi Grands Prix were won by the driver starting from pole position.",
+      "source": "https://www.formula1.com/en/latest/article/need-to-know-the-most-important-facts-stats-and-trivia-ahead-of-the-2024-abu.Fm5DEInET1KfwRhLnxWrj",
+      "status": "held",
+      "why": [
+        "held: says nine of ten 2015-2024 wins came from pole; by our count it is ten of ten"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_STAT_WINS",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Lewis Hamilton holds the record for the most Formula One victories at Yas Marina with five wins recorded in twenty eleven, twenty fourteen, twenty sixteen, twenty eighteen, and twenty nineteen.",
+      "fact": "Lewis Hamilton holds the record for the most Formula 1 victories at Yas Marina with five wins recorded in 2011, 2014, 2016, 2018, and 2019.",
+      "source": "https://www.formula1.com/en/latest/article/need-to-know-the-most-important-facts-stats-and-trivia-ahead-of-the-2024-abu.Fm5DEInET1KfwRhLnxWrj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_STAT_GRID",
+      "category": "history",
+      "track": "14",
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Only one driver in the history of the Abu Dhabi Grand Prix has ever won the race from beyond the front row of the grid: Kimi Raikkonen from fourth in twenty twelve.",
+      "fact": "Only one driver in the history of the Abu Dhabi Grand Prix has ever won the race from beyond the front row of the grid: Kimi Raikkonen from fourth in 2012.",
+      "source": "https://www.formula1.com/en/latest/article/need-to-know-the-most-important-facts-stats-and-trivia-ahead-of-the-2024-abu.Fm5DEInET1KfwRhLnxWrj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_1998",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 1998,
+      "hooks": [
+        "lull",
+        "crash",
+        "safety_car"
+      ],
+      "line": "The nineteen ninety-eight Belgian Grand Prix saw a fourteen-car pile-up on lap one exiting La Source in heavy rain, triggering a red flag and an immediate race restart.",
+      "fact": "The 1998 Belgian Grand Prix saw a 14-car pile-up on lap one exiting La Source in heavy rain, triggering a red flag and an immediate race restart.",
+      "source": "https://www.formula1.com/en/latest/article/the-biggest-crashes-in-f1-history.5lS0g3Gz0W0U48eU0QYqI",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2017",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2017,
+      "hooks": [
+        "lull",
+        "crash",
+        "lap_one"
+      ],
+      "line": "Sebastian Vettel, Kimi Raikkonen, and Max Verstappen collided on the wet run to Turn one at the twenty seventeen Singapore Grand Prix, instantly eliminating all three frontrunners on lap one.",
+      "fact": "Sebastian Vettel, Kimi Raikkonen, and Max Verstappen collided on the wet run to Turn 1 at the 2017 Singapore Grand Prix, instantly eliminating all three frontrunners on lap one.",
+      "source": "https://www.formula1.com/en/results/2017/races/972/singapore/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2020_01",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2020,
+      "hooks": [
+        "lull",
+        "lap_one"
+      ],
+      "line": "Kimi Raikkonen gained ten positions on lap one of the twenty twenty Portuguese Grand Prix at Portimao, charging from sixteenth to sixth on cold tyres in damp conditions.",
+      "fact": "Kimi Raikkonen gained ten positions on lap one of the 2020 Portuguese Grand Prix at Portimao, charging from 16th to 6th on cold tyres in damp conditions.",
+      "source": "https://www.formula1.com/en/latest/article/raikkonen-lap-one-portugal-2020.3j8Uu8Xz6G42uEgU4q8aEk",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2005_01",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2005,
+      "hooks": [
+        "lull",
+        "battle"
+      ],
+      "line": "Fernando Alonso held off Michael Schumacher for twelve consecutive laps at Imola in two thousand and five despite Schumacher driving a car that was over one second per lap faster.",
+      "fact": "Fernando Alonso held off Michael Schumacher for twelve consecutive laps at Imola in 2005 despite Schumacher driving a car that was over one second per lap faster.",
+      "source": "https://www.formula1.com/en/latest/article/2005-san-marino-grand-prix-rewind.4yJ3m2tP1Q2q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2000",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2000,
+      "hooks": [
+        "lull",
+        "overtake",
+        "battle"
+      ],
+      "line": "Mika Hakkinen executed a legendary double slipstream overtake on Michael Schumacher while simultaneously lapping Ricardo Zonta down the Kemmel Straight at Spa in two thousand.",
+      "fact": "Mika Hakkinen executed a legendary double slipstream overtake on Michael Schumacher while simultaneously lapping Ricardo Zonta down the Kemmel Straight at Spa in 2000.",
+      "source": "https://www.formula1.com/en/latest/article/hakkinen-schumacher-spa-2000.2nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2021_HUN",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "battle"
+      ],
+      "line": "Fernando Alonso defended against Lewis Hamilton for ten laps in Hungary in twenty twenty-one, preserving the race lead and maiden victory for teammate Esteban Ocon.",
+      "fact": "Fernando Alonso defended against Lewis Hamilton for ten laps in Hungary in 2021, preserving the race lead and maiden victory for teammate Esteban Ocon.",
+      "source": "https://www.formula1.com/en/results/2021/races/1073/hungary/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2011",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2011,
+      "hooks": [
+        "lull",
+        "finish"
+      ],
+      "line": "Jenson Button recovered from six pit stops, a puncture, a collision, and running dead last to win the rain-hit four-hour twenty eleven Canadian Grand Prix on the final lap.",
+      "fact": "Jenson Button recovered from six pit stops, a puncture, a collision, and running dead last to win the rain-hit four-hour 2011 Canadian Grand Prix on the final lap.",
+      "source": "https://www.formula1.com/en/results/2011/races/850/canada/race-result",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2005_SUZ",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2005,
+      "hooks": [
+        "lull",
+        "overtake",
+        "finish"
+      ],
+      "line": "Kimi Raikkonen won the two thousand and five Japanese Grand Prix at Suzuka after starting seventeenth on the grid, completing a round-the-outside overtake on Giancarlo Fisichella into Turn one on the final lap.",
+      "fact": "Kimi Raikkonen won the 2005 Japanese Grand Prix at Suzuka after starting 17th on the grid, completing a round-the-outside overtake on Giancarlo Fisichella into Turn 1 on the final lap.",
+      "source": "https://www.formula1.com/en/results/2005/races/789/japan/race-result",
+      "status": "held",
+      "why": [
+        "too long to say (33 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2018_CHN",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2018,
+      "hooks": [
+        "lull",
+        "pit",
+        "safety_car",
+        "tyres"
+      ],
+      "line": "Red Bull pitted Daniel Ricciardo for fresh soft tyres under a late safety car at the twenty eighteen Chinese Grand Prix, allowing him to charge through the top six to take an unexpected victory.",
+      "fact": "Red Bull pitted Daniel Ricciardo for fresh soft tyres under a late safety car at the 2018 Chinese Grand Prix, allowing him to charge through the top six to take an unexpected victory.",
+      "source": "https://www.formula1.com/en/results/2018/races/981/china/race-result",
+      "status": "held",
+      "why": [
+        "too long to say (34 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_MOM_2020_MNZ",
+      "category": "f1_moment",
+      "track": null,
+      "corner": null,
+      "year": 2020,
+      "hooks": [
+        "lull",
+        "safety_car"
+      ],
+      "line": "A well-timed safety car pit stop alongside a grid penalty for Lewis Hamilton allowed Pierre Gasly to claim a historic maiden victory for AlphaTauri at Monza in twenty twenty.",
+      "fact": "A well-timed safety car pit stop alongside a grid penalty for Lewis Hamilton allowed Pierre Gasly to claim a historic maiden victory for AlphaTauri at Monza in 2020.",
+      "source": "https://www.formula1.com/en/results/2020/races/1053/italy/race-result",
+      "status": "held",
+      "why": [
+        "held: Hamilton's 2020 Monza penalty was a stop-go in the race, not a grid penalty"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_DIRTY_AIR",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2022,
+      "hooks": [
+        "lull",
+        "tyres"
+      ],
+      "line": "In ground-effect Formula One cars, following closely through medium-speed corners causes aerodynamic wash that slides the front axle, elevating surface tyre temperatures by ten to fifteen degrees Celsius.",
+      "fact": "In ground-effect Formula 1 cars, following closely through medium-speed corners causes aerodynamic wash that slides the front axle, elevating surface tyre temperatures by 10 to 15 degrees Celsius.",
+      "source": "https://www.f1technical.net/features/23812",
+      "status": "held",
+      "why": [
+        "held: the 10-15 degree figure has no checkable source"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_DRS",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "drs"
+      ],
+      "line": "A trailing car within one second receives an aerodynamic tow worth approximately fifteen to twenty kilometres per hour in top speed down long straights when Drag Reduction System (DRS) rear-wing flaps deploy.",
+      "fact": "A trailing car within one second receives an aerodynamic tow worth approximately 15 to 20 km/h in top speed down long straights when Drag Reduction System (DRS) rear-wing flaps deploy.",
+      "source": "https://www.formula1.com/en/latest/article/the-beginners-guide-to-f1-drs.5nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_UNDERCUT",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pit",
+        "tyres"
+      ],
+      "line": "An undercut succeeds when fresh tyres generate an out-lap pace delta that overcomes the pit lane transit time while the rival stays out on degraded rubber.",
+      "fact": "An undercut succeeds when fresh tyres generate an out-lap pace delta that overcomes the pit lane transit time while the rival stays out on degraded rubber.",
+      "source": "https://www.formula1.com/en/latest/article/f1-strategy-guide-undercut-overcut.6nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_OVERCUT",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "pit"
+      ],
+      "line": "An overcut is effective when track temperatures are low, causing fresh out-lap tyres to suffer from cold graining while the older tyres on track maintain optimal working temperatures.",
+      "fact": "An overcut is effective when track temperatures are low, causing fresh out-lap tyres to suffer from cold graining while the older tyres on track maintain optimal working temperatures.",
+      "source": "https://www.formula1.com/en/latest/article/f1-strategy-guide-undercut-overcut.6nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_SOFT",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "tyres"
+      ],
+      "line": "Pirelli's soft compound delivers immediate single-lap grip but faces rapid thermal degradation, typically dropping by three to five tenths of a second per lap once the working surface overheats.",
+      "fact": "Pirelli's soft compound delivers immediate single-lap grip but faces rapid thermal degradation, typically dropping by three to five tenths of a second per lap once the working surface overheats.",
+      "source": "https://press.pirelli.com/f1/",
+      "status": "held",
+      "why": [
+        "held: the three-to-five-tenths figure has no checkable source"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_HARD",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "tyres"
+      ],
+      "line": "Hard compound tyres require two to three laps of continuous loading to reach their optimal pressure and temperature operating window, making cars vulnerable immediately after exiting the pits.",
+      "fact": "Hard compound tyres require two to three laps of continuous loading to reach their optimal pressure and temperature operating window, making cars vulnerable immediately after exiting the pits.",
+      "source": "https://press.pirelli.com/f1/",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_RATE",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull"
+      ],
+      "line": "A car closing by three-tenths of a second per lap requires approximately seven laps to erase a two-second interval before entering DRS activation range.",
+      "fact": "A car closing by three-tenths of a second per lap requires approximately seven laps to erase a two-second interval before entering DRS activation range.",
+      "source": "https://www.f1technical.net/features/23812",
+      "status": "held",
+      "why": [
+        "held: the arithmetic is wrong: at 0.3 s a lap a 2 s gap reaches DRS range in about 3-4 laps"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "F1_RACE_DRS_WINDOW",
+      "category": "racecraft",
+      "track": null,
+      "corner": null,
+      "year": 2024,
+      "hooks": [
+        "lull",
+        "drs"
+      ],
+      "line": "Entering the one point zero-second DRS detection window fundamentally alters the tactical dynamic by allowing the attacking car to harvest ERS battery power while utilizing aerodynamic tow to overtake.",
+      "fact": "Entering the 1.0-second DRS detection window fundamentally alters the tactical dynamic by allowing the attacking car to harvest ERS battery power while utilizing aerodynamic tow to overtake.",
+      "source": "https://www.formula1.com/en/latest/article/the-beginners-guide-to-f1-drs.5nOUm7Yg8U4q8aEk4vYmQj",
+      "status": "held",
+      "why": [
+        "held: 'harvest ERS battery power' inside the DRS window is wrong"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LORE_2012",
+      "category": "lore",
+      "track": "14",
+      "corner": null,
+      "year": 2012,
+      "hooks": [
+        "lull",
+        "pre_race"
+      ],
+      "line": "Kimi Raikkonen famously reprimanded his race engineer over team radio during his twenty twelve victory with the line: 'Just leave me alone, I know what to do.'",
+      "fact": "Kimi Raikkonen famously reprimanded his race engineer over team radio during his 2012 victory with the line: 'Just leave me alone, I know what to do.'",
+      "source": "https://www.formula1.com/en/results/2012/races/935/abu-dhabi/race-result",
+      "status": "held",
+      "why": [
+        "held: misquotes the radio message and repeats ABU_HIST_2012_01"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LORE_2018",
+      "category": "lore",
+      "track": "14",
+      "corner": null,
+      "year": 2018,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "finish"
+      ],
+      "line": "At the conclusion of the twenty eighteen Abu Dhabi Grand Prix, race winner Lewis Hamilton and Sebastian Vettel flanked the retiring Fernando Alonso down the main straight to perform synchronized celebratory donuts.",
+      "fact": "At the conclusion of the 2018 Abu Dhabi Grand Prix, race winner Lewis Hamilton and Sebastian Vettel flanked the retiring Fernando Alonso down the main straight to perform synchronized celebratory donuts.",
+      "source": "https://www.formula1.com/en/latest/article/2018-abu-dhabi-grand-prix-report.1j19rFhF4o2mOQ0GqYsU48.html",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LORE_2016",
+      "category": "lore",
+      "track": "14",
+      "corner": null,
+      "year": 2016,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "battle",
+        "finish"
+      ],
+      "line": "During the tense final laps of the twenty sixteen finale, Paddy Lowe radioed Lewis Hamilton with an explicit instruction to speed up, to which Hamilton retorted: 'Right now, I'm losing the world championship, so I'm not really bothered about winning this race.'",
+      "fact": "During the tense final laps of the 2016 finale, Paddy Lowe radioed Lewis Hamilton with an explicit instruction to speed up, to which Hamilton retorted: 'Right now, I'm losing the world championship, so I'm not really bothered about winning this race.'",
+      "source": "https://www.formula1.com/en/results/2016/races/957/abu-dhabi/race-result",
+      "status": "held",
+      "why": [
+        "too long to say (42 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LORE_2021",
+      "category": "lore",
+      "track": "14",
+      "corner": 6,
+      "year": 2021,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "battle"
+      ],
+      "line": "After Sergio Perez defended aggressively against Lewis Hamilton in twenty twenty-one to bring his teammate back into contention, Max Verstappen exclaimed over team radio: 'Checo is a legend.'",
+      "fact": "After Sergio Perez defended aggressively against Lewis Hamilton in 2021 to bring his teammate back into contention, Max Verstappen exclaimed over team radio: 'Checo is a legend.'",
+      "source": "https://www.formula1.com/en/latest/article/abu-dhabi-2021-race-report.6xUoR6kUoZ7r0b8sU3nQ2G",
+      "status": "ok",
+      "why": [],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    },
+    {
+      "id": "ABU_LORE_2010",
+      "category": "lore",
+      "track": "14",
+      "corner": null,
+      "year": 2010,
+      "hooks": [
+        "lull",
+        "pre_race",
+        "pit",
+        "finish"
+      ],
+      "line": "Ferrari's strategic miscalculation in covering Mark Webber's early pit stop in twenty ten dropped Fernando Alonso behind Renault's Vitaly Petrov, leaving Alonso trapped for forty laps and losing the championship to Sebastian Vettel.",
+      "fact": "Ferrari's strategic miscalculation in covering Mark Webber's early pit stop in 2010 dropped Fernando Alonso behind Renault's Vitaly Petrov, leaving Alonso trapped for 40 laps and losing the championship to Sebastian Vettel.",
+      "source": "https://www.formula1.com/en/results/2010/races/877/abu-dhabi/race-result",
+      "status": "held",
+      "why": [
+        "too long to say (33 words)"
+      ],
+      "pass": "rules",
+      "from": "hoover_track_dossier_abu_dhabi.json"
+    }
+  ]
+}

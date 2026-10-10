@@ -1,0 +1,13 @@
+{
+  "_about": "Facts kept off air until checked or fixed. Delete a line to release the fact. Review 09 OCT 26 of Mike's first Abu Dhabi file.",
+  "ABU_STAT_POLE": "says nine of ten 2015-2024 wins came from pole; by our count it is ten of ten",
+  "F1_MOM_2020_MNZ": "Hamilton's 2020 Monza penalty was a stop-go in the race, not a grid penalty",
+  "F1_RACE_RATE": "the arithmetic is wrong: at 0.3 s a lap a 2 s gap reaches DRS range in about 3-4 laps",
+  "F1_RACE_DRS_WINDOW": "'harvest ERS battery power' inside the DRS window is wrong",
+  "ABU_T14_01": "Turn 14 is old-layout numbering (2018); needs the location under the current layout",
+  "ABU_LORE_2012": "misquotes the radio message and repeats ABU_HIST_2012_01",
+  "ABU_T02_01": "Turns 2-3 are not uphill; Yas Marina is flat",
+  "F1_RACE_DIRTY_AIR": "the 10-15 degree figure has no checkable source",
+  "F1_RACE_SOFT": "the three-to-five-tenths figure has no checkable source",
+  "ABU_T07_01": "second DRS zone placement disagrees with hoover_tracks.json (turn eight to Marsa Corner)"
+}
