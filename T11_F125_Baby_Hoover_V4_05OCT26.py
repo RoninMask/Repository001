@@ -700,7 +700,7 @@ class Parser:
             c.sector = sector
             c.result_status = rstat
             c.driver_status = dstat
-            c.grid = grid
+            c.grid = grid if 0 < grid < 100 else 0     # V8.7: 255 = unknown
             c.penalties = pen
             c.warnings = warn
             c.lap_distance = lap_dist
@@ -5703,7 +5703,9 @@ class RaceModel:
         self.state_log.append({
             "t_unix": round(t, 6), "t_rec": self._t_rec(t),
             "from": self.state, "to": new, "trigger": trigger})
-        self.log(">>> STATE %s -> %s (%s)" % (self.state, new, trigger))
+        self.log(">>> STATE %s -> %s (%s) [session %s, type %s, laps %s]" % (
+            self.state, new, trigger, getattr(self.w, "session_kind", "?"),
+            getattr(self.w, "session_type", "?"), getattr(self.w, "total_laps", "?")))
         self.state = new
         self.state_since = t
 
@@ -5827,6 +5829,20 @@ class RaceModel:
 
     def allows(self, content_class, final_crossing=False, kind=None):
         s = self.state
+        # V8.7 (league night: 21 minutes of practice called as a race's final
+        # lap): outside a race session the booth says nothing. Config-gated
+        # and absent from the V3 config.
+        # The session packet keeps saying "qualifying, one lap" through the
+        # start lights and lights out and flips to "race" only afterwards
+        # (12:43 capture), so a start-lights event declares the race.
+        quiet = (self.v3.get("session_gate", {}) or {}).get("quiet_kinds")
+        if quiet and getattr(self.w, "session_kind", "RACE") in quiet \
+                and not self.saw_stlg and not self.saw_lgot:
+            if not getattr(self, "_quiet_logged", False):
+                self._quiet_logged = True
+                self.log(">>> %s session: the booth is quiet until a race starts"
+                         % self.w.session_kind)
+            return False
         retire = kind in ("RETIREMENT", None)   # lifecycle "retirement only"
         if s == "start_sequence":
             return kind == "LIGHTS_ON"           # V8.3: one line as the lights come on
@@ -5868,6 +5884,15 @@ class RaceModel:
         if code in self.ignore:
             return
         if code == "STLG":
+            # V8.7 (league night 09 OCT): the game sends a start-lights event
+            # again a moment AFTER lights out (0.1-15 s later). It flipped the
+            # race back to start_sequence, where the booth says nothing, and
+            # five races were called in silence. After lights out, a lights
+            # event inside stlg_guard_s is the same start, not a new one.
+            if self.anchor_t is not None and self.state not in self._DONE_STATES \
+                    and (t - self.anchor_t) < float(self.v3.get("start_guard", {}).get("stlg_after_lgot_s", 30.0)):
+                self.log("STLG %.1f s after lights out ignored (same start)" % (t - self.anchor_t))
+                return
             if self.state in self._DONE_STATES:
                 self._new_race(t, "STLG")
             first_light = not self.saw_stlg
@@ -5885,6 +5910,13 @@ class RaceModel:
         elif code == "LGOT":
             if self.state in self._DONE_STATES:
                 self._new_race(t, "LGOT")
+            # V8.7: a second lights-out event inside the guard is the same
+            # start repeated by the game (22:15:03, :10 and :12 on league
+            # night), not a restart -- no "racing resumes" line.
+            if self.anchor_t is not None \
+                    and (t - self.anchor_t) < float(self.v3.get("start_guard", {}).get("lgot_repeat_s", 30.0)):
+                self.log("LGOT %.1f s after lights out ignored (repeat)" % (t - self.anchor_t))
+                return
             self._on_lgot(t)
         elif code == "SCAR":
             self._on_scar(t, info)
@@ -6446,14 +6478,26 @@ class RaceModel:
         self._pit_pending = []
 
     def _maybe_final_lap(self, t):
+        leader = self.leader_idx
+        tl = self.w.total_laps
+        # V8.7 (league night): the session packet reads total laps = 1 for
+        # the opening seconds of a race (and all through practice), and the
+        # model latched "final lap" at lights out for every race of the
+        # night. A final lap needs a race of at least two laps, and if the
+        # lap count grows after the latch, the race is green again.
+        if self.state == "final_lap" and leader is not None and tl >= 2 \
+                and self.w.cars[leader].lap < tl and self.leader_finish_t is None:
+            self._set_state(t, "green", "lap count grew to %d" % tl)
+            return
         if self.state != "green":
             return
-        leader = self.leader_idx
-        if leader is None or self.w.total_laps <= 0:
+        if leader is None or tl < 2:
+            return
+        if getattr(self.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
             return
         c = self.w.cars[leader]
         # racing laps counted from the anchor lap; approximate with lap number
-        if c.lap >= self.w.total_laps:
+        if c.lap >= tl:
             self._set_state(t, "final_lap", "leader last lap")
 
     def _leader_finish(self, t, idx):
@@ -7234,6 +7278,11 @@ class V3Booth:
     def _on_screen_bonus(self, claim):
         if self.stories is None:
             return 0.0
+        # V8.7: bonuses are for story lines only, and never lift one above
+        # a race-state call (12:43 replay: a lead-battle line with the human
+        # and on-screen bonuses outranked "Lights go out" at the start)
+        if not claim.kind.startswith(STORY_KIND_PREFIX) or claim.priority >= 98.0:
+            return 0.0
         bonus = 0.0
         g = getattr(self, "gallery", None)
         cur = getattr(g, "current", None) if g is not None else None
@@ -7750,9 +7799,12 @@ class V3Booth:
                     continue
                 # V8.4 cycle 2: a line about the car on screen outranks an
                 # equal line about a car the viewer cannot see (story layer).
-                pri = c.priority + self._on_screen_bonus(c)
-                if best is None or (pri, -c.t_create) > (
-                        best.priority + self._on_screen_bonus(best), -best.t_create):
+                pri = min(c.priority + self._on_screen_bonus(c), 98.0) \
+                    if c.kind.startswith(STORY_KIND_PREFIX) else c.priority
+                bp = (min(best.priority + self._on_screen_bonus(best), 98.0)
+                      if best.kind.startswith(STORY_KIND_PREFIX) else best.priority) \
+                    if best is not None else None
+                if best is None or (pri, -c.t_create) > (bp, -best.t_create):
                     best = c
             else:
                 if best is None:
@@ -8740,6 +8792,8 @@ class ModelWriter(Writer):
     def submit(self, request):
         if request.blob is None or request.claim_id in self._pending:
             return
+        if getattr(self, "billing_dead", False):
+            return                      # V8.7: no calls once the account is dry
         key = CompletionCache.key(self.prompt_version, self.model_id,
                                   request.blob, request.recent)
         p = {"key": key, "cache_hit": self.cache.get(key) is not None,
@@ -8856,6 +8910,16 @@ class ModelWriter(Writer):
         in the request headers, never in an exception or traceback."""
         self.log("[model] call failed for %s (%s): %s"
                  % (request.claim_id, request.kind, detail))
+        # V8.7 (league night 22:47): "credit balance is too low" -- the
+        # account is dry, every further call will fail the same way. Say it
+        # loudly once and stop asking; the template speaks from here.
+        low = detail or ""
+        if ("credit balance" in low or "api status 401" in low or "api status 403" in low) \
+                and not getattr(self, "billing_dead", False):
+            self.billing_dead = True
+            self.log("[model] *** CLOUD LANE DOWN: %s -- the booth is on templates until the "
+                     "account is topped up (pre-flight Writer check shows this before a race) ***"
+                     % low[:120])
         if tb and not getattr(self, "_logged_tb", False):
             self._logged_tb = True
             self.log("[model] first failure traceback:\n%s" % tb.rstrip())
@@ -11676,6 +11740,8 @@ def _fmt_gap(g):
     if g is None:
         return None
     g = float(g)
+    if g > 45.0:
+        return "well over half a minute"   # V8.7: never a number from a lap artefact
     if g < 0.15:
         return None                     # nose to tail: the variant says so
     if g < 0.95:
@@ -13236,6 +13302,16 @@ class P_LEAD_02(StoryProcessor):
         if rec.participants[1] != leader:
             # the lead changed hands: the chaser got through (LEAD-03 makes
             # the call); resolve this battle as passed
+            # V8.7 (league night: "Faze's done it at the chicane" four times
+            # in twenty seconds as the lead flapped): the same pair swapping
+            # the lead again inside flap_s is recorded, not spoken
+            pair = frozenset(rec.participants[:2])
+            lastf = getattr(self, "_flap", {}).get(pair)
+            self._flap = getattr(self, "_flap", {})
+            self._flap[pair] = t
+            if lastf is not None and (t - lastf) < self.p("flap_s", 25.0):
+                self.close(t, rec, "passed")
+                return
             self.beat(t, rec, "transition", "resolved",
                       ctx={"a": eng.name(rec.participants[0]),
                            "b": eng.name(rec.participants[1])},
@@ -14949,7 +15025,9 @@ class P_HUM_07(StoryProcessor):
 
     def observe(self, t):
         eng = self.eng
-        if eng.model.state not in ("green", "final_lap", "safety_car", "vsc"):
+        # V8.7 (league night: four check-ins on back markers while the lead
+        # was decided): no check-in on the final lap
+        if eng.model.state not in ("green", "safety_car", "vsc"):
             return
         hs = eng.humans()
         if not hs:

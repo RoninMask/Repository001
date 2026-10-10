@@ -352,8 +352,9 @@
    "max_named": 3
   },
   "session_guard": {
-   "min_cars": 10,
-   "sustain_s": 5.0
+   "min_cars": 3,
+   "sustain_s": 5.0,
+   "_about": " V8.7: min_cars 3 -- a five-car private lobby never opened the session, so the story layer never ran (23:35 run)."
   },
   "passes": {
    "pass_hold_s": 2.0,
@@ -412,7 +413,7 @@
    "template_window_s": 30.0,
    "subject_share_max": 0.25,
    "subject_share_window_s": 180.0,
-   "near_repeat_jaccard": 0.6,
+   "near_repeat_jaccard": 0.5,
    "near_repeat_window_s": 90.0
   },
   "lull": {
@@ -728,6 +729,19 @@
    "after_s": 3.0,
    "gap_tolerance_s": 0.5,
    "gap_tolerance_frac": 0.3
+  },
+  "start_guard": {
+   "_about": "V8.7 (league night 09 OCT): a start-lights event inside stlg_after_lgot_s of lights out is the same start (the game repeats it; it put the booth back into the silent start sequence for whole races); a lights-out event inside lgot_repeat_s is a repeat, not a restart",
+   "stlg_after_lgot_s": 30.0,
+   "lgot_repeat_s": 30.0
+  },
+  "session_gate": {
+   "_about": "V8.7: outside a race session the booth is quiet (practice at 21:36 on league night was called as a race's final lap for 21 minutes)",
+   "quiet_kinds": [
+    "PRACTICE",
+    "QUALI",
+    "TIMETRIAL"
+   ]
   }
  },
  "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
