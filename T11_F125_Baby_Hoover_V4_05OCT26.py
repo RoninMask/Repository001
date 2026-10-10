@@ -15810,6 +15810,16 @@ class BabyHooverV3:
                   % (self.args.bind, self.args.port, self.actuation_state))
         idle_close = self.args.idle_close
         last_t = None
+        # V8.9 (league night: every event arrived two to four times at the
+        # same instant, lap data at 53/s against 30/s in the afternoon): the
+        # feed is guarded. Each datagram is keyed by packet id, session UID,
+        # frame and player car; a repeat inside a second is a duplicate and
+        # is captured but not fed. Every source address, session UID and
+        # player car index is counted for the manifest, and a second source
+        # is logged the moment it appears.
+        self.udp_guard = {"sources": {}, "session_uids": {}, "player_cars": {},
+                          "duplicates_dropped": 0, "fed": 0}
+        seen = {}
         try:
             while True:
                 try:
@@ -15826,6 +15836,42 @@ class BabyHooverV3:
                     self.rec_start = t
                     self.model.rec_start = t
                 writer.write(t, data)
+                g = self.udp_guard
+                src = "%s:%s" % (_addr[0], _addr[1]) if _addr else "?"
+                if src not in g["sources"]:
+                    g["sources"][src] = 0
+                    if len(g["sources"]) > 1:
+                        self._log("*** UDP: a second telemetry source appeared: %s (now %s) ***"
+                                  % (src, ", ".join(g["sources"])))
+                g["sources"][src] += 1
+                dup = False
+                if len(data) >= 29:
+                    try:
+                        pid = data[6]
+                        uid = int.from_bytes(data[7:15], "little")
+                        frame = int.from_bytes(data[19:23], "little")
+                        pcar = data[27]
+                        g["session_uids"][str(uid)] = g["session_uids"].get(str(uid), 0) + 1
+                        g["player_cars"][str(pcar)] = g["player_cars"].get(str(pcar), 0) + 1
+                        key = (pid, uid, frame, pcar)
+                        lt = seen.get(key)
+                        if lt is not None and (t - lt) < 1.0:
+                            dup = True
+                        seen[key] = t
+                        if len(seen) > 20000:
+                            cut = t - 2.0
+                            seen = {k: v for k, v in seen.items() if v >= cut}
+                    except Exception:
+                        pass
+                if dup:
+                    g["duplicates_dropped"] += 1
+                    if g["duplicates_dropped"] in (1, 100, 1000, 10000):
+                        self._log("*** UDP: duplicate datagrams on the feed (%d so far): the game is "
+                                  "sending every packet more than once -- check UDP Broadcast Mode "
+                                  "and the IP in the game's telemetry settings ***" % g["duplicates_dropped"])
+                    last_t = t
+                    continue
+                g["fed"] += 1
                 self._feed(t, data)
                 last_t = t
                 if idle_close is None:
@@ -16207,6 +16253,8 @@ class BabyHooverV3:
             if mat is not None:
                 manifest["material_v1"] = {"aired": mat.summary(),
                                            "lore_cards": len(mat.lore)}
+            if getattr(self, "udp_guard", None):
+                manifest["udp_guard"] = self.udp_guard
             b = self.booth
             manifest["booth_v8"] = {
                 "lead_holds": getattr(b, "counter_lead_holds", 0),

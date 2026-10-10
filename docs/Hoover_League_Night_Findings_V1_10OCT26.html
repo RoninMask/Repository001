@@ -48,9 +48,9 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 
 <!-- PAGE 1 -->
 <div class="page">
-<div class="band"><div class="k">PROJECT HOOVER · LEAGUE NIGHT FINDINGS · V1 · 10 OCT 26</div><h1>League night, 09 October: what Hoover did, what it didn't, and why</h1><div class="s">Five Hoover runs, 2 h 52 min, eleven race starts plus a practice session on the Oklahoma PC. Read from the run files, not from memory. For Dustin and Mike.</div></div>
+<div class="band"><div class="k">PROJECT HOOVER · LEAGUE NIGHT FINDINGS · V1.1 · 10 OCT 26</div><h1>League night, 09 October: what Hoover did, what it didn't, and why</h1><div class="s">Five Hoover runs, 2 h 52 min, eleven race starts plus a practice session on the Oklahoma PC. Read from the run files, not from memory. For Dustin and Mike.</div></div>
 
-<div class="verdict"><b>Bottom line.</b> The product worked for exactly one race (Race 2, 22:14–22:24): model commentary, names, corners, tyres, a question-and-answer passage, check-ins by driver, camera on our drivers 83 % of the time. Everything after that was lost to three faults that have nothing to do with the writing: a start-lights event the game repeats after lights out put the booth into its silent start sequence for <b>five whole races</b>; the Anthropic API account ran out of credit at 22:47 and every model line after that failed; and the late five-car private lobby never passed the "session open" gate, so the story layer never ran. The practice session at 21:36 was called for 21 minutes as a race's final lap. All of this is mechanical and all of it is fixed in build <code>976f330</code> (merged to your branch as <code>bfec553</code>) — except the credit, which is a top-up.</div>
+<div class="verdict"><b>Bottom line.</b> The product worked for exactly one race (Race 2, 22:14–22:24): model commentary, names, corners, tyres, a question-and-answer passage, check-ins by driver, camera on our drivers 83 % of the time. Everything after that was lost to three faults that have nothing to do with the writing: a start-lights event the game repeats after lights out put the booth into its silent start sequence for <b>five whole races</b>; the Anthropic API account ran out of credit at 22:47 and every model line after that failed; and the late five-car private lobby never passed the "session open" gate, so the story layer never ran. The practice session at 21:36 was called for 21 minutes as a race's final lap. All of this is mechanical and all of it is fixed in build <code>976f330</code> — except the credit, which is a top-up. A second pass (<code>885698e</code>, page 6) went through Race 2 line by line: 26 of 66 lines said something false, almost all of it position flicker on the wire turned into passes and lead changes. The engine now settles the order before it speaks, and checks every pass line against the live order at air time. Both builds are merged onto your branch as <code>e1b5a0c</code>.</div>
 
 <div class="tiles">
 <div class="tile"><div class="v">11</div><div class="l">race starts seen (2 aborted) plus one practice session</div></div>
@@ -64,7 +64,7 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <img class="chart" src="charts/timeline.png">
 <p class="cap">Hoover was restarted four times (Runs 2–5) as it went quiet. Each silent block is a race where the lights came on, the booth said "Lights coming on", and then nothing until the chequered flag. The practice session (amber) was fluent and confident — and wrong about what it was watching.</p>
 
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>1 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>1 / 8</span></div>
 </div>
 
 <!-- PAGE 2 -->
@@ -90,7 +90,7 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <img class="chart" src="charts/lines.png">
 <p class="cap">Dark is the model, grey the template. The practice session was the model's best material of the night — on the wrong premise. The silent races show their longest gap in red.</p>
 
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>2 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>2 / 8</span></div>
 </div>
 
 <!-- PAGE 3 -->
@@ -124,7 +124,7 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <li>Seven predictions planted, six came true, none said or paid off — the second night running. Still open (§9).</li>
 <li>"Oh, yes!" opened four lines in Race 2; "fresh softs" four times. Prompt tics to trim next cycle.</li>
 </ul>
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>3 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>3 / 8</span></div>
 </div>
 
 <!-- PAGE 3 -->
@@ -169,7 +169,7 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <p><b>Recommendation (§9):</b> submit a request only when the claim is in the top few of the queue by priority, or is a must-call. Expect the same model share from a tenth of the calls, and the cloud lane to breathe.</p>
 <p>The ElevenLabs side held: 360 lines written, 358 spoken, 4 synth failures on network resets at 21:50–21:55 (the internet dropped twice; the model saw <code>getaddrinfo failed</code> at the same moments).</p>
 </div></div>
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>4 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>4 / 8</span></div>
 </div>
 
 <!-- PAGE 4 -->
@@ -185,17 +185,46 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <h3>Driver threads on air</h3>
 <p>Every human had a live thread all night ("Valor is holding the lead with Faze a second behind", "Ronin is recovering from contact with Fried, eighth now, down from second on the grid"). Check-ins aired nine times in Race 2 and told the thread rather than a status line. In the practice session the mention debt fired 134 check-in claims — the thread machinery worked, the session did not deserve it.</p>
 </div></div>
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>5 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>5 / 8</span></div>
 </div>
 
 <!-- PAGE 5 -->
+<!-- PAGE 5b: ACCURACY -->
+<div class="page">
+<div class="mini">PROJECT HOOVER · <span>ACCURACY AUDIT — RACE 2</span></div>
+<p class="lead">Dustin's note: "a lot of inaccurate calls — they sound good but are often wrong." Every one of Race 2's 66 lines was put beside the facts the writer held at that moment and the live order. <b>26 of 66 lines (39 %) said something false</b> — 15 of 34 model lines, 11 of 32 templates. The model is not the main culprit: it wrote what the story beat told it, and the beat was wrong.</p>
+
+<table>
+<tr><th style="width:36mm">Cause</th><th class="num" style="width:12mm">Lines</th><th>Example on air (what the state said)</th><th style="width:44mm">Fix in <code>885698e</code></th></tr>
+<tr><td><b>Position flicker on the wire.</b> Side by side, two cars swap position every packet; the lead "changed" <b>79 times in 70 s</b>. Every swap became a pass or a lead change.</td><td class="num">13</td><td>"Faze's got the lead clear of Valor" (Valor P1, Faze 0.3 s behind) · "Ronin takes the lead from Valor" (Ronin P3) · "Faze takes the lead from Valor" then "Valor took the lead from Faze" five seconds apart (Valor P1 both times) · "Faze's got it done at the chicane" ×4</td><td><b>Settled order:</b> a position counts only once held for 1.5 s; no gap reading while a car is unsettled. <b>Order check at air:</b> a pass or lead line airs only if the order it describes is the order now; a chase line only while the chaser is behind.</td></tr>
+<tr><td><b>Pit cycle counted as passes</b>, and battles left open across a stop.</td><td class="num">8</td><td>"Raider takes fifteenth from Vampirenfie" (Raider P18, in the pit cycle) · "Ronin's up to ninth, four tenths from eighth" (Ronin P18 after his stop; the battle with Choose was from before it) · "Raider's through, he's got Slimes" (the pass was Nessio's; the model put the human's name on it)</td><td>A car in or just out of the pits, or a jump of three places, closes the battle silently (<code>pit_cycle</code>). The order check catches the stale ones. Names: the prompt now puts positions above the beat.</td></tr>
+<tr><td><b>The wire's "unknown" gap.</b> 65.5 s is 65,535 ms, the sentinel; the readings just under it are the same artefact decaying.</td><td class="num">2</td><td>"The gap back to Faze is 64.1 seconds" · "Pure's run out of time, sixty point nine seconds down"</td><td>Any reading at or over 60 s is no reading. The line-crossing filter window 5 → 20 s.</td></tr>
+<tr><td><b>Rejoin "into" a human</b> who was nowhere near.</td><td class="num">2</td><td>"Ronin comes out of the pits in seventeenth, straight into Pure" (14 s apart) · "Shockin rejoins in twentieth, right with Raider" (25 s apart)</td><td>Named only if within three seconds.</td></tr>
+<tr><td><b>Grid slot from the wrong place.</b> The lap-one ledger stored the running position when it opened as the "grid".</td><td class="num">2</td><td>"Faze's down from first on the grid" (grid unknown) · "Shockin's down from twelfth on the grid" (eleventh)</td><td>The thread reads the car's own grid slot only; 255 is unknown.</td></tr>
+<tr><td><b>Stale between writing and airing.</b> The line is written when the claim is raised; the race moved on.</td><td class="num">1</td><td>"Ronin's down in eighteenth, four point seven back from Pure" (seventeenth, ten seconds)</td><td>Freshness check now covers order as well as gap.</td></tr>
+<tr><td><b>Model embellishment.</b></td><td class="num">2</td><td>"Faze's got the win, and that's his first victory here at Yas Marina" — 42 s before the flag, and no such history in the state · "Faze right there on the exit of the hotel section" (both cars at turn three)</td><td>Prompt 1.6: never a result before the flag, no invented history, the state's positions outrank the beat. Corners: say the corner given or none.</td></tr>
+</table>
+
+<div class="two"><div>
+<h3>What was right</h3>
+<p>The check-ins (driver threads) were accurate to the tenth in all nine cases. Tyre compound and age were right every time. The last-lap passage was built on a true 0.3 s gap. Shockin's retirement call, the results and the penalty correction were right.</p>
+<h3>What this means</h3>
+<p>The booth now sounds good enough that wrong facts are the loudest flaw. They go wrong in the <i>engine</i>, before the model sees them — so the fixes are in the story layer and the air-time check; the prompt change is a backstop.</p>
+</div><div>
+<h3>Proof so far</h3>
+<p>Replaying the 12:43 capture with the fixes: 6 pass or lead lines were stopped at air time because the order had changed; battle stories raised 88 → 70 (the flicker battles are gone); every remaining pass line agrees with the order in the state at that moment (48 checked, 0 contradictions).</p>
+<p><b>The real test is the league capture.</b> Race 2's recording (<code>HOOVER_20261009_220958_s01.bin</code>, 346 MB) is on the Oklahoma PC; replaying it with <code>885698e</code> and re-running this audit is the first job before the next night. Expected: the 13 flicker lines and the 8 pit-cycle lines gone; the gap lines gone; the check-ins unchanged.</p>
+</div></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>6 / 8</span></div>
+</div>
+
 <div class="page">
 <div class="mini">PROJECT HOOVER · <span>RECOMMENDATIONS</span></div>
 <h2><span class="n">8</span>Before the next league night — operations</h2>
 <table>
 <tr><th style="width:28mm">Who</th><th>Do</th><th style="width:40mm">Why</th></tr>
 <tr><td>Dustin</td><td><b>Top up the Anthropic API account</b> and set a low-balance e-mail alert. Budget by the funnel: last night's 28-minute race window spent roughly 1,400 answered calls.</td><td>F3. Everything after 22:47 was templates.</td></tr>
-<tr><td>Dustin / Mike</td><td>Dashboard → <b>Get latest</b> → version block must show <code>claude/interview-ingest @ bfec553</code> or later.</td><td>Carries F1, F2, F4, F5 and the billing latch.</td></tr>
+<tr><td>Dustin / Mike</td><td>Dashboard → <b>Get latest</b> → version block must show <code>claude/interview-ingest @ e1b5a0c</code> or later.</td><td>Carries F1, F2, F4, F5 and the billing latch.</td></tr>
 <tr><td>Dustin / Mike</td><td><b>Pre-flight must show Cloud lane green.</b> It makes a real model call now; a red row means no credit or no key. Do not start a race on red.</td><td>Catches F3 before the lobby forms.</td></tr>
 <tr><td>Dustin</td><td>Start Hoover once the lobby is a <b>race</b> lobby. Practice and qualifying will now be quiet; that is deliberate, not a fault.</td><td>F2.</td></tr>
 <tr><td>Mike</td><td>If the booth goes quiet for more than a minute in green, the <b>state line</b> on the Dashboard now shows session kind, type and laps next to the state. Screenshot it. Do not restart unless it stays quiet past the lights of the next race.</td><td>Diagnosis without stopping the run.</td></tr>
@@ -214,7 +243,7 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 </table>
 
 <div class="box"><b class="r">What to expect next time.</b> With F1–F4 in place and credit on the account, every race should sound like Race 2 from lights to flag; the practice session is silent; the five-car lobby gets the full story layer. The remaining gap to the Baku/Monza reference booths is quality of material, not plumbing: predictions out loud, the podium frame, and a tighter prompt.</div>
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>6 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>7 / 8</span></div>
 </div>
 
 <!-- PAGE 6 -->
@@ -238,7 +267,8 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <tr><th>Commit</th><th>Branch</th><th>What</th></tr>
 <tr><td><code>a944931</code></td><td>interview-ingest</td><td>The build that ran all night: cycle 4 league build plus interviews and lore on air.</td></tr>
 <tr><td><code>976f330</code></td><td>v4-state-blob</td><td>V8.7 league-night fixes: start-lights guard, final-lap guard, session gate, small lobbies, grid 255, gap words, lead flap, final-lap check-ins, state-call priority, billing latch. All suites green; 12:43 and 08 OCT captures replayed clean.</td></tr>
-<tr><td><code>bfec553</code></td><td>interview-ingest</td><td>The same fixes merged onto your branch. <b>This is the one to pull.</b></td></tr>
+<tr><td><code>885698e</code></td><td>v4-state-blob</td><td>V8.8 accuracy audit: settled order, order check at air, pit-cycle passes, grid slot, gap sentinel, rejoin wording, prompt 1.6.</td></tr>
+<tr><td><code>e1b5a0c</code></td><td>interview-ingest</td><td>Both merged onto your branch. <b>This is the one to pull.</b></td></tr>
 </table>
 
 <h2><span class="n">C</span>Settings touched (for the tune sheet)</h2>
@@ -250,9 +280,11 @@ code{font-family:'DejaVu Sans Mono',monospace;font-size:8pt;background:var(--sof
 <tr><td>Near-repeat threshold</td><td>config <code>v3.repetition.near_repeat_jaccard</code></td><td>0.6 → 0.5</td></tr>
 <tr><td>Line-crossing gap filter window</td><td>matrix <code>engine.gap_jump_window_s</code></td><td>5 → 20 s</td></tr>
 <tr><td>Lead battle: same pair swapping again is not spoken within</td><td>matrix <code>LEAD-02.flap_s</code></td><td>none → 25 s</td></tr>
+<tr><td>Settled order: a position counts after</td><td>matrix <code>engine.order_hold_s</code></td><td>none → 1.5 s</td></tr>
+<tr><td>Gap readings at or over this are "unknown"</td><td>matrix <code>engine.gap_unknown_s</code></td><td>none → 60 s</td></tr>
 <tr><td>Speech characters per run</td><td>config <code>v3.speech.character_budget</code></td><td>25,000 → 150,000 (set before the night; 30.7k used)</td></tr>
 </table>
 <p class="cap">Links to the live tables: <b>github.com/RoninMask/Repository001</b> → branch <code>claude/interview-ingest</code> → <code>hoover_config_v4.json</code>, <code>hoover_stories_v4.json</code>, <code>hoover_words_v4.json</code>, <code>hoover_prompts_v3.json</code>.</p>
-<div class="foot"><span><b>HOOVER</b> · League Night Findings V1 · 10 OCT 26</span><span>7 / 7</span></div>
+<div class="foot"><span><b>HOOVER</b> · League Night Findings V1.1 · 10 OCT 26</span><span>8 / 8</span></div>
 </div>
 </body></html>
