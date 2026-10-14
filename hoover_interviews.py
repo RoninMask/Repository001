@@ -29,6 +29,8 @@ Standard library only.
 """
 
 import argparse
+import collections
+import glob
 import datetime
 import json
 import os
@@ -39,7 +41,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-TOOL_VERSION = "interviews_v1_09OCT26"
+TOOL_VERSION = "interviews_v1_1_14OCT26"
 AGENT_ID = "agent_3701m4h2w4dpeva9j4hszehzq3zp"
 EL_BASE = "https://api.elevenlabs.io"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -120,8 +122,15 @@ class Roster:
         return self.by_tag.get(norm(tag))
 
     def resolve(self, mention):
-        """-> (driver_id or None, 'ambiguous'|'unknown'|None)"""
-        hits = self.mentions.get(norm(mention), set())
+        """-> (driver_id or None, 'ambiguous'|'unknown'|None). V1.1 (14 OCT):
+        a mention that IS a driver's on-air everyday name belongs to that
+        driver even when it is also another driver's real first name ("Evan"
+        is Evan Kannedy on air; Evan Sholly is called Sholly)."""
+        key = norm(mention)
+        on_air = [d["driver_id"] for d in self.drivers if norm(d["spoken"]["short"]) == key]
+        if len(on_air) == 1:
+            return on_air[0], None
+        hits = self.mentions.get(key, set())
         if len(hits) == 1:
             return next(iter(hits)), None
         return None, ("ambiguous" if hits else "unknown")
@@ -515,11 +524,147 @@ def status(roster, paths, log):
     log("")
 
 
+# ---- check (14 OCT): a small offline test of the whole chain ------------------
+
+def check(args, roster, paths, log):
+    """No keys, no network, nothing written to the real files. Runs the
+    fixture call through match -> card -> safety checks -> dossier, loads the
+    result through Hoover's own Dossier class, then reports the real folder:
+    keys present, who has a call, and whether hoover_dossier.json was built
+    with the names now on air. Exit code 0 only when every step passes."""
+    import importlib.util
+    import shutil
+    import tempfile
+    fails = []
+
+    def step(ok, title, detail=""):
+        log("  [%s] %s%s" % ("ok" if ok else "FAIL", title, (": " + detail) if detail else ""))
+        if not ok:
+            fails.append(title)
+
+    log("")
+    log("Ingest check (offline, no keys used)")
+    log("")
+    # 1. roster
+    log("1. Roster")
+    step(bool(roster.drivers), "%d human drivers read" % len(roster.drivers))
+    for line in roster.name_table().splitlines():
+        log("     " + line)
+    shorts = collections.Counter(norm(d["spoken"]["short"]) for d in roster.drivers)
+    dup = [k for k, v in shorts.items() if v > 1]
+    step(not dup, "everyday names unique", ", ".join(dup) if dup else "")
+    on_air_short = {norm(d["spoken"]["short"]) for d in roster.drivers}
+    amb = sorted(m for m, ids in roster.mentions.items() if len(ids) > 1 and m not in on_air_short)
+    log("     a name two drivers share and nobody is called on air (resolves to nobody): %s" % (", ".join(amb) or "none"))
+    for m, ids in sorted(roster.mentions.items()):
+        if len(ids) > 1 and m in on_air_short:
+            who, _ = roster.resolve(m)
+            log("     '%s' is shared but is %s's on-air name, so it resolves to %s" % (m, roster.on_air(who), roster.on_air(who)))
+
+    # 2. fixture through the chain, in a temp folder
+    log("")
+    log("2. One call through the chain (fixture: Dustin's 09 OCT test call)")
+    fx_dir = os.path.join(args.root, "tests", "fixtures", "interviews")
+    fx = sorted(glob.glob(os.path.join(fx_dir, "conv_*.json")))
+    step(bool(fx), "fixture call found", fx_dir if not fx else os.path.basename(fx[0]))
+    tmp = tempfile.mkdtemp(prefix="hoover_ingest_check_")
+    try:
+        tpaths = {"roster": paths["roster"],
+                  "dossier": os.path.join(tmp, "hoover_dossier.json"),
+                  "raw": os.path.join(tmp, "raw"), "cards": os.path.join(tmp, "cards")}
+        os.makedirs(tpaths["raw"])
+        for f in fx:
+            shutil.copyfile(f, os.path.join(tpaths["raw"], os.path.basename(f)))
+        best, orphans = latest_per_driver(tpaths["raw"], roster, lambda m: None)
+        step(bool(best), "call matched to a driver by gamertag",
+             ", ".join("%s -> %s" % (call_vars(c).get("gamertag"), roster.on_air(d)) for d, c in best.items()))
+        step(not orphans, "no orphan calls", "; ".join("%s (%s)" % o for o in orphans))
+        quiet = []
+        a2 = argparse.Namespace(**vars(args)); a2.no_model = True; a2.dry_run = False
+        built = build(a2, roster, tpaths, quiet.append)
+        step(bool(built), "card built (rules pass, no model)")
+        for did, card in sorted(built.items()):
+            log("     %s:" % roster.on_air(did))
+            for f in card.get("facts") or []:
+                log("       fact   %s" % f)
+            for k, v in (card.get("armed") or {}).items():
+                log("       armed  %s: %s" % (k, v))
+            for s_, why in card.get("dropped") or []:
+                log("       held   (%s) %s" % (why, s_))
+        wrote = os.path.isfile(tpaths["dossier"])
+        step(wrote, "dossier written (to a temp folder, not your real one)")
+        # 3. Hoover reads it back
+        log("")
+        log("3. Hoover reads it back")
+        tool = None
+        for cand in sorted(glob.glob(os.path.join(args.root, "T11_F125_Baby_Hoover_V*.py")), reverse=True):
+            tool = cand
+            break
+        step(tool is not None, "Hoover tool found", os.path.basename(tool) if tool else "")
+        if tool and wrote:
+            try:
+                spec = importlib.util.spec_from_file_location("hoover_tool_for_check", tool)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                dz = mod.Dossier(tpaths["dossier"])
+                n = 0
+                for did in built:
+                    facts = dz.facts(did)
+                    n += len(facts)
+                    for f in facts:
+                        log("     offered to the booth for %s: %s" % (roster.on_air(did), f))
+                step(n > 0, "Hoover's Dossier class offers %d fact(s)" % n)
+            except Exception as e:
+                step(False, "Hoover could not load the dossier", repr(e)[:200])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # 4. the real folder
+    log("")
+    log("4. Your real folder")
+    for var in (args.el_key_var, args.key_var):
+        log("     %-20s %s" % (var, "set" if get_key(var) else "NOT SET (pull needs the ElevenLabs key; build is plainer without the Claude key)"))
+    rbest, rorph = latest_per_driver(paths["raw"], roster, lambda m: None)
+    log("     calls on disk: %d driver(s) with an interview, %d orphan(s)" % (len(rbest), len(rorph)))
+    for d in roster.drivers:
+        log("       %-8s %s" % (roster.on_air(d["driver_id"]), "done" if d["driver_id"] in rbest else "--"))
+    dz_doc = load_json(paths["dossier"], None) or {}
+    drivers = dz_doc.get("drivers") or {}
+    with_facts = [k for k, v in drivers.items() if (v or {}).get("facts")]
+    log("     hoover_dossier.json: %d driver(s) with facts" % len(with_facts))
+    # were those facts written with the names now on air?
+    on_air = {norm(d["spoken"]["short"]) for d in roster.drivers} | {norm(d["spoken"]["full"]) for d in roster.drivers}
+    stale = []
+    for k in with_facts:
+        v = drivers[k]
+        text = " ".join((v.get("facts") or []) + list((v.get("armed") or {}).values()))
+        words = {norm(w) for w in re.findall(r"[A-Za-z']+", text) if w[:1].isupper()}
+        other = set()
+        for d in roster.drivers:
+            nm = d.get("names") or {}
+            for setname, sp in nm.items():
+                for w in (sp.get("short", ""), sp.get("full", "")):
+                    if w and norm(w) not in on_air and norm(w) in words:
+                        other.add(w)
+        if other:
+            stale.append((k, sorted(other)))
+    if stale:
+        step(False, "dossier was built with names that are not on air now",
+             "; ".join("%s says %s" % (k, ", ".join(o)) for k, o in stale) + " -- run build again")
+    elif with_facts:
+        step(True, "dossier names match the names on air")
+    else:
+        log("     (no facts yet: nothing to check until the drivers have done their interviews and you run build)")
+    log("")
+    log("RESULT: %s" % ("PASS" if not fails else "FAIL (%s)" % "; ".join(fails)))
+    return 0 if not fails else 1
+
+
 # ---- main ---------------------------------------------------------------------
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Hoover interview ingest")
-    ap.add_argument("command", nargs="?", default="all", choices=["all", "pull", "build", "status"])
+    ap.add_argument("command", nargs="?", default="all", choices=["all", "pull", "build", "status", "check"])
     ap.add_argument("--root", default=HERE, help="Hoover folder (default: beside this script)")
     ap.add_argument("--agent", default=AGENT_ID)
     ap.add_argument("--el-key-var", default="ELEVENLABS_API_KEY")
@@ -538,6 +683,8 @@ def main(argv=None):
         raise SystemExit("No human drivers found in %s" % paths["roster"])
 
     say("Hoover interview ingest (%s)" % TOOL_VERSION)
+    if args.command == "check":
+        raise SystemExit(check(args, roster, paths, say))
     if args.command in ("all", "pull"):
         pull(args, roster, paths, say)
     if args.command in ("all", "build"):

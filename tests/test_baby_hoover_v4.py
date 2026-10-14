@@ -110,7 +110,10 @@ class TestByteIdentityOff(unittest.TestCase):
                 # the identity gate pins the Pass 4 config (hoover_config_v3.json,
                 # frozen); the V4 tool otherwise reads hoover_config_v4.json
                 rc3, _ = _run(V3_FILE, b, d3, [])
-                rc4, out4 = _run(V4_FILE, b, d4, ["--stories", "off", "--config", V3_CONFIG])
+                # V8.10: the roster beside the tool now loads by default; V3
+                # never had one, so the parity run switches it off
+                rc4, out4 = _run(V4_FILE, b, d4, ["--stories", "off", "--config", V3_CONFIG,
+                                                  "--roster", "none"])
                 self.assertEqual(rc3, 0, b)
                 self.assertEqual(rc4, 0, out4)
                 s3, p3 = _artefacts(d3)

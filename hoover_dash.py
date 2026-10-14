@@ -41,8 +41,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-DASH_VERSION = "1.0"
-DASH_DATE = "08OCT26"
+DASH_VERSION = "1.1"
+DASH_DATE = "14OCT26"
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHILD = os.path.join(HERE, "hoover_dash_child.py")
 TAG = "@@HOOVER "
@@ -371,6 +371,80 @@ def roster_problems(doc):
 
 
 _LANES = {"t": 0.0, "rows": []}
+
+
+ROSTER_NAME = "hoover_roster_league.json"
+
+
+def names_read(tool_dir):
+    """The Names card: on-air mode and both name sets per human driver."""
+    path = os.path.join(tool_dir, ROSTER_NAME)
+    doc = load_roster(path)
+    if not doc:
+        return {"ok": False, "msg": "%s not found or not readable" % ROSTER_NAME}
+    rows = []
+    for d in doc.get("drivers", []):
+        if d.get("participation") != "human" or not (d.get("match") or {}).get("handle"):
+            continue
+        sp = d.get("spoken") or {}
+        nm = d.get("names") or {}
+        real = nm.get("real") or {"short": sp.get("short"), "full": sp.get("full")}
+        tag = nm.get("gamertag") or {"short": sp.get("short"), "full": sp.get("full")}
+        rows.append({"driver_id": d["driver_id"], "handle": d["match"]["handle"],
+                     "race_number": (d.get("match") or {}).get("race_number"),
+                     "real_short": real.get("short") or "", "real_full": real.get("full") or "",
+                     "tag_short": tag.get("short") or "", "tag_full": tag.get("full") or ""})
+    return {"ok": True, "on_air": doc.get("on_air") or "real", "drivers": rows,
+            "file": ROSTER_NAME, "version": doc.get("roster_version")}
+
+
+def names_write(tool_dir, body):
+    """Save the Names card. Writes names.real / names.gamertag per driver and
+    copies the chosen set into spoken (the only field Hoover and the interview
+    tool read). Hoover picks it up at its next start. Keeps a .bak."""
+    path = os.path.join(tool_dir, ROSTER_NAME)
+    doc = load_roster(path)
+    if not doc:
+        return {"ok": False, "msg": "%s not found" % ROSTER_NAME}
+    mode = "gamertag" if (body.get("on_air") == "gamertag") else "real"
+    edits = {r.get("driver_id"): r for r in (body.get("drivers") or [])}
+    seen = {}
+    for d in doc.get("drivers", []):
+        r = edits.get(d.get("driver_id"))
+        if not r:
+            continue
+        nm = d.setdefault("names", {})
+        for key, pre in (("real", "real_"), ("gamertag", "tag_")):
+            short = (r.get(pre + "short") or "").strip()
+            full = (r.get(pre + "full") or "").strip() or short
+            if not short:
+                return {"ok": False, "msg": "%s: the %s everyday name is empty" % (d["driver_id"], key)}
+            if any(ch.isdigit() for ch in short + full):
+                return {"ok": False, "msg": "%s: a name may not contain digits (say it as words)" % d["driver_id"]}
+            nm[key] = {"short": short, "full": full}
+        chosen = nm[mode]
+        d.setdefault("spoken", {})["short"] = chosen["short"]
+        d["spoken"]["full"] = chosen["full"]
+        d["spoken"]["rung"] = 1
+        d["spoken"]["possessive_ok"] = True
+        d["level"] = "A"
+        low = chosen["short"].lower()
+        if low in seen:
+            return {"ok": False, "msg": "'%s' is the everyday name of two drivers (%s and %s); they must differ"
+                    % (chosen["short"], seen[low], d["driver_id"])}
+        seen[low] = d["driver_id"]
+    doc["on_air"] = mode
+    try:
+        if os.path.exists(path):
+            shutil.copyfile(path, path + ".bak")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+    except Exception as e:
+        return {"ok": False, "msg": "could not write %s: %s" % (ROSTER_NAME, e)}
+    return {"ok": True, "on_air": mode, "msg": "Saved. Hoover uses these names from its next start."}
 
 
 def _writer_lane_rows(info, tool_dir, ttl_s=180.0):
@@ -749,6 +823,8 @@ def make_handler(app):
                                         "listen": app.last_listen})
             if u.path == "/api/runs":
                 return self._send(200, {"runs": list_runs(app.tool_dir(), app.session.out_root)})
+            if u.path == "/api/names":
+                return self._send(200, names_read(app.tool_dir()))
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -792,6 +868,11 @@ def make_handler(app):
                     if len(p) == 3 and "HEAD" not in p[0]:
                         rows.append({"name": p[0], "when": p[1], "current": p[2].strip() == "*"})
                 return self._send(200, {"rc": rc, "branches": rows[:30]})
+            if u.path == "/api/names":
+                if s.running() and s.kind == "session":
+                    return self._send(409, {"ok": False, "msg": "A session is running. Names change at the next start; stop the session first."})
+                res = names_write(app.tool_dir(), b)
+                return self._send(200 if res.get("ok") else 400, res)
             if u.path == "/api/stdin":
                 return self._send(200, {"ok": s.send(str(b.get("text", "")))})
             if u.path == "/api/stop":

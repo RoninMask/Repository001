@@ -68,6 +68,14 @@ details summary{cursor:pointer;color:var(--dim);font-weight:600;margin:6px 0}
 .bad{color:var(--red)}
 .good{color:var(--green)}
 table{width:100%;border-collapse:collapse;font-size:13px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer}
+.seg input{display:none}
+.seg span{padding:6px 12px;color:var(--dim)}
+.seg input:checked+span{background:var(--accent);color:#141000;font-weight:600}
+#namestable input{width:100%;box-sizing:border-box;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:13px}
+#namestable td{padding:4px 6px;vertical-align:middle}
+#namestable th{text-align:left;padding:4px 6px;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+#namestable .dimcol input{opacity:.55}
 th{text-align:left;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;border-bottom:1px solid var(--line)}
 td{padding:6px 8px;border-bottom:1px solid #1f262f;vertical-align:top}
 td.n{font-variant-numeric:tabular-nums;text-align:right;color:var(--dim)}
@@ -144,6 +152,23 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
     </div>
     <div class="checks" id="lobbychecks" style="margin-top:10px"><div class="note">Not checked yet. This reads the names, race numbers and settings the game is sending, before lights out.</div></div>
     <div id="lobbytable" style="margin-top:10px"></div>
+  </div>
+  <div class="card" id="namescard">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Names on air</h3>
+      <div class="row">
+        <label class="seg" title="Which set of names the booth says. Applies at the next Hoover start.">
+          <input type="radio" name="onair" value="real" id="onair_real"><span>Real names</span>
+          <input type="radio" name="onair" value="gamertag" id="onair_tag"><span>Gamertags</span>
+        </label>
+        <button class="btn" id="btnnamesreload">Reload</button>
+        <button class="btn accent" id="btnnamessave">Save names</button>
+      </div>
+    </div>
+    <div class="note" style="margin-top:6px">Everyday is what the booth says in nearly every line. Full is for the grid, introductions, the podium and results. Two drivers may not share an everyday name. A surname shared by two or more drivers is never said on its own. Hoover reads this file when it starts, so save before you start the session.</div>
+    <div id="namestable" style="margin-top:10px"><div class="note">Loading…</div></div>
+    <div class="note" id="namesnote" style="margin-top:6px"></div>
+    <div class="note" style="margin-top:6px">After changing names, rebuild the interview cards so they say the same names: <b>Hoover Interviews.bat build</b>, or <b>I</b> in Start Hoover for the offline check.</div>
   </div>
   <div class="card">
     <h3>Audio</h3>
@@ -515,6 +540,40 @@ function renderLive(){
 
 // ---------- pre-flight
 function checkHTML(r){ return `<div class="check"><span class="dot ${r.state}"></span><div class="t">${esc(r.title)}</div><div><div class="e">${esc(r.evidence)}</div>${r.suggestion ? `<div class="s">${esc(r.suggestion)}</div>` : ""}</div></div>`; }
+// ---------- names on air
+let NAMES = null;
+function namesMode(){ return $("#onair_tag").checked ? "gamertag" : "real"; }
+function paintNames(){
+  if (!NAMES || !NAMES.ok) { $("#namestable").innerHTML = `<div class="note bad">${esc((NAMES||{}).msg || "Could not read the roster")}</div>`; return; }
+  const mode = namesMode();
+  const rc = mode === "real" ? "" : "dimcol", tc = mode === "gamertag" ? "" : "dimcol";
+  $("#namestable").innerHTML = `<table><tr><th>Gamertag</th><th>No.</th><th class="${rc}">Real: everyday</th><th class="${rc}">Real: full</th><th class="${tc}">Gamertag: everyday</th><th class="${tc}">Gamertag: full</th></tr>` +
+    NAMES.drivers.map((d,i) => `<tr data-i="${i}"><td class="mono">${esc(d.handle)}</td><td class="n">${d.race_number ?? '<span class="bad">–</span>'}</td>
+      <td class="${rc}"><input data-k="real_short" value="${esc(d.real_short)}"></td><td class="${rc}"><input data-k="real_full" value="${esc(d.real_full)}"></td>
+      <td class="${tc}"><input data-k="tag_short" value="${esc(d.tag_short)}"></td><td class="${tc}"><input data-k="tag_full" value="${esc(d.tag_full)}"></td></tr>`).join("") + `</table>`;
+  const on = mode === "real" ? "real names" : "gamertags";
+  $("#namesnote").innerHTML = `On air now: <b>${on}</b>. The highlighted columns are what the booth will say.`;
+}
+async function loadNames(){
+  NAMES = await api("/api/names");
+  if (NAMES.ok) { (NAMES.on_air === "gamertag" ? $("#onair_tag") : $("#onair_real")).checked = true; }
+  paintNames();
+}
+async function saveNames(){
+  if (!NAMES || !NAMES.ok) return;
+  const rows = NAMES.drivers.map((d,i) => {
+    const tr = $(`#namestable tr[data-i="${i}"]`); const o = {driver_id: d.driver_id};
+    tr.querySelectorAll("input[data-k]").forEach(inp => o[inp.dataset.k] = inp.value);
+    return o;
+  });
+  const r = await api("/api/names", {on_air: namesMode(), drivers: rows});
+  toast(r.ok ? "<b>Names saved.</b> " + esc(r.msg) : "<b>Not saved:</b> " + esc(r.msg), r.ok ? 5000 : 9000);
+  if (r.ok) { await loadNames(); runChecks(); }
+}
+document.querySelectorAll("input[name=onair]").forEach(r => r.onchange = () => { paintNames(); $("#namesnote").innerHTML += ` <span class="bad">Not saved yet: press Save names.</span>`; });
+$("#btnnamesreload").onclick = loadNames;
+$("#btnnamessave").onclick = saveNames;
+
 async function runChecks(){
   $("#checks").innerHTML = `<div class="note">Running…</div>`;
   const d = await api("/api/preflight");
@@ -561,6 +620,7 @@ $("#btncheckout").onclick = async () => { const b = $("#branches").value; if (!b
 (async () => {
   await loadTool();
   runChecks();
+  loadNames();
   setInterval(poll, 1000); poll();
 })();
 </script>

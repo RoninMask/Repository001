@@ -10205,7 +10205,7 @@ class SpeechChannel:
 
 BUILD_PRODUCT = "Baby Hoover"
 BUILD_VERSION = "V5"
-BUILD_DATE = "09OCT26"
+BUILD_DATE = "14OCT26"
 SETTINGS_ENV = "HOOVER_SETTINGS"
 SETTINGS_FILE_VERSION = 1
 
@@ -10932,6 +10932,14 @@ def build_info(tool_path=None, settings_path=None):
         p = os.path.join(here, name)
         files[role] = {"file": name, "present": os.path.isfile(p),
                        "sha256_12": _short_hash(p)}
+        if role == "roster" and os.path.isfile(p):
+            # V8.10: which name set is on air (set from the dashboard's Names card)
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    rd = json.load(fh)
+                files[role]["on_air"] = rd.get("on_air") or "real"
+            except Exception:
+                files[role]["on_air"] = None
     sp = user_settings_path(settings_path)
     return {
         "product": BUILD_PRODUCT,
@@ -10979,6 +10987,9 @@ def format_build_info(info):
     for role, f in info["data_files"].items():
         lines.append("  %-16s %s %s" % (role.capitalize(), f["file"],
                                         "ok" if f["present"] else "MISSING"))
+        if role == "roster" and f.get("on_air"):
+            lines.append("  %-16s %s" % ("Names on air",
+                                        "REAL NAMES" if f["on_air"] == "real" else "GAMERTAGS"))
     s = info["settings_file"]
     lines.append("  Your settings    %s %s" % (
         s["path"], "" if s["present"] else "(not created yet: run Pick devices)"))

@@ -43,6 +43,7 @@ echo   7  Open the output folder
 echo   8  Writer check    one tiny request down the cloud lane and the local (Ollama) lane
 echo   9  Start live      HYBRID writer (cloud + local), speech on   [the 9 OCT race setting]
 echo   L  Local voice test   one sentence through the Windows voice, then stop
+echo   I  Interview ingest check   offline, no keys: proves the chain and lists who has done their interview
 echo   R  Replay a capture at real pace, hybrid writer, speech on   [the morning gate]
 echo   Q  Quit
 echo.
@@ -58,6 +59,7 @@ if /i "%CHOICE%"=="7" goto output
 if /i "%CHOICE%"=="8" goto writer_check
 if /i "%CHOICE%"=="9" goto live_hybrid
 if /i "%CHOICE%"=="l" goto tts_local
+if /i "%CHOICE%"=="i" goto ingest_check
 if /i "%CHOICE%"=="r" goto replay_hybrid
 if /i "%CHOICE%"=="q" goto end
 goto menu
@@ -65,6 +67,13 @@ goto menu
 :writer_check
 echo.
 %PY% "%HOOVER_TOOL%" --writer-check
+echo.
+pause
+goto menu
+
+:ingest_check
+echo.
+%PY% hoover_interviews.py check
 echo.
 pause
 goto menu
