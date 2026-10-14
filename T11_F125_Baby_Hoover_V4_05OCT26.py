@@ -5280,6 +5280,11 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
             h = {"say": c.spoken, "position": c.position,
                  "gap_ahead": round(ga, 1) if ga is not None else None,
                  "trend": tr, "grid": c.grid or None}
+            # V8.10 (14 OCT): real names. The full name rides beside the
+            # everyday one so a passage can introduce a driver properly.
+            if c.spoken_full and not c.spoken_dynamic and c.spoken_full != c.spoken:
+                h["full"] = c.spoken_full
+                allow(*c.spoken_full.split())
             if ext is not None:
                 ty = ext.tyre(i)
                 if ty:
@@ -5617,6 +5622,21 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                     extra.add(tok)
     for e in extra:
         allow(e)
+    # V8.10 (14 OCT): a surname carried by two or more cars on track may never
+    # be said on its own ("Kannedy" when three Kannedys race). Listed for the
+    # prompt and enforced by the checker (bare_surname). Every car's full
+    # name is licensed so the first mention of any driver can be the whole name.
+    if world is not None:
+        surn = collections.defaultdict(set)
+        for c in world.cars:
+            if c.seen and c.spoken_full and not c.spoken_dynamic:
+                parts = c.spoken_full.split()
+                if len(parts) >= 2:
+                    surn[parts[-1]].add(parts[0])
+                    allow(*parts)
+        shared = {sn: sorted(firsts) for sn, firsts in surn.items() if len(firsts) > 1}
+        if shared:
+            blob["never_alone"] = shared
     blob["allowed_words"] = [w for w in allowed if w]
     return blob
 
@@ -7217,6 +7237,7 @@ class V3Booth:
         self._line_seq = 0
         self._winner_named = False
         self._last_template = None
+        self._full_name_kinds = None     # V8.10: lazily read from config
         # Part C: the pacing governor -- the booth's sense of time between lines.
         pc = config.get("v3", "pacing", default={}) or {}
         self.pc_min_gap = pc.get("min_gap_s", 1.2)
@@ -7638,6 +7659,20 @@ class V3Booth:
             1, len(self.words.kinds.get(claim.kind, {}).get("variants", [])))
         return "ok"
 
+    def _name_for_kind(self, car, kind):
+        """V8.10 (14 OCT): real names on air. The everyday name (spoken.short)
+        for every line except the kinds in v3.naming.full_name_kinds (intros,
+        the grid, the podium, results), which say the roster's spoken.full.
+        A car named by position or by a fallback has no full form and is
+        unchanged."""
+        if car.spoken_dynamic or not car.spoken_full:
+            return car.spoken
+        fk = self._full_name_kinds
+        if fk is None:
+            fk = set((self.cfg.get("v3", "naming", "full_name_kinds", default=[]) or []))
+            self._full_name_kinds = fk
+        return car.spoken_full if kind in fk else car.spoken
+
     def _story_context(self, claim):
         """V4: the fill context and facts view for a story beat come straight
         off the claim (the engine rendered the display forms); names are
@@ -7650,9 +7685,9 @@ class V3Booth:
         for i, idx in enumerate(claim.subjects):
             if idx is not None and 0 <= idx < len(self.model.w.cars):
                 if i < len(nm):
-                    nm[i] = self.model.w.cars[idx].spoken
+                    nm[i] = self._name_for_kind(self.model.w.cars[idx], claim.kind)
                 else:
-                    nm.append(self.model.w.cars[idx].spoken)
+                    nm.append(self._name_for_kind(self.model.w.cars[idx], claim.kind))
         disp = f.get("display") or {}
         if nm:
             ctx["a"] = nm[0]
@@ -7685,9 +7720,9 @@ class V3Booth:
         for i, idx in enumerate(claim.subjects):
             if idx is not None and 0 <= idx < len(self.model.w.cars):
                 if i < len(nm):
-                    nm[i] = self.model.w.cars[idx].spoken
+                    nm[i] = self._name_for_kind(self.model.w.cars[idx], claim.kind)
                 else:
-                    nm.append(self.model.w.cars[idx].spoken)
+                    nm.append(self._name_for_kind(self.model.w.cars[idx], claim.kind))
         ctx = {}
         fv = {}
         if len(nm) >= 1:
@@ -8622,6 +8657,10 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
         for part in str(w).split(" "):
             if part:
                 allowed.add(part.lower())
+    # V8.10: shared surnames -> the first names that may precede them
+    never_alone = {}
+    for sn, firsts in ((blob or {}).get("never_alone") or {}).items():
+        never_alone[str(sn).lower()] = {str(f).lower() for f in (firsts or [])}
 
     caps_ok, banned, slack = {"i", "ok"}, [], 2
     if cfg is not None:
@@ -8673,6 +8712,13 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
                 continue
             if base not in allowed and low not in allowed:
                 return (False, "unknown_name:%s" % tok)
+            # V8.10 (14 OCT): a shared surname must follow one of its first
+            # names ("Alex Kannedy", never "Kannedy")
+            if never_alone and (base in never_alone or low in never_alone):
+                firsts = never_alone.get(base) or never_alone.get(low) or ()
+                prev = tokens[i - 1].lower().strip("'") if i > 0 else ""
+                if prev not in firsts:
+                    return (False, "bare_surname:%s" % tok)
 
     if word_budget:
         wc = len(text.split())
@@ -8800,6 +8846,7 @@ ARCHIVE_FILE_NAME = "hoover_archive.json"      # V6: the results store
 TRACKS_FILE_NAME = "hoover_tracks.json"        # V6: track reference
 DOSSIER_FILE_NAME = "hoover_dossier.json"      # V6: hand-written driver facts
 RULES_FILE_NAME = "hoover_rules_league.json"   # V6: league rules as gates
+ROSTER_FILE_NAME = "hoover_roster_league.json" # V8.10: loads by default when present
 
 
 def _find_prompts_file(config):
@@ -15606,7 +15653,17 @@ class BabyHooverV3:
         here = os.path.dirname(os.path.abspath(__file__))
         cfg_path = args.config or default_config_path(here)
         self.config = Config(cfg_path)
-        self.roster = Roster(args.roster)
+        # V8.10 (14 OCT): the league roster beside the tool loads by default.
+        # Until now it loaded only with --roster, which the Start Hoover menu
+        # never passed, so every live run named cars from the gamertag rules
+        # alone and the roster the dashboard checks was never read.
+        roster_path = args.roster
+        if roster_path is None:
+            cand = os.path.join(here, ROSTER_FILE_NAME)
+            roster_path = cand if os.path.exists(cand) else None
+        elif str(roster_path).lower() in ("none", "off", ""):
+            roster_path = None
+        self.roster = Roster(roster_path)
         self.world = World()
         self.parser = Parser(self.world, self._log)
         self.model = RaceModel(self.world, self.config, self.roster, self._log,
@@ -16670,7 +16727,8 @@ def main():
     ap.add_argument("--out", default="./hoover_v3_out",
                     help="output root; V3 writes <out>/<source_stem>/")
     ap.add_argument("--config", default=None)
-    ap.add_argument("--roster", default=None)
+    ap.add_argument("--roster", default=None,
+                    help="league roster file (default: hoover_roster_league.json beside the tool; 'none' to disable)")
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--ignore-events", default=None,
                     help="comma list of event codes to ignore (test mode)")

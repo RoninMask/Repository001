@@ -13,3 +13,10 @@ hoover_archive.json.tmp
 
 # interview ingest: raw calls hold drivers' own words; keep them on the PC
 ingest/interviews/raw/
+
+# OKC PC leftovers (14 OCT)
+hoover_v3_out/
+*.prepatch
+patch_devices.py
+__pycache__/
+*.pyc

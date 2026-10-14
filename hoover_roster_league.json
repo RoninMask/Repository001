@@ -1,7 +1,7 @@
 {
   "league": "league_2026",
-  "roster_version": "3",
-  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names stay the gamertag-derived forms from the naming rules (Ronin0700VII -> Ronin, etc.); real-name association is a later project; the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming). V3 (09 OCT 26): real_name and platform added for the interview ingest (rivals named by first name resolve through real_name); d_ecx (ECxR6) and d_shockin (Shockin05, restricted) added. real_name is never spoken on air.",
+  "roster_version": "4",
+  "_about": "Shared identity layer for Baby Hoover V2 (Booth, Gallery, Pit Wall). Keyed on driver_id; handle/network_id/race_number are match fields. Scaffolded from HOOVER_20260908_202102 s11; AI cars resolve from telemetry and are not listed. Car 19 ran as 'Player' (no handle, race number 0) and must be matched by operator assignment or by enabling online names. V2 (09 OCT 26): spoken names stay the gamertag-derived forms from the naming rules (Ronin0700VII -> Ronin, etc.); real-name association is a later project; the duplicate race number 2 (Faze and Raider) is cleared to null because by_number matches whichever loads last. FILL IN each driver's real race number before the race, and keep them unique; the roster matches on race number when the handle is blank. A race number carried by two cars is unusable (V7 naming). V3 (09 OCT 26): real_name and platform added for the interview ingest (rivals named by first name resolve through real_name); d_ecx (ECxR6) and d_shockin (Shockin05, restricted) added. real_name is never spoken on air. V4 (14 OCT 26): real names on air (Dustin's decision for the 21 OCT official night); the gamertag-derived roster is kept beside this file as hoover_roster_league_gamertags.json -- rename to switch back.",
   "drivers": [
     {
       "driver_id": "d_pure",
@@ -10,16 +10,16 @@
         "network_id": null,
         "race_number": 13
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Pure",
-        "full": "Pure Rez",
-        "rung": 2,
+        "short": "Alex",
+        "full": "Alex Kannedy",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": "McLaren",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "real_name": "Alex",
       "platform": "Xbox"
     },
@@ -30,16 +30,16 @@
         "network_id": null,
         "race_number": 21
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Valor",
-        "full": "Valor",
-        "rung": 2,
+        "short": "Mike",
+        "full": "Mike Lababera",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": "McLaren",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "real_name": "Mike",
       "platform": "Steam"
     },
@@ -50,16 +50,16 @@
         "network_id": null,
         "race_number": 77
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Ronin",
-        "full": "Ronin",
-        "rung": 2,
+        "short": "Dustin",
+        "full": "Dustin Kannedy",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": "Mercedes",
-      "_note": "Set spoken.full to the driver's real name and level to 'A' to unlock full-name intros, possessives and personal lines.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "real_name": "Dustin",
       "platform": "Xbox"
     },
@@ -70,16 +70,16 @@
         "network_id": null,
         "race_number": null
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Faze",
-        "full": "Faze Noob",
-        "rung": 2,
+        "short": "Cade",
+        "full": "Cade Osterman",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": "Red Bull",
-      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "real_name": "Cade",
       "platform": "Xbox"
     },
@@ -90,16 +90,16 @@
         "network_id": null,
         "race_number": null
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Raider",
-        "full": "Raider",
-        "rung": 2,
+        "short": "Alan",
+        "full": "Alan Meadows",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": "Ferrari",
-      "_note": "Race number cleared (it was 2, shared with another driver). Set the real, unique number here.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "real_name": "Alan",
       "platform": "PlayStation"
     },
@@ -110,18 +110,18 @@
         "network_id": null,
         "race_number": null
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "ECX",
-        "full": "E C X",
-        "rung": 2,
+        "short": "Evan",
+        "full": "Evan Kannedy",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
       "team": null,
       "real_name": "Evan",
       "platform": "Xbox",
-      "_note": "New for 21 OCT. Spoken full is spelled out so TTS says the letters. Set team and a unique race number."
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it)."
     },
     {
       "driver_id": "d_shockin",
@@ -130,11 +130,11 @@
         "network_id": null,
         "race_number": null
       },
-      "level": "B",
+      "level": "A",
       "spoken": {
-        "short": "Shockin",
-        "full": "Shockin",
-        "rung": 2,
+        "short": "Sholly",
+        "full": "Evan Sholly",
+        "rung": 1,
         "possessive_ok": true
       },
       "participation": "human",
@@ -142,7 +142,7 @@
       "real_name": "Evan",
       "platform": "Xbox",
       "restricted_telemetry": true,
-      "_note": "Races restricted: the game sends 'Player' with no handle, so the handle never matches. Set his real, unique race number so the roster matches him by number; otherwise he falls to d_the_car. Was aired as 'Sholly' on 08 SEP.",
+      "_note": "V4 (14 OCT 26): real names on air. short is the everyday call; full is used for intros, the grid, the podium and results (v3.naming.full_name_kinds). Three Kannedys race: a Kannedy is the first name or the whole name, never 'Kannedy' alone (the checker rejects it).",
       "aliases": [
         "Sholly"
       ]
