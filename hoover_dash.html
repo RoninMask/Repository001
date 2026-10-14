@@ -70,8 +70,8 @@ details summary{cursor:pointer;color:var(--dim);font-weight:600;margin:6px 0}
 table{width:100%;border-collapse:collapse;font-size:13px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer}
 .seg input{display:none}
-.seg span{padding:6px 12px;color:var(--dim)}
-.seg input:checked+span{background:var(--accent);color:#141000;font-weight:600}
+.seg label{padding:6px 12px;color:var(--dim);margin:0;cursor:pointer;user-select:none}
+.seg input:checked+label{background:var(--accent);color:#141000;font-weight:600}
 #namestable input{width:100%;box-sizing:border-box;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:13px}
 #namestable td{padding:4px 6px;vertical-align:middle}
 #namestable th{text-align:left;padding:4px 6px;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
@@ -157,10 +157,10 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
     <div class="row" style="justify-content:space-between">
       <h3 style="margin:0">Names on air</h3>
       <div class="row">
-        <label class="seg" title="Which set of names the booth says. Applies at the next Hoover start.">
-          <input type="radio" name="onair" value="real" id="onair_real"><span>Real names</span>
-          <input type="radio" name="onair" value="gamertag" id="onair_tag"><span>Gamertags</span>
-        </label>
+        <div class="seg" title="Which set of names the booth says. Applies at the next Hoover start.">
+          <input type="radio" name="onair" value="real" id="onair_real"><label for="onair_real">Real names</label>
+          <input type="radio" name="onair" value="gamertag" id="onair_tag"><label for="onair_tag">Gamertags</label>
+        </div>
         <button class="btn" id="btnnamesreload">Reload</button>
         <button class="btn accent" id="btnnamessave">Save names</button>
       </div>
