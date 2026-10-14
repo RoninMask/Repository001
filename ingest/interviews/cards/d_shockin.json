@@ -1,0 +1,64 @@
+{
+  "format": "hoover_card_v1",
+  "layer": "interview",
+  "driver_id": "d_shockin",
+  "on_air": "Shockin",
+  "gamertag": "Shockin05",
+  "source": {
+    "kind": "elevenlabs_conversation",
+    "conversation_id": "conv_2101m4hjc0x2erdvd1211vc0v3xv",
+    "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+    "started": "2026-10-10T00:10:56Z",
+    "race_day": "21 October",
+    "track": "Abu Dhabi"
+  },
+  "built_by": {
+    "tool": "interviews_v1_09OCT26",
+    "pass": "claude-sonnet-4-5-20250929"
+  },
+  "facts": [
+    "Shockin told us he's aiming for first and plans to show everyone the rear view of his car all day.",
+    "He named Ronin as his main rival and predicted Ronin will be too aggressive and crash into the wall.",
+    "Shockin has been away working on other projects and says he's still getting back up to speed."
+  ],
+  "armed": {
+    "on_podium": "He told Sienna he was aiming for first, and here he is.",
+    "on_lead": "He said the plan was to show everyone the rear view of his car all day, and that's exactly what's happening.",
+    "on_win": "He called first place before the race, and he's delivered."
+  },
+  "dropped": [],
+  "fields": {
+    "predicted_finish": 1,
+    "rival": "Ronin",
+    "rival_reason": "always competing with him, they play together",
+    "favourite_named": null,
+    "dark_horse": null,
+    "crash_pick": "Ronin",
+    "fear_spot": "the slow chicane, also the double chicane, where cars slow down considerably",
+    "setup": "Balanced for speed with some tweaks, and he believes the livery will increase speed.",
+    "strategy": "Show everybody the rear view of his car all day.",
+    "colour": "Always eats sushi before the race as a ritual for the Samurai.",
+    "spoken_name_note": "like the word shock followed by in"
+  },
+  "quotes": [
+    "I'm aiming for first.",
+    "The plan is just to show everybody what the rear view of my car looks like all day.",
+    "He's gonna be too aggressive and shove it into the wall for sure."
+  ],
+  "off_record": [],
+  "unresolved_names": [],
+  "sienna_fields": {
+    "spoken_name": "Shockin (like the word \"shock\" followed by \"in\")",
+    "nickname": "Shockin",
+    "predicted_finish": "1",
+    "rival": "Ronin Zero Seven",
+    "rival_reason": "I'm always competing with him; we play enough one together.",
+    "last_session_reflection": "I had a long time off working on other projects, but I'm back in the seat and looking to get going again.",
+    "fear_corner": "The slow chicane, also referred to as the double chicane, where cars slow down considerably.",
+    "setup": "The car is balanced for San Aye speed with some tweaks, and the driver believes the livery will increase speed.",
+    "driver_prediction": "Ronan07 will be too aggressive and crash into the wall.",
+    "personal_colour": "Always eats sushi before the race as a ritual for the Samurai.",
+    "best_quotes": "I'm aiming for first. | The plan is just to show everybody what the rear view of my car looks like all day. | Absolutely.",
+    "interview_complete": "True"
+  }
+}

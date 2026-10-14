@@ -1,0 +1,61 @@
+{
+  "format": "hoover_card_v1",
+  "layer": "interview",
+  "driver_id": "d_valor",
+  "on_air": "Valor",
+  "gamertag": "VaLoR",
+  "source": {
+    "kind": "elevenlabs_conversation",
+    "conversation_id": "conv_9301m4hhacsreasbqw5f79ss8btg",
+    "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+    "started": "2026-10-09T23:52:34Z",
+    "race_day": "21 October",
+    "track": "Abu Dhabi"
+  },
+  "built_by": {
+    "tool": "interviews_v1_09OCT26",
+    "pass": "claude-sonnet-4-5-20250929"
+  },
+  "facts": [
+    "Valor told us he'll finish first today, and he's named Ronin as the man he most wants to beat.",
+    "There's history between Valor and Ronin: Valor says Ronin blocked him in the last race.",
+    "Valor predicts Ronin will end up in the wall during this five-lap sprint."
+  ],
+  "armed": {
+    "on_podium": "He told Sienna first place was the target, and here he is.",
+    "on_lead": "Valor said he'd qualify on pole and lead this race, and that's exactly where he is.",
+    "on_win": "He called pole position and the win before the race, and he's delivered."
+  },
+  "dropped": [],
+  "fields": {
+    "predicted_finish": 1,
+    "rival": "Ronin",
+    "rival_reason": "blocked him in the last race",
+    "favourite_named": null,
+    "dark_horse": null,
+    "crash_pick": "Ronin",
+    "fear_spot": null,
+    "setup": "Set up for corner grip",
+    "strategy": null,
+    "colour": "Cooked steaks before the race",
+    "spoken_name_note": null
+  },
+  "quotes": [
+    "One. Pole position.",
+    "I'm gonna qualify in pole position today.",
+    "Ronan's gonna end up in the wall."
+  ],
+  "off_record": [],
+  "unresolved_names": [],
+  "sienna_fields": {
+    "spoken_name": "Valor",
+    "predicted_finish": "1",
+    "rival": "Ronan",
+    "rival_reason": "He blocked me in the last race, which is a past grudge.",
+    "setup": "The car is set up for corner grip.",
+    "driver_prediction": "Ronan's gonna end up in the wall.",
+    "personal_colour": "Cooked steaks today.",
+    "best_quotes": "One. Pole position. | I'm gonna qualify in pole position today. | You'll find me in, uh, pole position.",
+    "interview_complete": "True"
+  }
+}

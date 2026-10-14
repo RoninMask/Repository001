@@ -1,0 +1,67 @@
+{
+  "format": "hoover_card_v1",
+  "layer": "interview",
+  "driver_id": "d_ecx",
+  "on_air": "ECX",
+  "gamertag": "ECxR6",
+  "source": {
+    "kind": "elevenlabs_conversation",
+    "conversation_id": "conv_4901m4hh9bwnfhhrqq5bpzs0a6am",
+    "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+    "started": "2026-10-09T23:52:00Z",
+    "race_day": "21 October",
+    "track": "Abu Dhabi"
+  },
+  "built_by": {
+    "tool": "interviews_v1_09OCT26",
+    "pass": "claude-sonnet-4-5-20250929"
+  },
+  "facts": [
+    "ECX told us he's targeting first place in his league debut.",
+    "He's named Valor as the driver he most wants to beat today."
+  ],
+  "armed": {
+    "on_podium": "He told Sienna nothing less than first would do, and here he is on the podium.",
+    "on_win": "He called first place before the race, and he's delivered."
+  },
+  "interview": {
+    "predicted_finish": 1,
+    "rival_id": "d_valor",
+    "rival": "Valor"
+  },
+  "dropped": [],
+  "fields": {
+    "predicted_finish": 1,
+    "rival": "Valor",
+    "rival_reason": "Named as the driver he most wants to beat",
+    "favourite_named": null,
+    "dark_horse": null,
+    "crash_pick": null,
+    "fear_spot": "the sharp left turn, maybe turn three or four",
+    "setup": "Running a little more downforce, in between maximum downforce and balance.",
+    "strategy": null,
+    "colour": null,
+    "spoken_name_note": "E-C-X-R-six"
+  },
+  "quotes": [
+    "First.",
+    "I'm here to shake things up. I've been practicing and I'm ready."
+  ],
+  "off_record": [],
+  "unresolved_names": [
+    "Kate Osterman",
+    "Evan Charley"
+  ],
+  "sienna_fields": {
+    "spoken_name": "E-C-X-R-6",
+    "predicted_finish": "1",
+    "rival": "Kate Osterman",
+    "rival_reason": "She drives like a girl, and she's pretty fast, so I gotta beat her.",
+    "fear_corner": "The sharp left turn, maybe turn three or four",
+    "setup": "The driver is running a car setup with a little more downforce, in between maximum downforce and balance.",
+    "driver_prediction": "Evan Charley is gonna surprise someone in the top 10.",
+    "personal_colour": "I like to eat a lot of food.",
+    "best_quotes": "E-C-X-R-6. | First. | I like to eat a lot of food.",
+    "interview_complete": "True"
+  }
+}

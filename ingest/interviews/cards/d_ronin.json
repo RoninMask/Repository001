@@ -1,0 +1,65 @@
+{
+  "format": "hoover_card_v1",
+  "layer": "interview",
+  "driver_id": "d_ronin",
+  "on_air": "Ronin",
+  "gamertag": "Ronin0700VII",
+  "source": {
+    "kind": "elevenlabs_conversation",
+    "conversation_id": "conv_5801m4hgdz4xe2qtwcsegbwfpm4m",
+    "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+    "started": "2026-10-09T23:37:02Z",
+    "race_day": "21 October",
+    "track": "Abu Dhabi"
+  },
+  "built_by": {
+    "tool": "interviews_v1_09OCT26",
+    "pass": "claude-sonnet-4-5-20250929"
+  },
+  "facts": [
+    "Ronin told us before the race he'd settle for second place, and he's named Valor as the man he most wants to beat.",
+    "He's running softs for the entire race, a bold call for Abu Dhabi's long straights.",
+    "Ronin is a pilot in real life."
+  ],
+  "armed": {
+    "on_podium": "He told Sienna second was the realistic target, and here he is.",
+    "on_win": "He came in predicting second, but Ronin has gone one better.",
+    "on_retire": "He feared that ninety-degree turn onto the long straight, and it may have caught him out."
+  },
+  "dropped": [],
+  "fields": {
+    "predicted_finish": 2,
+    "rival": "Valor",
+    "rival_reason": "He's closest in position",
+    "favourite_named": null,
+    "dark_horse": "Shockin",
+    "crash_pick": null,
+    "fear_spot": "that ninety-ninety turn off to a straightaway",
+    "setup": "Balanced car with higher tyre pressures and some lowering, built for straight-line speed and corner confidence.",
+    "strategy": "Running softs for the entire race.",
+    "colour": "He's a pilot in real life.",
+    "spoken_name_note": "Ronan"
+  },
+  "quotes": [
+    "Second place.",
+    "Mike LaBarbera. I think he's closest in position.",
+    "I'm a pilot in real life."
+  ],
+  "off_record": [],
+  "unresolved_names": [
+    "Charlie",
+    "Evan Kennedy"
+  ],
+  "sienna_fields": {
+    "spoken_name": "Ronan",
+    "predicted_finish": "2",
+    "rival": "Mike LaBarbera",
+    "rival_reason": "He's closest in position.",
+    "fear_corner": "90, 90 turn off to a straightaway, because I slip out a lot and spin out.",
+    "setup": "The car has a lot of balance for straight-line speed and corner confidence, with higher tire pressures and some lowering; the strategy is to run on softs all day.",
+    "driver_prediction": "Charlie will surprise everybody; Evan Kennedy will surprise everybody.",
+    "personal_colour": "I'm a pilot in real life.",
+    "best_quotes": "Second place. | Mike LaBarbera. | I'm a pilot in real life.",
+    "interview_complete": "True"
+  }
+}

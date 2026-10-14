@@ -2,10 +2,79 @@
   "format": "hoover_dossier_v1",
   "_about": "Hand-written driver facts (State Blob White Paper V1, layer 6). Keyed by the roster's driver_id for humans and by spoken name for AI cars. 'facts' are always offerable (at most three are offered); 'armed' facts are offered only when their condition holds: on_podium, on_lead, on_win, on_retire. Keep every fact true and short; every capitalised word in a fact becomes sayable when it is offered, so no nicknames the driver would not want on air. Empty entries are fine -- this file is optional.",
   "drivers": {
-    "d_ronin": {"facts": [], "armed": {}},
-    "d_valor": {"facts": [], "armed": {}},
-    "d_pure": {"facts": [], "armed": {}},
-    "d_faze": {"facts": [], "armed": {}},
-    "d_raider": {"facts": [], "armed": {}}
+    "d_ronin": {
+      "facts": [
+        "Ronin told us before the race he'd settle for second place, and he's named Valor as the man he most wants to beat.",
+        "He's running softs for the entire race, a bold call for Abu Dhabi's long straights.",
+        "Ronin is a pilot in real life."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna second was the realistic target, and here he is.",
+        "on_win": "He came in predicting second, but Ronin has gone one better.",
+        "on_retire": "He feared that ninety-degree turn onto the long straight, and it may have caught him out."
+      },
+      "_source": "interview conv_5801m4hgdz4xe2qtwcsegbwfpm4m (claude-sonnet-4-5-20250929 pass)"
+    },
+    "d_valor": {
+      "facts": [
+        "Valor told us he'll finish first today, and he's named Ronin as the man he most wants to beat.",
+        "There's history between Valor and Ronin: Valor says Ronin blocked him in the last race.",
+        "Valor predicts Ronin will end up in the wall during this five-lap sprint."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna first place was the target, and here he is.",
+        "on_lead": "Valor said he'd qualify on pole and lead this race, and that's exactly where he is.",
+        "on_win": "He called pole position and the win before the race, and he's delivered."
+      },
+      "_source": "interview conv_9301m4hhacsreasbqw5f79ss8btg (claude-sonnet-4-5-20250929 pass)"
+    },
+    "d_pure": {
+      "facts": [],
+      "armed": {}
+    },
+    "d_faze": {
+      "facts": [],
+      "armed": {}
+    },
+    "d_raider": {
+      "facts": [],
+      "armed": {}
+    },
+    "d_ecx": {
+      "facts": [
+        "ECX told us he's targeting first place today, and named Valor as the driver he most wants to beat.",
+        "This is ECX's first race in the league, and he says he's here to shake things up.",
+        "ECX is running a setup with extra downforce, leaning towards grip over straight-line speed."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna first place was the target, and here he is on debut.",
+        "on_win": "ECX called his shot before the race: first place, and he's delivered on his very first outing.",
+        "on_retire": "ECX said that sharp left-hander early in the lap worried him, and it may have caught him out."
+      },
+      "_source": "interview conv_4901m4hh9bwnfhhrqq5bpzs0a6am (claude-sonnet-4-5-20250929 pass)"
+    },
+    "d_shockin": {
+      "facts": [
+        "Shockin told us he's aiming for first and plans to show everyone the rear view of his car all day.",
+        "He named Ronin as his main rival and predicted Ronin will be too aggressive and crash into the wall.",
+        "Shockin has been away working on other projects and says he's still getting back up to speed."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna he was aiming for first, and here he is.",
+        "on_lead": "He said the plan was to show everyone the rear view of his car all day, and that's exactly what's happening.",
+        "on_win": "He called first place before the race, and he's delivered."
+      },
+      "_source": "interview conv_2101m4hjc0x2erdvd1211vc0v3xv (claude-sonnet-4-5-20250929 pass)"
+    }
+  },
+  "_interviews": {
+    "tool": "interviews_v1_09OCT26",
+    "built": "2026-10-10T00:17:54Z",
+    "drivers": [
+      "d_ecx",
+      "d_ronin",
+      "d_shockin",
+      "d_valor"
+    ]
   }
 }
