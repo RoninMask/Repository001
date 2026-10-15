@@ -7362,6 +7362,12 @@ class V3Booth:
         self.counter_submit_deferred = 0   # claims held at intake
         self.counter_submit_sweep = 0      # claims submitted later by the sweep
         self.counter_submit_now = 0        # claims submitted at intake
+        # V8.17 (14 OCT): colour for the quiet sessions (practice, qualifying)
+        sc = config.get("v3", "session_colour", default={}) or {}
+        self._colour_cfg = sc
+        self._colour_last = None           # model-clock time of the last colour line
+        self._colour_open_t = None         # when the quiet session was first seen
+        self.counter_colour = 0
         self.writer = TemplateWriter(self)
         self._last_line_result = None
         # Part R: the speech channel. None (default --speech none) means the
@@ -8086,6 +8092,8 @@ class V3Booth:
         self._new_race_check(t)
         self._lights(t)
         self._submit_sweep(t)          # V8.13: requests for the front of the queue
+        if self._session_colour(t):    # V8.17: the quiet sessions get colour
+            return
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
@@ -8147,6 +8155,63 @@ class V3Booth:
                 self._air(best, t)
                 continue
             continue
+
+    def _session_colour(self, t):
+        """V8.17 (14 OCT): practice and qualifying on a stream. The session
+        gate (V8.7) keeps the booth silent outside a race, which is right for
+        race calls and wrong for a 48-minute YouTube stream with no voice. In
+        a quiet session, every interval_s the booth airs one lore card (hook
+        'lull': track history, F1 history), template-written, nothing read
+        off the race state, so nothing it says can be wrong about the
+        session. It stops the moment a start-lights or lights-out event
+        declares a race, and it never takes the last reserve_for_race cards,
+        which the race lulls need. Interview facts are kept for the race.
+        v3.session_colour.enabled turns the whole thing off."""
+        cfg = self._colour_cfg
+        if not cfg or not cfg.get("enabled", True):
+            return False
+        w = self.model.w
+        kind = getattr(w, "session_kind", "RACE")
+        if kind not in (cfg.get("kinds") or ["PRACTICE", "QUALI"]):
+            self._colour_open_t = None
+            return False
+        if getattr(self.model, "saw_stlg", False) or getattr(self.model, "saw_lgot", False):
+            return False                   # a race has been declared
+        if self.channel_busy_until > t + 1e-9:
+            return False
+        if self._colour_open_t is None:
+            self._colour_open_t = t
+        interval = float(cfg.get("interval_s", 120.0))
+        first_after = float(cfg.get("first_after_s", 30.0))
+        last = self._colour_last
+        due = (t - self._colour_open_t) >= first_after if last is None \
+            else (t - last) >= interval
+        if not due:
+            return False
+        mat = getattr(self.blobctx, "material", None) if self.blobctx is not None else None
+        if mat is None:
+            return False
+        tid = None if w.track_id is None else str(w.track_id)
+        free = 0
+        for c in mat.lore:
+            ct = c.get("track")
+            if "lull" in (c.get("hooks") or []) and (ct is None or str(ct) == tid) \
+                    and mat._free(c["line"], t):
+                free += 1
+        if free <= int(cfg.get("reserve_for_race", 12)):
+            return False
+        card = mat.take_lore(w.track_id, "lull", t)
+        if card is None:
+            return False
+        claim = Claim("LULL_LORE", CLASS_FILLER, [], [], t,
+                      facts={"line": card["line"], "source": "lore",
+                             "card": card.get("id"), "session_colour": kind},
+                      priority=9.0, speaker="ANALYST", demotable=True)
+        self._colour_last = t
+        self.counter_colour += 1
+        self.queue.append(claim)
+        self._air(claim, t)                # the gate is bypassed on purpose
+        return True
 
     def _maybe_lull(self, t):
         """Part E: fill a green/neutralised silence longer than after_s with one
@@ -16668,6 +16733,8 @@ class BabyHooverV3:
             manifest["booth_v8"] = {
                 "lead_holds": getattr(b, "counter_lead_holds", 0),
                 # V8.13: the submission gate's ledger
+                "session_colour": {"enabled": bool((b._colour_cfg or {}).get("enabled", True)),
+                                   "lines": b.counter_colour},
                 "submit_gate": {"depth": b._submit_depth,
                                 "must_priority": b._submit_must_priority,
                                 "at_intake": b.counter_submit_now,

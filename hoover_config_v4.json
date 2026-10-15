@@ -764,6 +764,17 @@
         "QUALI",
         "TIMETRIAL"
       ]
+    },
+    "session_colour": {
+      "_about": "V8.17 (14 OCT): colour for the quiet sessions on a stream. In practice and qualifying the booth airs one lore card (hook 'lull') every interval_s, template-written, reading nothing off the race state; it stops when a start-lights or lights-out event declares a race, and never takes the last reserve_for_race 'lull' cards, which the race lulls need. Interview facts are kept for the race. enabled: false turns it off.",
+      "enabled": true,
+      "kinds": [
+        "PRACTICE",
+        "QUALI"
+      ],
+      "interval_s": 120.0,
+      "first_after_s": 30.0,
+      "reserve_for_race": 12
     }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
