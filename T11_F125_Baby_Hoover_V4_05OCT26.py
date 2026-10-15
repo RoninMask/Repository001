@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "5.0.0"
+SCRIPT_VERSION = "5.1.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -4898,6 +4898,58 @@ class TrackReference:
             if c.get("name"):
                 words.append(c["name"])
         return [w for w in words if w]
+
+
+def dossier_name_audit(dossier, roster, log):
+    """V8.21 (14 OCT): an interview or hand-written fact airs verbatim as a
+    template line, so a fact written when the booth used gamertag names
+    ("Ronin told us...") would go to air unchanged after the switch to real
+    names. Any fact or armed line carrying a name from the roster's OTHER
+    name set (the one not on air) is dropped at load, loudly, with the fix
+    named. Facts with no such name are untouched."""
+    try:
+        entries = getattr(roster, "entries", None) or []
+        on_air, other = set(), {}
+        for e in entries:
+            sp = e.get("spoken") or {}
+            for w in (sp.get("short"), sp.get("full")):
+                if w:
+                    on_air.update(x.lower() for x in str(w).split())
+            for setname, names in ((e.get("names") or {}).items()):
+                for w in ((names or {}).get("short"), (names or {}).get("full")):
+                    for tok in str(w or "").split():
+                        other.setdefault(tok.lower(), w)
+        stale = {k: v for k, v in other.items() if k not in on_air}
+        if not stale:
+            return 0
+        dropped = []
+        for key, d in (dossier.drivers or {}).items():
+            if not isinstance(d, dict):
+                continue
+            keep = []
+            for f in d.get("facts") or []:
+                words = {w.strip(".,;:!?'\"").lower() for w in str(f).split()}
+                hit = sorted(w for w in words if w in stale)
+                if hit:
+                    dropped.append((key, f, stale[hit[0]]))
+                else:
+                    keep.append(f)
+            d["facts"] = keep
+            armed = d.get("armed") or {}
+            for cond, line in list(armed.items()):
+                words = {w.strip(".,;:!?'\"").lower() for w in str(line).split()}
+                hit = sorted(w for w in words if w in stale)
+                if hit:
+                    dropped.append((key, line, stale[hit[0]]))
+                    armed.pop(cond, None)
+        if dropped:
+            log("[dossier] *** %d interview line(s) use a name that is NOT on air now "
+                "(e.g. %r in %r) and were dropped. Rebuild them: Hoover Interviews.bat build."
+                % (len(dropped), dropped[0][2], dropped[0][1][:60]))
+        return len(dropped)
+    except Exception as e:
+        log("[dossier] name audit skipped: %s" % type(e).__name__)
+        return 0
 
 
 class Dossier:
@@ -16242,6 +16294,7 @@ class BabyHooverV3:
                 except Exception as e:
                     self._log("[rules] could not read %s: %s" % (rpath, type(e).__name__))
             dossier = Dossier(dpath, self._log)
+            dossier_name_audit(dossier, self.roster, self._log)   # V8.21
             lpath = getattr(args, "lore", None) or os.path.join(here_, LORE_FILE_NAME)
             self.booth.blobctx = BlobContext(
                 stories=self.stories, gallery=self.gallery, said=self.booth.said,
