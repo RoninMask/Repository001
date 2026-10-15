@@ -8861,6 +8861,19 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
         if rtext and rtext.strip() == stripped:
             return (False, "repeat_exact")
 
+    # V8.16 (14 OCT): a tic is the same opener twice. "Oh, yes!" opened four
+    # lines in Race 2. No line may open with the same two words as a line in
+    # the recent window, unless the opener is a name or a number we supplied
+    # (a driver's name opening two lines in a row is normal commentary).
+    if recent and len(tokens) >= 2:
+        first = tokens[0].lower().strip("'")
+        if first not in allowed:
+            opener = (first, tokens[1].lower().strip("'"))
+            for (_sp, rtext) in recent:
+                rt = _WORD_RE.findall(rtext or "")
+                if len(rt) >= 2 and (rt[0].lower().strip("'"), rt[1].lower().strip("'")) == opener:
+                    return (False, "repeat_opener:%s %s" % opener)
+
     return (True, None)
 
 

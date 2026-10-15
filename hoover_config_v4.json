@@ -629,7 +629,15 @@
         "ANALYST:",
         "stage direction",
         "(",
-        ")"
+        ")",
+        "oh, yes",
+        "oh yes",
+        "oh, my",
+        "oh my",
+        "wow,",
+        "wow!",
+        "what a moment",
+        "and there it is"
       ],
       "passage_tokens_per_sentence": 60,
       "passage_max_tokens": 480,
@@ -656,7 +664,8 @@
       ],
       "submit_depth": 2,
       "submit_must_priority": 90.0,
-      "_about_submit_gate": "V8.13 (14 OCT): submit_depth is how many claims at the front of the queue (by air priority) hold a model request at any time; the rest wait as free claims and are submitted by the sweep when they reach the front. A must-call (hard, or priority >= submit_must_priority) is submitted the instant it is raised. 0 disables the gate (09 OCT behaviour: 4,070 submissions for 99 lines)."
+      "_about_submit_gate": "V8.13 (14 OCT): submit_depth is how many claims at the front of the queue (by air priority) hold a model request at any time; the rest wait as free claims and are submitted by the sweep when they reach the front. A must-call (hard, or priority >= submit_must_priority) is submitted the instant it is raised. 0 disables the gate (09 OCT behaviour: 4,070 submissions for 99 lines).",
+      "_about_tics": "V8.16 (14 OCT): stock openers heard as tics on 09 OCT are banned outright; the checker also rejects any line opening with the same two words as a line in the recent window (repeat_opener), names and numbers excepted."
     },
     "model": {
       "_about": "Pass 3 Part N. Small and fast is the point. max_tokens/temperature/stop go to the Messages API. max_workers threads issue requests on enqueue. The model id is overridden by --model; the key is read from --key-var (default ANTHROPIC_API_KEY) and never written to any artefact.",
