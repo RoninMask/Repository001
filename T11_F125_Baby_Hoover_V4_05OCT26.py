@@ -10671,16 +10671,54 @@ def audio_check(config, settings, args, sd, transport=None, inp=None,
     return rows, code
 
 
+def ollama_tags(endpoint, timeout_s=3.0):
+    """V8.11 (14 OCT): ask the Ollama server for its model list over the SAME
+    transport the writing lane uses (http.client, a direct socket). The old
+    check went through urllib, which honours the HTTP_PROXY / HTTPS_PROXY
+    environment variables: with a proxy set, a request to 127.0.0.1 is sent to
+    the proxy and hangs, so the check reported 'no Ollama server (TimeoutError)'
+    while the real lane was fine. Returns the model-name list; raises on
+    failure."""
+    import http.client
+    import urllib.parse
+    u = urllib.parse.urlsplit(endpoint)
+    if u.scheme == "https":
+        conn = http.client.HTTPSConnection(u.hostname, u.port or 443, timeout=timeout_s)
+    else:
+        conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=timeout_s)
+    try:
+        conn.request("GET", "/api/tags")
+        resp = conn.getresponse()
+        data = resp.read()
+        if resp.status != 200:
+            raise RuntimeError("Ollama answered status %d" % resp.status)
+        doc = json.loads(data.decode("utf-8"))
+        return [m.get("name", "") for m in (doc.get("models") or [])]
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _proxy_env_note():
+    """Proxy variables set in this shell, which used to break the local check
+    and can still break the cloud lane."""
+    hits = [v for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+                        "ALL_PROXY", "all_proxy") if os.environ.get(v)]
+    if not hits:
+        return ""
+    return " (proxy variables set in this shell: %s)" % ", ".join(sorted(set(
+        v.upper() for v in hits)))
+
+
 def _ollama_up(config, timeout_s=1.0):
     """True when the local lane's Ollama server answers /api/tags."""
     try:
-        import urllib.request
-        import urllib.parse
         lc = config.get("v3", "local", default={}) or {}
-        u = urllib.parse.urlsplit(lc.get("endpoint", "http://127.0.0.1:11434/api/chat"))
-        with urllib.request.urlopen("%s://%s/api/tags" % (u.scheme, u.netloc),
-                                    timeout=timeout_s) as r:
-            return r.status == 200
+        ollama_tags(lc.get("endpoint", "http://127.0.0.1:11434/api/chat"),
+                    timeout_s=timeout_s)
+        return True
     except Exception:
         return False
 
@@ -10730,13 +10768,7 @@ def writer_check(config, args, out=print):
     model = getattr(args, "local_model", None) or lc.get("model", "llama3.2")
     endpoint = lc.get("endpoint", "http://127.0.0.1:11434/api/chat")
     try:
-        import urllib.request
-        import urllib.parse
-        u = urllib.parse.urlsplit(endpoint)
-        tags_url = "%s://%s/api/tags" % (u.scheme, u.netloc)
-        with urllib.request.urlopen(tags_url, timeout=3) as r:
-            tags = json.loads(r.read().decode("utf-8"))
-        names = [m.get("name", "") for m in (tags.get("models") or [])]
+        names = ollama_tags(endpoint, timeout_s=5.0)
         have = any(n == model or n.split(":")[0] == model.split(":")[0]
                    for n in names)
         if not have:
@@ -10767,12 +10799,26 @@ def writer_check(config, args, out=print):
                 "Slow for the fast lane; keep Ollama open so the model stays "
                 "resident, or use a smaller model."))
     except Exception as e:
-        rows.append(_check(
-            "Local lane (%s)" % model, YELLOW,
-            "no Ollama server at %s (%s); the hybrid runs with the local "
-            "lane OFF" % (endpoint, type(e).__name__),
-            "Start Ollama from the Start menu (it sits in the tray), then "
-            "run the check again."))
+        kind = type(e).__name__
+        if isinstance(e, (ConnectionRefusedError, ConnectionResetError)):
+            why = ("nothing is listening at %s; Ollama is not running"
+                   % endpoint)
+            fix = ("Start Ollama from the Start menu (it sits in the tray), "
+                   "then run the check again.")
+        elif isinstance(e, (socket.timeout, TimeoutError)):
+            why = ("%s did not answer within five seconds (%s)%s"
+                   % (endpoint, kind, _proxy_env_note()))
+            fix = ("Ollama is usually running but busy loading a model: wait "
+                   "a few seconds and run the check again. If it never "
+                   "answers, open a command window and run 'ollama ps'.")
+        else:
+            why = ("could not reach %s (%s: %s)"
+                   % (endpoint, kind, str(e)[:120]))
+            fix = ("Check that Ollama is running ('ollama ps' in a command "
+                   "window), then run the check again.")
+        rows.append(_check("Local lane (%s)" % model, YELLOW,
+                           "%s; the hybrid runs with the local lane OFF" % why,
+                           fix))
     code = 1 if any(r["state"] == RED for r in rows) else 0
     return rows, code
 
