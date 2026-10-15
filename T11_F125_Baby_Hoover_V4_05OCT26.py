@@ -10784,20 +10784,37 @@ def writer_check(config, args, out=print):
                                     key_var=key_var,
                                     out=os.path.join(os.getcwd(), "hoover_v3_out"))
             w = ModelWriter(None, config, ns, section="local")
+            # V8.12 (14 OCT): the FIRST call loads the model into the GPU --
+            # gigabytes off disk, which on a busy machine takes far longer than
+            # the race-time socket cap (socket_timeout_s, 10 s here). Give the
+            # cold load its own generous timeout, then measure the warm call
+            # against the real one. Before this, a slow cold load timed out and
+            # the check reported "no Ollama server" on a healthy server.
+            race_timeout = w.socket_timeout
+            w.socket_timeout = max(race_timeout, LOCAL_COLD_LOAD_TIMEOUT_S)
             t0 = time.time()
             text = w._http_post(sentence, max_tokens=20)   # loads the model
             ms_first = (time.time() - t0) * 1000.0
+            w.socket_timeout = race_timeout
+            w._drop_conn()
             t0 = time.time()
             text = w._http_post(sentence, max_tokens=20)   # warm
             ms = (time.time() - t0) * 1000.0
             state = GREEN if ms < 1500 else YELLOW
+            note = ("answered in %d ms warm (%d s to load the model first time): %r"
+                    % (ms, round(ms_first / 1000.0), text[:60]))
             rows.append(_check(
-                "Local lane (%s)" % model, state,
-                "answered in %d ms warm (%d ms cold): %r"
-                % (ms, ms_first, text[:60]),
+                "Local lane (%s)" % model, state, note,
                 "" if state == GREEN else
                 "Slow for the fast lane; keep Ollama open so the model stays "
                 "resident, or use a smaller model."))
+            if ms_first > 20000:
+                rows.append(_check(
+                    "Local lane cold start", YELLOW,
+                    "the model took %d s to load, so the first line of a session "
+                    "would come from a template" % round(ms_first / 1000.0),
+                    "Run the writer check once before the session starts: the "
+                    "model then stays resident for %s." % w.keep_alive))
     except Exception as e:
         kind = type(e).__name__
         if isinstance(e, (ConnectionRefusedError, ConnectionResetError)):
@@ -10806,11 +10823,11 @@ def writer_check(config, args, out=print):
             fix = ("Start Ollama from the Start menu (it sits in the tray), "
                    "then run the check again.")
         elif isinstance(e, (socket.timeout, TimeoutError)):
-            why = ("%s did not answer within five seconds (%s)%s"
+            why = ("%s stopped answering part-way through the check (%s)%s"
                    % (endpoint, kind, _proxy_env_note()))
-            fix = ("Ollama is usually running but busy loading a model: wait "
-                   "a few seconds and run the check again. If it never "
-                   "answers, open a command window and run 'ollama ps'.")
+            fix = ("Ollama is listening but did not finish: it is usually "
+                   "busy pulling or loading a model. Check the Ollama window "
+                   "for a download, then run the check again.")
         else:
             why = ("could not reach %s (%s: %s)"
                    % (endpoint, kind, str(e)[:120]))
@@ -10821,6 +10838,9 @@ def writer_check(config, args, out=print):
                            fix))
     code = 1 if any(r["state"] == RED for r in rows) else 0
     return rows, code
+
+
+LOCAL_COLD_LOAD_TIMEOUT_S = 180.0   # V8.12: loading a local model off disk
 
 
 # --- --tts-test local (V8): one sentence through the local Windows voice -------
