@@ -131,6 +131,7 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
   <small id="dashver">dashboard</small>
 </nav>
 <main>
+<div class="banner" id="creditbanner" style="display:none;background:var(--red);color:#fff;border-color:var(--red)"><b>Cloud writer stopped: the API credit is exhausted.</b> The booth is on templates and the local lane. Top up the Anthropic credit between sessions; the next Hoover start picks it up.</div>
 <div class="banner" id="lostbanner"><b>Lost the dashboard.</b> The page cannot reach it. Is the "Hoover Dashboard" window still open? If you closed it, double-click Hoover Dashboard again; a race already running keeps going in that window.</div>
 
 <!-- PRE-FLIGHT -->
@@ -220,6 +221,7 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
     <div class="tile"><div class="k">Spoken / failed</div><div class="v" id="t_speech">–</div></div>
     <div class="tile"><div class="k">Camera on humans</div><div class="v" id="t_hum">–</div></div>
     <div class="tile"><div class="k">Queue · stories</div><div class="v" id="t_q">–</div></div>
+    <div class="tile"><div class="k">Writer lanes</div><div class="v" id="t_lanes">–</div></div>
   </div>
   <div class="two">
     <div class="card"><h3>Running order</h3><div id="order" class="note">Waiting for a session.</div></div>
@@ -428,7 +430,7 @@ async function runTool(args, kind){
 $("#btnstart").onclick = async () => {
   const {args} = buildArgs();
   const r = await runTool(args, "session");
-  if (r.ok) { LINES = []; CUTS = []; STATUS = null; nl = 0; nc = 0; renderLive(); showTab("live"); }
+  if (r.ok) { LINES = []; CUTS = []; STATUS = null; nl = 0; nc = 0; window._creditToasted = false; renderLive(); showTab("live"); }
 };
 $("#btnstop").onclick = async () => {
   if (!confirm("Stop and finalise the session? Hoover writes the script, manifest and archive, then exits.")) return;
@@ -525,6 +527,16 @@ function renderLive(){
   }
   $("#t_hum").innerHTML = tot > 0 ? Math.round(100 * hum / tot) + "<small>%</small>" : "–";
   $("#t_q").innerHTML = s.queue != null ? `${s.queue}<small> · ${s.stories_live ?? "–"}</small>` : "–";
+  // 14 OCT: writer lanes, and the red banner the moment the cloud lane dies
+  const w = s.writer;
+  if (w && w.lanes && Object.keys(w.lanes).length) {
+    $("#t_lanes").innerHTML = Object.entries(w.lanes).map(([k, l]) =>
+      `<span class="${l.dead ? "bad" : ""}">${k}${l.dead ? " DOWN" : ""}</span>`).join("<small> · </small>")
+      + (w.gate && w.gate.at_intake != null ? `<small> · gate ${w.gate.at_intake + (w.gate.by_sweep || 0)} sent / ${w.gate.deferred || 0} held</small>` : "");
+  } else { $("#t_lanes").innerHTML = w ? "<small>template</small>" : "–"; }
+  const dead = !!(w && w.cloud_dead);
+  $("#creditbanner").style.display = dead ? "block" : "none";
+  if (dead && !window._creditToasted) { window._creditToasted = true; toast("<b>Cloud writer stopped: API credit exhausted.</b> Templates and the local lane carry on. Top up between sessions.", 15000); }
   if (s.cars && s.cars.length) {
     $("#order").innerHTML = `<table><tr><th>P</th><th>Driver</th><th></th><th></th></tr>` + s.cars.map(c =>
       `<tr><td class="n">${c.pos || ""}</td><td>${c.idx === s.camera_car ? '<span class="cam" title="camera">&#9673;</span> ' : ""}${esc(c.spoken || c.name || ("car " + c.idx))}</td><td>${c.human ? '<span class="tag h">human</span>' : '<span class="tag">AI</span>'}</td><td class="muted">${esc(RESULT[c.result] || "")}</td></tr>`).join("") + `</table>`;

@@ -154,6 +154,32 @@ def _snapshot():
                     "device_audible") if k in st}
             except Exception:
                 pass
+        # 14 OCT: the writer lanes. billing_dead is the latch that fired at
+        # 22:47 on 09 OCT with nobody watching; the dashboard shows it red.
+        try:
+            wr = getattr(booth, "writer", None)
+            lanes = {}
+            def lane(label, w):
+                if w is None:
+                    return
+                lanes[label] = {"model": getattr(w, "model_id", None),
+                                "dead": bool(getattr(w, "billing_dead", False)),
+                                "submitted": getattr(w, "_submitted", None),
+                                "counter": dict(getattr(w, "counter", {}) or {})}
+            if wr is not None:
+                kind = type(wr).__name__
+                if kind == "HybridWriter":
+                    lane("cloud", getattr(wr, "model", None))
+                    lane("local", getattr(wr, "local", None))
+                elif kind == "ModelWriter":
+                    lane("local" if getattr(wr, "backend", "") == "ollama" else "cloud", wr)
+                snap["writer"] = {"kind": kind, "lanes": lanes,
+                                  "cloud_dead": any(l["dead"] for k, l in lanes.items() if k == "cloud"),
+                                  "gate": {"deferred": getattr(booth, "counter_submit_deferred", None),
+                                           "at_intake": getattr(booth, "counter_submit_now", None),
+                                           "by_sweep": getattr(booth, "counter_submit_sweep", None)}}
+        except Exception:
+            pass
         stories = getattr(booth, "stories", None)
         store = getattr(stories, "store", None)
         live = getattr(store, "live", None)
