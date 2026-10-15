@@ -389,19 +389,31 @@
       "variants": [
         {
           "speaker": "ANALYST",
-          "present": "A {penalty} for {a} after {cause}."
+          "present": "A {penalty} for {a} after {cause}.",
+          "when": {
+            "cause_known": true
+          }
         },
         {
           "speaker": "ANALYST",
-          "present": "A {penalty} for {a}."
+          "present": "A {penalty} for {a}.",
+          "when": {
+            "cause_known": false
+          }
         },
         {
           "speaker": "LEAD",
-          "present": "The stewards hand {a} a {penalty}."
+          "present": "The stewards hand {a} a {penalty}.",
+          "when": {
+            "cause_known": false
+          }
         },
         {
           "speaker": "ANALYST",
-          "present": "{a} is handed a {penalty} after {cause}."
+          "present": "{a} is handed a {penalty} after {cause}.",
+          "when": {
+            "cause_known": true
+          }
         },
         {
           "speaker": "ANALYST",
@@ -416,6 +428,13 @@
             "pena_type": 6
           },
           "present": "Disqualification for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "cause_known": true
+          },
+          "present": "{a} picks up a {penalty} for {cause}."
         }
       ]
     },

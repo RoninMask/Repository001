@@ -775,7 +775,9 @@
       "interval_s": 120.0,
       "first_after_s": 30.0,
       "reserve_for_race": 12
-    }
+    },
+    "penalty_reason_from_infringement": true,
+    "_about_penalty_reason": "V8.20 (14 OCT): every penalty line carries the game's own reason (the PENA event's infringement type, spoken via INFRINGEMENT_WORDS) when no contact story names a cause. Absent from the V3 config so the identity gate holds."
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
 }

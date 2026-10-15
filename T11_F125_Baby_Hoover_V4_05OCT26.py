@@ -3849,6 +3849,42 @@ def decode_car_speeds_v3(data):
 #   * nothing below is trusted on air until tests/readback_v5.py has passed on
 #     a real capture.
 
+# V8.20 (14 OCT): the reason for a penalty, from the PENA event's
+# infringementType (F1 25 spec, Appendices: Infringement types). Spoken
+# forms, each a "for ..." phrase a line can carry. Every penalty gets its
+# reason on air (Dustin's standing rule from 09 OCT), not only the ones a
+# contact story happens to explain. Ids with no on-air sense are left out.
+INFRINGEMENT_WORDS = {
+    0: "for blocking by driving slowly", 1: "for driving the wrong way",
+    2: "for reversing off the start line", 3: "for a big collision",
+    4: "for a collision", 5: "for not handing a place back after contact",
+    6: "for not handing places back after contact",
+    7: "for cutting the corner and gaining time", 8: "for a corner-cutting overtake",
+    9: "for overtaking by cutting corners", 10: "for crossing the pit exit line",
+    11: "for ignoring blue flags", 12: "for ignoring yellow flags",
+    13: "for ignoring a drive-through", 14: "for too many drive-throughs",
+    17: "for speeding in the pit lane", 18: "for parking too long",
+    19: "for ignoring the tyre rules", 20: "for too many penalties",
+    21: "for repeated warnings", 23: "for the tyre selection", 24: "for the tyre selection",
+    25: "for cutting the corner", 26: "for running wide", 27: "for running wide and gaining time",
+    28: "for running wide and gaining real time", 29: "for running wide and gaining a lot of time",
+    30: "for riding the wall", 33: "for blocking the pit lane", 34: "for a jump start",
+    35: "for hitting the safety car", 36: "for overtaking under the safety car",
+    37: "for going too fast behind the safety car", 38: "for going too fast under the virtual safety car",
+    39: "for driving too slowly on the formation lap", 40: "for stopping on the formation lap",
+    43: "for dropping too far back behind the safety car", 45: "for an unserved stop-go",
+    46: "for an unserved drive-through", 50: "a league grid penalty", 52: "for an illegal time gain",
+    53: "for missing the mandatory pit stop",
+}
+
+
+def infringement_words(code):
+    try:
+        return INFRINGEMENT_WORDS.get(int(code))
+    except (TypeError, ValueError):
+        return None
+
+
 PID_CARSETUPS = 5
 PID_SESSIONHISTORY = 11
 PID_TYRESETS = 12
@@ -6226,10 +6262,17 @@ class RaceModel:
             # A10: name the contact when an AI is penalised after a COLL with
             # a human within cause_lookback_s
             cause = self._penalty_contact_cause(t, car)
+            # V8.20: the game's own reason, when no contact story names one
+            why = infringement_words(info.get("infringement")) \
+                if self.v3.get("penalty_reason_from_infringement", False) else None
+            if cause is None and why:
+                cause = {"text": why[4:] if why.startswith("for ") else why,
+                         "known": True, "source": "infringement"}
             self.emit(Claim("PENALTY", CLASS_LIFECYCLE, [car], [self._name(car)],
                             t, facts={"pena_type": pt,
                                       "seconds": info.get("time"),
-                                      "cause": cause},
+                                      "cause": cause,
+                                      **({"infringement": info.get("infringement")} if why else {})},
                             provenance=prov, priority=50.0, demotable=True,
                             max_age_key="penalty"))
             if pt == 6:
@@ -7921,6 +7964,7 @@ class V3Booth:
                 pt, secs if secs is not None else None)
             cause = f.get("cause")
             ctx["cause"] = cause["text"] if cause else None
+            fv["cause_known"] = bool(cause)      # V8.20: a known reason is always said
         elif k == "RETIREMENT":
             cause = f.get("cause")
             ctx["cause"] = cause["text"] if cause else None
