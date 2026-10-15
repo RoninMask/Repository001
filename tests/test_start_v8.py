@@ -102,8 +102,8 @@ class _Speech:
 
 class LightsSilence(unittest.TestCase):
     def _booth(self):
+        os.environ["HOOVER_TOOL_FILE"] = V4_FILE   # before the import: the harness reads it at load
         import test_baby_hoover_v3 as T3
-        os.environ["HOOVER_TOOL_FILE"] = V4_FILE
         m = T3.make_model()
         m.cfg = CFG
         T3.grid(m.w, 4)

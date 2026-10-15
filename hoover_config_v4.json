@@ -450,10 +450,10 @@
       "away_max_s": 12.0,
       "away_margin": 15.0,
       "human_share_window_s": 300.0,
-      "hold_floor_normal_s": 6.0,
+      "hold_floor_normal_s": 8.0,
       "hold_floor_incident_s": 5.0,
-      "hold_floor_lull_s": 10.0,
-      "max_hold_s": 40.0,
+      "hold_floor_lull_s": 15.0,
+      "max_hold_s": 60.0,
       "lull_top_score_threshold": 45.0,
       "human_share_bands": [
         {
@@ -535,7 +535,7 @@
         },
         "booth_focus": {
           "priority": 76,
-          "hold_s": 8.0
+          "hold_s": 15.0
         },
         "human_finish": {
           "priority": 90,
@@ -548,7 +548,8 @@
       "share_hysteresis_s": 20.0,
       "share_band_inner_margin": 0.03,
       "lead_battle_merge_s": 8.0,
-      "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10."
+      "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10.",
+      "_v8_22": "14 OCT (Dustin: the camera jumps too much): normal floor 6 -> 8 s, lull floor 10 -> 15 s, max hold 40 -> 60 s, booth_focus minimum hold 8 -> 15 s (its maximum stays the booth's dwell). Incident floor unchanged at 5 s."
     },
     "naming": {
       "fallback_order": [
@@ -739,12 +740,14 @@
     "dwell": {
       "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
       "enabled": true,
-      "dwell_s": 25.0,
-      "idle_release_s": 10.0,
+      "dwell_s": 40.0,
+      "idle_release_s": 15.0,
       "must_after_s": 10.0,
       "min_for_bridge_s": 6.0,
       "bridge_window_s": 20.0,
-      "human_bonus": 5.0
+      "human_bonus": 5.0,
+      "refocus_cooldown_s": 30.0,
+      "_v8_22": "14 OCT: dwell 25 -> 40 s and idle release 10 -> 15 s for a longer story line; refocus_cooldown_s is the loop guard: a story whose dwell RAN its time cannot open a new dwell (and earns no on-screen bonus) for this long, so booth and camera cannot re-lock on it the moment the next beat lands. 0 disables the guard."
     },
     "freshness": {
       "_about": "V8.6: a story line carrying a gap older than after_s is checked against the live gap at air time and dropped (stale_gap) if it has moved by more than the tolerance",

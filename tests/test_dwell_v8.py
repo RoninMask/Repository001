@@ -67,8 +67,8 @@ class _Writer(v.Writer):
 
 
 def _booth():
+    os.environ["HOOVER_TOOL_FILE"] = V4_FILE   # before the import: the harness reads it at load
     import test_baby_hoover_v3 as T3
-    os.environ["HOOVER_TOOL_FILE"] = V4_FILE
     m = T3.make_model()
     m.cfg = v.Config(os.path.join(REPO, "hoover_config_v4.json"))
     m.on_event(1010.6, {"code": "LGOT"})
@@ -125,6 +125,51 @@ class Dwell(unittest.TestCase):
         self.assertEqual(len(b.emitted), 1)
         self.assertEqual(other.outcome_reason, "dwell")
         self.assertGreater(b.counter_dwell_holds, 0)
+
+    def test_refocus_cooldown_breaks_the_booth_camera_loop(self):
+        """V8.22: a dwell that runs its full time puts its story in a cooldown.
+        The story's next beat still airs, but opens no new dwell (so a rival
+        story is not held and the camera gets no booth_focus candidate), and
+        the story earns no on-screen bonus while the cooldown lasts. After the
+        cooldown a fresh dwell on the same story is allowed again."""
+        m, b = _booth()
+        b.dwell_s = 10.0
+        b.dwell_refocus_cooldown_s = 20.0
+        a = _beat(1100.0, "BAT-01", [3, 1], ["Kannedy", "Meadows"])
+        b.queue.append(a)
+        b.tick(1100.0)
+        self.assertEqual(b._focus["story_id"], "BAT-01#1")
+        # let the dwell run its time (release is lazy: it happens when the next
+        # claim is validated, which is how the booth works in a race too)
+        t = 1100.0 + 15.0
+        nxt = _beat(t, "BAT-01", [3, 1], ["Kannedy", "Meadows"])
+        nxt.facts["beat"] = "attack_range"; nxt.facts["view"]["beat"] = "attack_range"
+        b.queue.append(nxt)
+        b.channel_busy_until = 0.0
+        b.tick(t)
+        self.assertEqual([r["kind"] for r in b.emitted][-1], "S_BAT_01")
+        self.assertIn("BAT-01#1", b._refocus_block)        # the dwell ran: cooldown set
+        self.assertIsNone(b._focus)                         # and no new dwell opened
+        self.assertEqual(b.counter_refocus_blocked, 1)
+        # a rival story is NOT held now
+        other = _beat(b.channel_busy_until + 0.2, "LEAD-01", [0], ["Valor"], pri=70.0)
+        b.queue.append(other)
+        _run(b, b.channel_busy_until + 0.3, n=12, step=0.5)   # through the pacing gap
+        self.assertIn("S_LEAD_01", [r["kind"] for r in b.emitted])
+        self.assertNotEqual(other.outcome_reason, "dwell")
+        # no on-screen bonus for the cooled-down story even with its car on screen
+        class _G: current = 3
+        b.gallery = _G()
+        cd_claim = _beat(b.channel_busy_until + 0.2, "BAT-01", [3, 1], ["Kannedy", "Meadows"])
+        self.assertEqual(b._on_screen_bonus(cd_claim), b.dwell_human_bonus)   # human bonus only
+        # after the cooldown, a new dwell on it is allowed
+        later = _beat(1100.0 + 60.0, "BAT-01", [3, 1], ["Kannedy", "Meadows"])
+        later.facts["beat"] = "settled"; later.facts["view"]["beat"] = "settled"
+        b.queue = [later]
+        b.channel_busy_until = 0.0
+        b.tick(1100.0 + 60.0)
+        self.assertIsNotNone(b._focus)
+        self.assertEqual(b._focus["story_id"], "BAT-01#1")
 
     def test_same_story_keeps_airing(self):
         m, b = _booth()

@@ -190,8 +190,8 @@ class _PassageWriter(v.Writer):
 
 def _booth():
     """A V3Booth over a green race model, writer swapped for the stub."""
+    os.environ["HOOVER_TOOL_FILE"] = V4_FILE   # before the import: the harness reads it at load
     import test_baby_hoover_v3 as T3
-    os.environ["HOOVER_TOOL_FILE"] = V4_FILE
     m = T3.make_model()
     m.cfg = v.Config(os.path.join(REPO, "hoover_config_v4.json"))
     m.on_event(1010.6, {"code": "LGOT"})

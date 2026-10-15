@@ -35,13 +35,13 @@ cls
 echo.
 echo   1  Audio check     beep on your speakers, check the ElevenLabs key
 echo   2  Pick devices    choose the cable and your speakers
-echo   3  Start live      template lines, speech on
+echo   3  Start live      HYBRID writer (cloud + local), speech on   [the default: the most robust]
 echo   4  Start live      no speech
 echo   5  Replay a capture, fast, no speech
 echo   6  Start live with extra options you type
 echo   7  Open the output folder
 echo   8  Writer check    one tiny request down the cloud lane and the local (Ollama) lane
-echo   9  Start live      HYBRID writer (cloud + local), speech on   [the 9 OCT race setting]
+echo   9  Start live      template lines only, speech on   [testing: no model]
 echo   L  Local voice test   one sentence through the Windows voice, then stop
 echo   N  Names test   every roster name in both booth voices, on your speakers, saved as a WAV
 echo   I  Interview ingest check   offline, no keys: proves the chain and lists who has done their interview
@@ -52,13 +52,13 @@ set "CHOICE="
 set /p "CHOICE=Choose: "
 if /i "%CHOICE%"=="1" goto audio
 if /i "%CHOICE%"=="2" goto pick
-if /i "%CHOICE%"=="3" goto live_speech
+if /i "%CHOICE%"=="3" goto live_hybrid
 if /i "%CHOICE%"=="4" goto live_quiet
 if /i "%CHOICE%"=="5" goto replay
 if /i "%CHOICE%"=="6" goto live_custom
 if /i "%CHOICE%"=="7" goto output
 if /i "%CHOICE%"=="8" goto writer_check
-if /i "%CHOICE%"=="9" goto live_hybrid
+if /i "%CHOICE%"=="9" goto live_speech
 if /i "%CHOICE%"=="l" goto tts_local
 if /i "%CHOICE%"=="n" goto tts_names
 if /i "%CHOICE%"=="i" goto ingest_check

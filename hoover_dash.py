@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-DASH_VERSION = "1.2"
+DASH_VERSION = "1.3"
 DASH_DATE = "14OCT26"
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHILD = os.path.join(HERE, "hoover_dash_child.py")

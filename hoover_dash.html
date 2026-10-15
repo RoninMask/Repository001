@@ -278,7 +278,7 @@ let LINES = [], CUTS = [], STATUS = null, TAPS = null;
 const EXIT_MODES = new Set(["--version","--pick-devices","--audio-check","--list-audio-devices","--writer-check","--tts-test local","--tts-test names"]);
 const QUICK = ["--night-label","--night-id","--writer","--speech","--log-blobs","--roster","--replay","--pace","--no-camera"];
 let FORM = {};          // flag -> value (string) or true for bools
-let PRESET = "race";
+let PRESET = "hybrid";   // 14 OCT: the hybrid writer is the default start (the most robust)
 
 async function api(path, body) {
   const opt = body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)};
@@ -310,12 +310,12 @@ async function loadTool(force){
 // ---------- presets
 function today(){ return TOOL ? TOOL.today : new Date().toISOString().slice(0,10); }
 const PRESETS = {
-  race:   {name:"Race: live, speech on", sub:"Template lines, ElevenLabs voice, camera on. The usual league-night run.",
+  hybrid: {name:"Race: live, HYBRID writer (default)", sub:"Cloud lane plus the local Ollama lane, speech on. The most robust: with no key and no Ollama it still runs, on templates.",
+           set:{"--source":"live","--writer":"hybrid","--local":true,"--speech":"elevenlabs","--log-blobs":true,"--night-label":"practice"}},
+  race:   {name:"Race: live, templates only", sub:"Template lines, ElevenLabs voice, camera on, no model. For testing.",
            set:{"--source":"live","--writer":"template","--speech":"elevenlabs","--log-blobs":true}},
   quiet:  {name:"Race: live, no speech", sub:"Camera and script only. For a test, or when the voice is not wanted.",
            set:{"--source":"live","--writer":"template","--speech":"none","--log-blobs":true}},
-  hybrid: {name:"Race: live, HYBRID writer", sub:"Cloud lane (needs the model key) plus the local Ollama lane, speech on. The 9 OCT race setting.",
-           set:{"--source":"live","--writer":"hybrid","--local":true,"--speech":"elevenlabs","--log-blobs":true,"--night-label":"practice"}},
   listenh:{name:"Replay with the voice, HYBRID", sub:"A capture at real pace, hybrid writer with the local lane, speech on: the morning gate.",
            set:{"--source":"replay","--pace":"real","--writer":"hybrid","--local":true,"--speech":"elevenlabs","--log-blobs":true,"--night-label":"practice"}},
   replay: {name:"Replay a capture", sub:"Run a recorded .bin through Hoover at full speed. No game needed.",

@@ -7409,6 +7409,9 @@ class V3Booth:
         self.stale_gap_frac = float(fr.get("gap_tolerance_frac", 0.3))
         self.gallery = None                  # set by the run loop
         self._focus = None               # the story the booth is dwelling on
+        self._refocus_block = {}         # V8.22: story_id -> model time the cooldown ends
+        self.counter_refocus_blocked = 0
+        self.dwell_refocus_cooldown_s = float(dw.get("refocus_cooldown_s", 30.0))
         self._focus_last = None          # the one it just left
         self.counter_dwell_holds = 0
         self._dwell_held_ids = set()
@@ -7644,6 +7647,14 @@ class V3Booth:
             done = True
         if done:
             fo["t_end"] = t
+            # V8.22 (14 OCT): why it ended. A dwell that RAN its time (rather
+            # than the story closing or going idle) puts its story into a
+            # refocus cooldown, so the booth and the camera cannot re-lock on
+            # it the moment the next beat lands -- the loop Dustin named.
+            ran = (t - fo["t_start"]) >= self.dwell_s
+            fo["ended_by"] = "ran" if ran else ("closed" if (rec is not None and not rec.live) else "idle")
+            if ran and self.dwell_refocus_cooldown_s > 0:
+                self._refocus_block[fo["story_id"]] = t + self.dwell_refocus_cooldown_s
             self._focus_last = fo        # the next story may still turn from it
             self._focus = None
 
@@ -7688,8 +7699,13 @@ class V3Booth:
         bonus = 0.0
         g = getattr(self, "gallery", None)
         cur = getattr(g, "current", None) if g is not None else None
+        # V8.22: no on-screen bonus for a story in refocus cooldown -- the
+        # camera is on its driver because the booth put it there, and that
+        # must not be the reason the booth stays
+        sid_cd, _ = self._story_of(claim)
+        in_cd = sid_cd is not None and self._in_refocus_cooldown(sid_cd, claim.t_create)
         if self.dwell_on_screen_bonus and cur is not None and claim.subjects \
-                and cur in claim.subjects:
+                and cur in claim.subjects and not in_cd:
             bonus += self.dwell_on_screen_bonus
         # V8.6: a line about one of our drivers outranks an AI line by more
         if self.dwell_human_bonus and claim.subjects and any(
@@ -7746,12 +7762,27 @@ class V3Booth:
                 "last_text": (last or {}).get("text"),
                 "ago_s": round(t - fo["t_last"], 1)}
             self.counter_dwell_bridges += 1
+        if self._in_refocus_cooldown(sid, t):
+            # V8.22: the story just held the booth for a full dwell; its next
+            # lines air, but without a new dwell (no hold on other stories, no
+            # camera protection) until the cooldown passes
+            self.counter_refocus_blocked += 1
+            return
         self._focus = {"story_id": sid, "story_type": st, "t_start": t, "t_last": t,
                        "names": [n for n in (claim.names or []) if n],
                        "rec": getattr(claim, "story", None)}
         self.counter_dwell_focus += 1
         # V8.4 cycle 2: the line that opens a focus frames the story
         claim.facts["focus_new"] = True
+
+    def _in_refocus_cooldown(self, sid, t):
+        until = self._refocus_block.get(sid)
+        if until is None:
+            return False
+        if t >= until:
+            self._refocus_block.pop(sid, None)
+            return False
+        return True
 
     def _validate(self, claim, t):
         m = self.model
@@ -16355,10 +16386,14 @@ class BabyHooverV3:
             self._log("[writer] hybrid: local lane %s @ %s"
                       % (local.model_id, local.endpoint))
         if cloud is None and local is None:
-            raise SystemExit(
-                "STOP: --writer hybrid has no model lane: set $%s for the cloud "
-                "lane and/or pass --local for the Ollama lane (or use "
-                "--writer template)." % key_var)
+            # V8.23 (14 OCT): hybrid is the default start now, and a default
+            # must never refuse to start. No key and no Ollama: the booth runs
+            # on templates, loudly, instead of stopping.
+            self._log("[writer] *** HYBRID HAS NO MODEL LANE: no $%s and no Ollama "
+                      "answering. Running on TEMPLATES. Set the key (new window "
+                      "after) or start Ollama, then restart." % key_var)
+            self.writer_degraded = "no_model_lane"
+            return TemplateWriter(self.booth)
         return HybridWriter(self.booth, self.config, cloud, local)
 
     def _make_speech(self):
@@ -16899,6 +16934,8 @@ class BabyHooverV3:
                                 "deferred": b.counter_submit_deferred,
                                 "by_sweep": b.counter_submit_sweep},
                 "dwell": {"enabled": b.dwell_enabled, "dwell_s": b.dwell_s,
+                          "refocus_cooldown_s": b.dwell_refocus_cooldown_s,
+                          "refocus_blocked": b.counter_refocus_blocked,
                           "holds": b.counter_dwell_holds,
                           "stories_told": b.counter_dwell_focus,
                           "bridges": b.counter_dwell_bridges},
