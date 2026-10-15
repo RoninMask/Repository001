@@ -2903,6 +2903,137 @@
           "fallback": true
         }
       ]
+    },
+    "LOBBY_ARRIVE": {
+      "_about": "V8.24: the lobby. Who has turned up, from Lobby Info. {list} is everyone of ours in so far, {a}/{b} the new arrivals, {count} how many.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true
+          },
+          "present": "Good evening, and welcome along. {list} already in the lobby with us."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true
+          },
+          "present": "Welcome along. We have {count} of our drivers in the lobby: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true,
+            "first": false
+          },
+          "present": "{a} joins us, that is {count} in now."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "one": true,
+            "first": false
+          },
+          "present": "And here comes {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": false,
+            "first": false
+          },
+          "present": "{a} and {b} are in as well: {count} of ours in the lobby."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "many": true,
+            "first": false
+          },
+          "present": "They are arriving in numbers now, {count} of them in: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{list} with us in the lobby.",
+          "fallback": true
+        }
+      ]
+    },
+    "LOBBY_WAIT": {
+      "_about": "V8.24: roster drivers who have not appeared in the lobby yet.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "one": true
+          },
+          "present": "Still waiting on {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true
+          },
+          "present": "One to come: {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "one": false
+          },
+          "present": "We are still waiting on {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": false
+          },
+          "present": "{count} still to arrive: {list}."
+        }
+      ]
+    },
+    "LOBBY_READY": {
+      "_about": "V8.24: the ready countdown from Lobby Info's ready flags.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "none_waiting": true
+          },
+          "present": "Everyone is readied up. We are about to go."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "none_waiting": true
+          },
+          "present": "All ready. Here we go."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true
+          },
+          "present": "One still to ready up."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "none_waiting": false,
+            "one": false
+          },
+          "present": "{count} still to ready up, out of {total}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "none_waiting": false,
+            "one": false
+          },
+          "present": "{count} of them yet to confirm."
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."

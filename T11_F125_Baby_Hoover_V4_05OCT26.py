@@ -7108,6 +7108,16 @@ def _num2words(n):
     return str(n)
 
 
+def _join_words(items):
+    """V8.24: a spoken list -- "Dustin, Mike and Alex"."""
+    xs = [str(x) for x in items if x]
+    if not xs:
+        return None
+    if len(xs) == 1:
+        return xs[0]
+    return "%s and %s" % (", ".join(xs[:-1]), xs[-1])
+
+
 def _ordinal_word(n):
     small = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
              6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth",
@@ -7489,6 +7499,14 @@ class V3Booth:
         sc = config.get("v3", "session_colour", default={}) or {}
         self._colour_cfg = sc
         self._colour_last = None           # model-clock time of the last colour line
+        # V8.24: the lobby segment's own memory
+        self._lobby_lines = 0
+        self._lobby_arr_t = None
+        self._lobby_ready_t = None
+        self._lobby_said_here = None
+        self._lobby_said_missing = False
+        self._lobby_said_ready = None
+        self._lobby_restricted = set()
         self._colour_open_t = None         # when the quiet session was first seen
         self.counter_colour = 0
         self.writer = TemplateWriter(self)
@@ -8027,6 +8045,10 @@ class V3Booth:
                 ctx["pos"] = _ordinal_word(rp)
         elif k in ("LULL_INTERVIEW", "LULL_LORE"):
             ctx["line"] = f.get("line")
+        elif k.startswith("LOBBY_"):
+            # V8.24: the lobby lines carry their own fill and facts view
+            ctx.update({kk: vv for kk, vv in (f.get("display") or {}).items() if vv is not None})
+            fv.update(f.get("view") or {})
         elif k == "SPEED_TRAP":
             fv["quickest"] = bool(f.get("quickest"))
             ctx["speed"] = "%.0f" % (f.get("speed") or 0.0)
@@ -8331,6 +8353,8 @@ class V3Booth:
             return False                   # a race has been declared
         if self.channel_busy_until > t + 1e-9:
             return False
+        if self._lobby_segment(t):         # V8.24: arrivals come before colour
+            return True
         if self._colour_open_t is None:
             self._colour_open_t = t
         interval = float(cfg.get("interval_s", 120.0))
@@ -8364,6 +8388,99 @@ class V3Booth:
         self.queue.append(claim)
         self._air(claim, t)                # the gate is bypassed on purpose
         return True
+
+    def _lobby_segment(self, t):
+        """V8.24 (14 OCT): the lobby. While Lobby Info is on the wire -- the
+        only packet there is before a session loads -- the booth says who has
+        arrived, who the roster is still waiting on, and how many have readied
+        up. Everything comes from that packet alone; it is never joined to car
+        index (its ordering and membership differ, 0.4 audit). A human whose
+        telemetry is Restricted is named in the log, not on air: that is an
+        operator warning while there is still time to ask him to change it."""
+        lc = (self._colour_cfg or {}).get("lobby") or {}
+        if not lc.get("enabled", True):
+            return False
+        if self._lobby_lines >= int(lc.get("max_lines", 24)):
+            return False
+        ext = getattr(self.model.w, "ext", None)
+        lob = getattr(ext, "lobby", None) if ext is not None else None
+        players = (lob or {}).get("players") or []
+        if not players:
+            return False
+        roster = getattr(self.model, "roster", None)
+        by_handle = getattr(roster, "by_handle", {}) or {}
+
+        def on_air(nm):
+            e = by_handle.get(nm)
+            sp = (e or {}).get("spoken") or {}
+            return sp.get("short") or nm
+
+        humans = [pl for pl in players if not pl.get("ai")]
+        here = [on_air(pl.get("name") or "") for pl in humans if (pl.get("name") or "").strip()]
+        # the roster's humans who have not appeared
+        in_lobby = {(pl.get("name") or "").strip() for pl in humans}
+        missing = []
+        for e in (getattr(roster, "entries", None) or []):
+            if e.get("participation") != "human":
+                continue
+            h = (e.get("match") or {}).get("handle")
+            if h and h not in in_lobby:
+                missing.append(((e.get("spoken") or {}).get("short") or h))
+        ready = sum(1 for pl in humans if pl.get("ready") == 2)
+        waiting = max(0, len(humans) - ready)
+        # the operator warning, once per driver
+        for pl in humans:
+            nm = (pl.get("name") or "").strip()
+            if nm and pl.get("telemetry_public") == 0 and nm not in self._lobby_restricted:
+                self._lobby_restricted.add(nm)
+                self.log("*** LOBBY: %s has telemetry set to Restricted -- no tyres, no damage, no "
+                         "setup for him all night. Ask him to set it to Public now. ***" % on_air(nm))
+
+        def air(kind, ctx, view, pri=10.0, speaker="LEAD"):
+            claim = Claim(kind, CLASS_FILLER, [], [], t,
+                          facts={"display": dict(ctx), "view": dict(view),
+                                 "lobby": True},
+                          priority=pri, speaker=speaker, demotable=True)
+            self._lobby_lines += 1
+            self.counter_colour += 1
+            self.queue.append(claim)
+            self._air(claim, t)
+
+        every = float(lc.get("arrivals_every_s", 25.0))
+        ready_every = float(lc.get("ready_every_s", 40.0))
+        # 1. arrivals: a line when the set of our drivers in the lobby grows
+        key = tuple(sorted(here))
+        if here and key != self._lobby_said_here \
+                and (self._lobby_arr_t is None or (t - self._lobby_arr_t) >= every):
+            new_names = [n for n in here if n not in (self._lobby_said_here or ())]
+            self._lobby_said_here = key
+            self._lobby_arr_t = t
+            ctx = {"a": new_names[0] if new_names else here[0],
+                   "b": new_names[1] if len(new_names) > 1 else None,
+                   "count": _num_word(len(here)), "list": _join_words(here)}
+            ctx = {k: v for k, v in ctx.items() if v is not None}
+            air("LOBBY_ARRIVE", ctx,
+                {"first": self._lobby_lines == 0, "one": len(new_names) == 1,
+                 "many": len(new_names) > 2})
+            return True
+        # 2. who we are waiting on, once the arrivals have settled
+        if missing and not self._lobby_said_missing and self._lobby_arr_t is not None \
+                and (t - self._lobby_arr_t) >= every:
+            self._lobby_said_missing = True
+            air("LOBBY_WAIT", {"list": _join_words(missing),
+                               "count": _num_word(len(missing))},
+                {"one": len(missing) == 1}, speaker="ANALYST")
+            return True
+        # 3. the ready countdown
+        if humans and waiting != self._lobby_said_ready \
+                and (self._lobby_ready_t is None or (t - self._lobby_ready_t) >= ready_every):
+            self._lobby_said_ready = waiting
+            self._lobby_ready_t = t
+            air("LOBBY_READY", {"count": _num_word(waiting) if waiting else None,
+                                "total": _num_word(len(humans))},
+                {"none_waiting": waiting == 0, "one": waiting == 1}, speaker="LEAD")
+            return True
+        return False
 
     def _maybe_lull(self, t):
         """Part E: fill a green/neutralised silence longer than after_s with one
