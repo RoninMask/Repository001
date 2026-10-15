@@ -1,6 +1,6 @@
 # Baby Hoover V5 — Overnight Hand-back · 14/15 OCT 26
 
-**Branch `claude/interview-ingest`, build 14OCT26, script 5.1.0, head `a9c0299`.** Seventeen commits since `05a9899` (the build that ran on 09 OCT with the V8.7–V8.9 fixes). Every change replay-tested on the synthetic fixtures; the test suites that run on this build are green (`test_baby_hoover_v4`, `test_state_blob_v6`, `test_naming_v7`, `test_lanes_v8`, `test_material_v9`, `test_winner_v8`, `test_restricted_v8`). Three older suites (`test_passages_v8`, `test_start_v8`, `test_dwell_v8`) fail on a stale test stub (`RaceModel.start_window`) and failed before tonight too — a test-harness debt, not a broadcast fault, left for Toddler.
+**Branch `claude/interview-ingest`, build 14OCT26, script 5.1.0, head `bc4a665`.** Nineteen commits since `05a9899` (the build that ran on 09 OCT with the V8.7–V8.9 fixes). Every change replay-tested on the synthetic fixtures; the test suites that run on this build are green (`test_baby_hoover_v4`, `test_state_blob_v6`, `test_naming_v7`, `test_lanes_v8`, `test_material_v9`, `test_winner_v8`, `test_restricted_v8`). The three suites that had been failing (`test_passages_v8`, `test_start_v8`, `test_dwell_v8`) were running the V4 booth against the V3 model (the tool override was set after the harness import); fixed, all green.
 
 **The live files you tune** (copy-paste and go):
 [config](https://github.com/RoninMask/Repository001/blob/claude/interview-ingest/hoover_config_v4.json) ·
@@ -45,13 +45,16 @@
 | 19 | Podium line | tool (SF-07 `podium` beat), `hoover_words_v4.json` → S_SF_07 | P1–P3 by full name from the Final Classification, must-call, once | Item 4 of the Toddler list, the cheap part. |
 | 20 | Restricted cars blank | tool (`ExtState.car_field`), `tests/test_restricted_v8.py` | One accessor to a car's private telemetry; None for a restricted car whatever the store holds; tyre/DRS/ERS reads go through it | A blanked zero can never read as "soft tyres". |
 | 21 | Penalty reasons | tool (`INFRINGEMENT_WORDS`), `hoover_config_v4.json` → `v3.penalty_reason_from_infringement`, `hoover_words_v4.json` → PENALTY | All 55 infringement types have a spoken "for ..." form; the claim carries it when no contact story names a cause; PENALTY variants partitioned so a known reason is always said | Your standing rule: every penalty with context, every time. |
+| 23 | Longer story line | `hoover_config_v4.json` → `v3.dwell`, `v3.camera` | dwell 25→40 s, idle release 10→15 s; camera floors normal 6→8 s, lull 10→15 s, max hold 40→60 s; `booth_focus.hold_s` 8→15 | You: the camera jumps too much, the story line is too short. All numbers; read `_cuts.csv` on the Race 2 replay and move them. |
+| 24 | The loop guard | tool, `v3.dwell.refocus_cooldown_s` (30) | A dwell that runs its time puts its story in cooldown: next beats air, no new dwell, no camera protection, no on-screen bonus until it passes | You: never a permanent loop of camera holding booth and booth holding camera. Before this the loop was real. `booth_v8.dwell.refocus_blocked` counts it. |
+| 25 | Hybrid is the default | `Start Hoover.bat` (3 ↔ 9), `hoover_dash.html` presets, tool | Option 3 and the first preset are the hybrid writer; templates-only is option 9 / a testing preset; with no key and no Ollama the hybrid runs on templates with one loud log instead of stopping | You: the most robust setting starts by default; click off for testing. |
 | 22 | Stale-name interview lines | tool (`dossier_name_audit`) | At load, a fact carrying a name from the roster's other name set is dropped with one loud log | A card written under gamertag names would otherwise air verbatim. |
 
-Not changed: story weights, templates other than those named, the scheduler, predictions-as-a-beat, the voices. DRS-to-the-group already existed (story RC-07) and was left as it is.
+Not changed: story weights, templates other than those named, the scheduler, predictions-as-a-beat, the voices. The practice/quali programme (explainer, board, personal bests, clock, pole held) is tomorrow's build. DRS-to-the-group already existed (story RC-07) and was left as it is.
 
 ## What needs the PC (in this order)
 
-1. `git pull`. Build block must read `build 14OCT26, script 5.1.0 … @ a9c0299`, `Names on air: REAL NAMES`, no local changes.
+1. `git pull`. Build block must read `build 14OCT26, script 5.1.0 … @ bc4a665`, `Names on air: REAL NAMES`, no local changes.
 2. **Hoover Interviews.bat → `build`** (with both keys set) so the four cards say Dustin / Mike / Evan / Sholly. Then **I** in Start Hoover must end `RESULT: PASS`.
 3. **N** in Start Hoover: listen to the names. Fix spellings in the Names card if any sound wrong; run N again.
 4. **8** writer check: both lanes GREEN.
