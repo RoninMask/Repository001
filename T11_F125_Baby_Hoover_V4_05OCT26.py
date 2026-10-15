@@ -4326,12 +4326,37 @@ class ExtState:
         c = self.w.cars[idx] if idx is not None and 0 <= idx < MAX_CARS else None
         return c is None or c.telemetry_public == 0
 
+    # V8.19 (14 OCT): the one door to a car's private telemetry. The game
+    # blanks Car Status, Car Telemetry, Car Setups, Car Damage and Motion for a
+    # restricted car (m_yourTelemetry = 0), so a zero there is "no data", not
+    # "soft tyres" or "no damage". Readers go through car_field(); it returns
+    # None for a restricted car whatever the store holds. Lap Data and the
+    # classification are public and are not gated here.
+    PRIVATE_STORES = ("status", "motion", "damage", "inputs", "tyre_sets")
+
+    def car_field(self, store, idx, key=None):
+        """The per-car record (or one field of it) from a private store, or
+        None when the car is restricted, the store is empty, or the index is
+        out of range."""
+        if store not in self.PRIVATE_STORES or self.restricted(idx):
+            return None
+        data = getattr(self, store, None)
+        if data is None:
+            return None
+        try:
+            row = data[idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+        if row is None:
+            return None
+        return row if key is None else row.get(key)
+
     def tyre(self, idx):
         """(visual compound word, age in laps) or None. None for a restricted
         car, an unknown compound, or before the first Car Status packet."""
-        if self.status is None or self.restricted(idx):
+        s = self.car_field("status", idx)
+        if s is None:
             return None
-        s = self.status[idx]
         word = VISUAL_COMPOUND.get(s["visual_compound"])
         if word is None:
             return None
@@ -5322,8 +5347,8 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                         allow(*_caps_words(s["corner"]))
                         if corner.get("n"):
                             allow(_num_word(corner["n"]))
-                if ext.status is not None and not ext.restricted(i):
-                    stt = ext.status[i]
+                stt = ext.car_field("status", i)       # V8.19: None for a restricted car
+                if stt is not None:
                     s["drs"] = "available" if stt["drs_allowed"] else (
                         "in %d metres" % stt["drs_activation_m"] if stt["drs_activation_m"] else None)
                     s["ers_mode"] = ERS_MODES.get(stt["ers_mode"])
@@ -16027,8 +16052,8 @@ class P_RC_07(StoryProcessor):
         if ext is None or ext.status is None:
             return
         allowed = [c.idx for c in eng.w.cars
-                   if c.seen and c.position > 0 and not ext.restricted(c.idx)
-                   and (ext.status[c.idx] or {}).get("drs_allowed")]
+                   if c.seen and c.position > 0
+                   and ext.car_field("status", c.idx, "drs_allowed")]   # V8.19
         if not allowed:
             return
         self._done_race = m.anchor_t
