@@ -562,7 +562,8 @@
         "RACE_END",
         "CORRECTION",
         "S_SF_01",
-        "S_SF_07"
+        "S_SF_07",
+        "WINNER_OFFICIAL"
       ],
       "_about_full_names": "V4 (14 OCT 26): kinds whose {a}/{b}/{c} fill with the roster's spoken.full (intros, grid, podium, results, first contact) instead of spoken.short. Every other kind says the everyday name. A surname shared by two or more cars on track is listed in the blob as never_alone and a model line saying it bare is rejected."
     },

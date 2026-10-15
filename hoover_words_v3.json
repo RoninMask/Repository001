@@ -618,6 +618,18 @@
       "variants": [
         {"speaker": "ANALYST", "present": "{line}"}
       ]
+    },
+    "WINNER_OFFICIAL": {
+      "_about": "V8.14 (14 OCT): the classification settles the winner. confirmed=false: the car first across the line is classified elsewhere ({b} drops to {pos}); {a} is the official winner. confirmed=true: the flag call was held open for a penalty and the winner stands.",
+      "variants": [
+        {"speaker": "LEAD", "when": {"confirmed": false, "penalty_pending": true}, "present": "The classification is in. The {penalty} is applied, {b} drops to {pos}, and the winner is {a}."},
+        {"speaker": "LEAD", "when": {"confirmed": false, "penalty_pending": true}, "present": "Official result: {a} wins. {b} was first across the line, but with the {penalty} added he is classified {pos}."},
+        {"speaker": "LEAD", "when": {"confirmed": false, "penalty_pending": false}, "present": "The classification is in, and it is {a} who takes the win; {b} is classified {pos}."},
+        {"speaker": "LEAD", "when": {"confirmed": false, "penalty_pending": false}, "present": "Official result: {a} is the winner, with {b} classified {pos}."},
+        {"speaker": "LEAD", "when": {"confirmed": true}, "present": "The classification confirms it. {a} keeps the win, {penalty} and all."},
+        {"speaker": "LEAD", "when": {"confirmed": true}, "present": "It stands. The stewards have applied the {penalty} and {a} is still the winner."},
+        {"speaker": "LEAD", "when": {"confirmed": false}, "present": "The classification is in, and the winner is {a}.", "fallback": true}
+      ]
     }
   }
 }

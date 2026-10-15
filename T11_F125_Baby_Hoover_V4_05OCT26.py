@@ -5792,6 +5792,7 @@ class RaceModel:
         # finish
         self.leader_finish_t = None
         self.road_winner = None
+        self.winner_call = None       # V8.14: what the WINNER line said at the flag
         self.ended_without_finish_t = None
         self.final_classification = None
         self.final_classification_t = None
@@ -5879,6 +5880,7 @@ class RaceModel:
         self._start_lap = None
         self.leader_finish_t = None
         self.road_winner = None
+        self.winner_call = None       # V8.14: what the WINNER line said at the flag
         self.ended_without_finish_t = None
         self.final_classification = None
         self.final_classification_t = None
@@ -5920,6 +5922,7 @@ class RaceModel:
         self.pos_values = defaultdict(list)
         self.leader_finish_t = None
         self.road_winner = None
+        self.winner_call = None       # V8.14: what the WINNER line said at the flag
         self.result_aired_pos = {}
         self.humans_result_done = set()
         self.chqf_seen = False
@@ -6653,7 +6656,14 @@ class RaceModel:
         self.road_winner = idx
         self._set_state(t, "finishing", "leader finish")
         self.log(">>> LEADER FINISH car %d at %.3f" % (idx, t))
-        pen = self.pending_penalty_s.get(idx, 0.0)
+        # V8.14 (14 OCT): the penalty hanging over the car at the flag is the
+        # game's own Lap Data m_penalties ("accumulated time penalties in
+        # seconds to be added"), which the game reduces when a penalty is
+        # served in the pits. The event tally (pending_penalty_s) was never
+        # reduced, so a served five seconds stayed "pending" to the flag and
+        # the winner call would have said so. The tally is the fallback only.
+        live = getattr(self.w.cars[idx], "penalties", None)
+        pen = float(live) if live is not None else self.pending_penalty_s.get(idx, 0.0)
         second = None
         gap2 = None
         if pen > 0:
@@ -6667,9 +6677,14 @@ class RaceModel:
         if pen > 0:
             # only when something is pending, so a clean finish's claim record
             # stays byte-identical to V3 (the identity gate)
+            decided = gap2 is not None and gap2 > 0
             facts.update({"pending_penalty_s": pen,
-                          "penalty_costs_win": bool(gap2 is not None and 0 < gap2 < pen),
+                          "penalty_costs_win": bool(decided and gap2 < pen),
+                          "penalty_decided": bool(decided),
                           "second": second})
+        self.winner_call = {"idx": idx, "pending_penalty_s": pen,
+                            "decided": bool(pen > 0 and gap2 is not None and gap2 > 0),
+                            "costs_win": bool(facts.get("penalty_costs_win"))}
         self.emit(Claim("WINNER", CLASS_RESULT, [idx], [self._name(idx)], t,
                         facts=facts, priority=95.0, hard=True, max_age_key="result"))
 
@@ -6707,6 +6722,7 @@ class RaceModel:
             self._set_state(t, "classified", "Final Classification")
         elif self.state in ("green", "final_lap", "suspended"):
             self._set_state(t, "classified", "Final Classification")
+        self._official_winner(t, fc)
         # A7.2 / A2-1: a subject classified away from the position already aired
         # gets a correction -- but at most one per (car, position), capped per
         # car, and (A2-5) only for the podium or a human. The game re-sends the
@@ -6735,6 +6751,50 @@ class RaceModel:
                             provenance=[{"packet_id": PID_FINALCLASS,
                                          "t_unix": round(t, 6)}],
                             priority=42.0, max_age_key="result"))
+
+    def _official_winner(self, t, fc):
+        """V8.14 (14 OCT): the classification settles the winner. If the car
+        that crossed the line first is classified away from P1 (a penalty
+        applied), the booth names the real winner once, with the road winner
+        and where he fell to; if the flag call was left open (penalty pending,
+        gap unknown) and he kept the win, the booth confirms it. A clean win
+        already called is left alone."""
+        if getattr(self, "_official_winner_done", False):
+            return
+        wc = self.winner_call
+        road = self.road_winner
+        rows = fc.get("rows") or []
+        official = None
+        for idx, row in enumerate(rows):
+            if idx < MAX_CARS and (row or {}).get("position") == 1:
+                official = idx
+                break
+        if official is None:
+            return
+        self._official_winner_done = True
+        if road is None:
+            return                      # no flag call to reconcile
+        if official != road:
+            road_pos = (rows[road] or {}).get("position") if road < len(rows) else None
+            pen = (wc or {}).get("pending_penalty_s") or 0.0
+            self._corrected_pairs.add((road, road_pos))   # one line covers both cars
+            self.result_aired_pos[road] = road_pos
+            self.result_aired_pos[official] = 1
+            self.emit(Claim("WINNER_OFFICIAL", CLASS_RESULT, [official, road],
+                            [self._name(official), self._name(road)], t,
+                            facts={"confirmed": False, "road_position": road_pos,
+                                   "pending_penalty_s": pen},
+                            provenance=[{"packet_id": PID_FINALCLASS,
+                                         "t_unix": round(t, 6)}],
+                            priority=95.0, hard=True, max_age_key="result"))
+        elif wc and wc.get("pending_penalty_s") and not wc.get("decided"):
+            self.emit(Claim("WINNER_OFFICIAL", CLASS_RESULT, [official],
+                            [self._name(official)], t,
+                            facts={"confirmed": True,
+                                   "pending_penalty_s": wc.get("pending_penalty_s")},
+                            provenance=[{"packet_id": PID_FINALCLASS,
+                                         "t_unix": round(t, 6)}],
+                            priority=95.0, hard=True, max_age_key="result"))
 
     def on_speeds(self, t, speeds):
         self.speeds = speeds
@@ -7025,6 +7085,7 @@ KIND_PLACEHOLDERS = {
     "PENALTY": {"a", "penalty", "seconds", "cause"}, "RETIREMENT": {"a", "cause"},
     "PIT": {"a", "count"}, "WINNER": {"a", "penalty"}, "RESULT": {"a", "pos"},
     "CORRECTION": {"a", "pos"}, "RACE_END": {"a"},
+    "WINNER_OFFICIAL": {"a", "b", "pos", "penalty"},   # V8.14
     "LULL_GAP": {"a", "b", "gap"}, "LULL_HUMAN": {"a", "pos"},
     "LULL_WEATHER": {"temp_track", "temp_air"},
     "LULL_DISTANCE": {"laps", "remaining"}, "LULL_FASTEST": {"a", "time"},
@@ -7044,7 +7105,7 @@ MIN_VARIANTS = {
     "PIT": 4, "LEAD_CHANGE": 4, "RETIREMENT": 4, "PENALTY": 4, "BATTLE": 3,
     "LEAD_CONTEST": 3, "LEAD_SETTLED": 3, "START": 2, "RESTART": 2,
     "SAFETY_CAR": 2, "VSC": 2, "RED_FLAG": 2, "RACE_END": 2, "WINNER": 2,
-    "RESULT": 2, "CORRECTION": 2, "LULL_GAP": 4, "LULL_HUMAN": 4,
+    "RESULT": 2, "CORRECTION": 2, "WINNER_OFFICIAL": 2, "LULL_GAP": 4, "LULL_HUMAN": 4,
     "LULL_WEATHER": 4, "LULL_DISTANCE": 4, "LULL_FASTEST": 4, "LULL_PROGRESS": 4,
 }
 
@@ -7263,8 +7324,8 @@ class V3Booth:
         # F1: result-defining and hard-interrupt kinds are never suppressed by
         # the repetition guard. A saturated subject must still get its winner,
         # result, correction and race-end lines; the race outcome is not chatter.
-        self.rp_immune = ({"WINNER", "RESULT", "RACE_END", "CORRECTION"}
-                          | self.pc_hard)
+        self.rp_immune = ({"WINNER", "RESULT", "RACE_END", "CORRECTION",
+                           "WINNER_OFFICIAL"} | self.pc_hard)
         self._recent_texts = []       # (air_end_t, text)
         self._recent_ks = []          # (t, kind, subjkey, material)
         self._recent_templates = []   # (t, template_key)
@@ -7794,8 +7855,19 @@ class V3Booth:
             pen = f.get("pending_penalty_s")
             fv["penalty_pending"] = bool(pen)
             fv["penalty_costs_win"] = bool(f.get("penalty_costs_win"))
+            # V8.14: the gap that decides it was readable (else the call is held open)
+            fv["penalty_decided"] = bool(f.get("penalty_decided"))
             if pen:
                 ctx["penalty"] = self.words.penalty_noun(4, int(pen)) or "time penalty"
+        elif k == "WINNER_OFFICIAL":
+            pen = f.get("pending_penalty_s")
+            fv["confirmed"] = bool(f.get("confirmed"))
+            fv["penalty_pending"] = bool(pen)
+            if pen:
+                ctx["penalty"] = self.words.penalty_noun(4, int(pen)) or "time penalty"
+            rp = f.get("road_position")
+            if rp:
+                ctx["pos"] = _ordinal_word(rp)
         elif k in ("LULL_INTERVIEW", "LULL_LORE"):
             ctx["line"] = f.get("line")
         elif k == "SPEED_TRAP":
