@@ -114,7 +114,7 @@ TOOL_ID = "T11"
 TOOL_NAME = "T11_F125_Baby_Hoover"
 TOOL_VERSION = "V4"
 TOOL_DATE = "05OCT26"
-SCRIPT_VERSION = "5.1.0"
+SCRIPT_VERSION = "5.2.0"
 BIN_FORMAT_VERSION = 1
 TARGET_PACKET_FORMAT = 2025
 DEFAULT_CONFIG_NAME = "hoover_config_v2.json"
@@ -6881,6 +6881,8 @@ class RaceModel:
         already called is left alone."""
         if getattr(self, "_official_winner_done", False):
             return
+        if getattr(self.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
+            return                      # V8.25: a quali classification is a grid, not a result
         wc = self.winner_call
         road = self.road_winner
         rows = fc.get("rows") or []
@@ -7060,6 +7062,19 @@ def _num_word(n):
     if 0 <= n < len(ones):
         return ones[n]
     return str(n)
+
+
+def _num_word_99(n):
+    """V8.25: 0-99 as words (lap times, minutes left); beyond that, digits."""
+    n = int(n)
+    if n <= 20:
+        return _num_word(n)
+    if n >= 100:
+        return str(n)
+    tens = {2: "twenty", 3: "thirty", 4: "forty", 5: "fifty", 6: "sixty",
+            7: "seventy", 8: "eighty", 9: "ninety"}
+    t, o = divmod(n, 10)
+    return tens[t] if o == 0 else "%s-%s" % (tens[t], _num_word(o))
 
 
 def _ordinal(n):
@@ -7499,6 +7514,10 @@ class V3Booth:
         sc = config.get("v3", "session_colour", default={}) or {}
         self._colour_cfg = sc
         self._colour_last = None           # model-clock time of the last colour line
+        # V8.25: the timed-session programme (practice, qualifying)
+        self._ts = None
+        self._ts_cfg = config.get("v3", "timed_session", default={}) or {}
+        self.counter_timed = 0
         # V8.24: the lobby segment's own memory
         self._lobby_lines = 0
         self._lobby_arr_t = None
@@ -8045,7 +8064,7 @@ class V3Booth:
                 ctx["pos"] = _ordinal_word(rp)
         elif k in ("LULL_INTERVIEW", "LULL_LORE"):
             ctx["line"] = f.get("line")
-        elif k.startswith("LOBBY_"):
+        elif k.startswith("LOBBY_") or k.startswith("TS_"):
             # V8.24: the lobby lines carry their own fill and facts view
             ctx.update({kk: vv for kk, vv in (f.get("display") or {}).items() if vv is not None})
             fv.update(f.get("view") or {})
@@ -8355,6 +8374,8 @@ class V3Booth:
             return False
         if self._lobby_segment(t):         # V8.24: arrivals come before colour
             return True
+        if kind in ("PRACTICE", "QUALI") and self._timed_session(t, kind):
+            return True                    # V8.25: the practice / qualifying programme
         if self._colour_open_t is None:
             self._colour_open_t = t
         interval = float(cfg.get("interval_s", 120.0))
@@ -8388,6 +8409,286 @@ class V3Booth:
         self.queue.append(claim)
         self._air(claim, t)                # the gate is bypassed on purpose
         return True
+
+    # ---- V8.25 (14 OCT): practice and qualifying, guided by the Day Programme
+    # white paper (13 OCT), sections 4, 5 and 7.6. Everything here is read off
+    # the wire (session clock, each car's last lap, sector one, the lap-invalid
+    # flag) or the ingested material; template-written; it bypasses the race
+    # gate on purpose and stops the moment a race is declared.
+    #   Practice: the explainer at open; a league driver's personal best as a
+    #   RESULT with its stakes (what he found, how far off the quickest); a
+    #   check-in rotation over the humans ordered by whose arc moved last; the
+    #   board read as gaps, never positions ("quickest so far", never
+    #   "fastest"); clock marks; the final-five pivot; a compressed summary at
+    #   session end.
+    #   Qualifying: the four line kinds (flyer at sector one, sector update
+    #   against his own best, the result and where it puts him, the board as
+    #   provisional order); AI laps silent unless they take provisional pole;
+    #   a deleted lap called; the last five minutes with the clock; pole held
+    #   until the Final Classification, then the grid read with every league
+    #   driver's slot.
+    def _ts_reset(self, kind, t):
+        self._ts = {"kind": kind, "t_open": t, "opened": False, "best": {}, "runs": {},
+                    "last_seen_lap": {}, "quickest": None, "quickest_said": None,
+                    "s1_best": {}, "s1_last": {}, "flyer_said_lap": {}, "invalid_said": {},
+                    "checkin_t": {}, "last_checkin_t": None, "last_board_t": None,
+                    "clock_said": set(), "final_pivot": False, "ended": False, "grid_said": False,
+                    "lines": 0, "time_left_max": 0, "last_time_left": None, "best_t": {},
+                    "pending": []}
+
+    def _ts_air(self, kind, ctx, view, t, speaker="LEAD", pri=12.0, subjects=()):
+        claim = Claim(kind, CLASS_FILLER, list(subjects), [], t,
+                      facts={"display": {k: v for k, v in ctx.items() if v is not None},
+                             "view": dict(view), "timed_session": True},
+                      priority=pri, speaker=speaker, demotable=True)
+        self._ts["lines"] += 1
+        self.counter_timed += 1
+        self.queue.append(claim)
+        self._air(claim, t)
+        return True
+
+    def _ts_name(self, idx, full=False):
+        c = self.model.w.cars[idx]
+        if full and c.spoken_full and not c.spoken_dynamic:
+            return c.spoken_full
+        return c.spoken
+
+    def _timed_session(self, t, kind):
+        cfg = self._ts_cfg
+        if not cfg.get("enabled", True):
+            return False
+        w = self.model.w
+        ts = self._ts
+        tl = float(getattr(w, "time_left", 0) or 0)
+        # a new session: kind changed, or the clock jumped back up
+        if ts is None or ts["kind"] != kind or (ts["last_time_left"] is not None
+                                                 and tl > ts["last_time_left"] + 120):
+            self._ts_reset(kind, t)
+            ts = self._ts
+        ts["last_time_left"] = tl
+        ts["time_left_max"] = max(ts["time_left_max"], tl)
+        quali = kind == "QUALI"
+        humans = [c.idx for c in w.cars if c.seen and c.is_human and c.name_resolved
+                  and c.spoken_short and not c.spoken_dynamic
+                  and c.spoken_short.lower() != "the car"]   # a nameless car is not called on
+        hset = set(humans)
+        ext = getattr(w, "ext", None)
+        lap_rows = getattr(ext, "lap", None) if ext is not None else None
+
+        # -- 1. the explainer, once, a few seconds after the session is seen (7.6)
+        if not ts["opened"]:
+            if (t - ts["t_open"]) < float(cfg.get("open_after_s", 8.0)):
+                return False
+            ts["opened"] = True
+            mins = int(round(tl / 60.0)) if tl else None
+            return self._ts_air("TS_OPEN", {"session": "qualifying" if quali else "practice",
+                                            "minutes": _num_word_99(mins) if mins else None},
+                                {"quali": quali, "has_minutes": bool(mins)}, t)
+
+        # -- 2. read the wire: new laps, sector one, deletions
+        new_best, new_quickest, flyer, invalid = [], None, None, None
+        for c in w.cars:
+            if not c.seen or not c.name_resolved:
+                continue
+            i = c.idx
+            ll = int(c.last_lap_ms or 0)
+            row = lap_rows[i] if (lap_rows is not None and i < len(lap_rows)) else None
+            if ll > 0 and ll != ts["last_seen_lap"].get(i):
+                ts["last_seen_lap"][i] = ll
+                ts["runs"][i] = ts["runs"].get(i, 0) + 1
+                prev = ts["best"].get(i)
+                if prev is None or ll < prev:
+                    ts["best"][i] = ll
+                    ts["best_t"][i] = t
+                    if i in hset:
+                        new_best.append((i, ll, prev))
+                    q = ts["quickest"]
+                    if q is None or ll < q[1]:
+                        ts["quickest"] = (i, ll)
+                        new_quickest = (i, ll, q)
+            if row is not None and i in hset:
+                s1 = int(row.get("s1_ms") or 0)
+                if s1 > 0 and s1 != ts["s1_last"].get(i):
+                    ts["s1_last"][i] = s1
+                    pb = ts["s1_best"].get(i)
+                    if pb is None or s1 < pb:
+                        ts["s1_best"][i] = s1
+                    if quali and flyer is None and row.get("sector") == 1 and not row.get("lap_invalid"):
+                        if ts["flyer_said_lap"].get(i) != c.lap:
+                            ts["flyer_said_lap"][i] = c.lap
+                            flyer = (i, s1, pb)
+                if quali and row.get("lap_invalid") and ts["invalid_said"].get(i) != c.lap \
+                        and row.get("sector", 0) >= 1 and invalid is None:
+                    ts["invalid_said"][i] = c.lap
+                    invalid = i
+        if self.channel_busy_until > t + 1e-9:
+            return False
+
+        qidx, qms = ts["quickest"] if ts["quickest"] else (None, None)
+
+        def gap_to_quickest(ms):
+            if qms is None or ms is None:
+                return None
+            d = (ms - qms) / 1000.0
+            return _gap_words(d) if d > 0.05 else None
+
+        # -- 3. a deleted lap (quali): the clock is the stake
+        if invalid is not None:
+            return self._ts_air("TS_INVALID", {"a": self._ts_name(invalid),
+                                               "minutes": _num_word_99(int(tl // 60)) if tl >= 60 else None},
+                                {"late": tl < 300, "has_minutes": tl >= 60}, t, speaker="ANALYST", subjects=[invalid])
+
+        # -- 4. a league driver's new personal best: the result, with stakes.
+        #       Bests arriving together queue; one is said per tick, the rest
+        #       follow while they are still his best and still fresh.
+        for i, ll, prev in sorted(new_best, key=lambda x: x[1]):
+            ts["pending"].append((i, ll, prev, t))
+        pend = [p for p in ts["pending"] if ts["best"].get(p[0]) == p[1] and (t - p[3]) <= 45.0]
+        ts["pending"] = pend
+        if pend:
+            i, ll, prev, _t0 = pend.pop(0)
+            found = ((prev - ll) / 1000.0) if prev else None
+            is_q = qidx == i
+            rank = None
+            if quali:
+                order = sorted(ts["best"].items(), key=lambda kv: kv[1])
+                rank = next((n for n, (ci, _) in enumerate(order, start=1) if ci == i), None)
+            ctx = {"a": self._ts_name(i), "time": self._fmt_laptime_spoken(ll),
+                   "found": _gap_words(found) if found and found > 0.05 else None,
+                   "gap": gap_to_quickest(ll), "pos": _ordinal_word(rank) if rank else None,
+                   "run": _num_word(ts["runs"].get(i, 1))}
+            view = {"quali": quali, "first": prev is None, "quickest": is_q,
+                    "found": bool(ctx["found"]), "has_gap": bool(ctx["gap"]),
+                    "pole": bool(quali and is_q), "has_pos": bool(rank)}
+            return self._ts_air("TS_BEST", ctx, view, t, subjects=[i])
+
+        # -- 5. a new quickest overall by an AI car: provisional pole in quali only,
+        #       "quickest so far" in practice only when a league driver was displaced
+        if new_quickest and not w.cars[new_quickest[0]].is_human:
+            i, ll, prev_q = new_quickest
+            displaced = prev_q[0] if (prev_q and w.cars[prev_q[0]].is_human) else None
+            if quali or displaced is not None:
+                return self._ts_air("TS_QUICKEST", {"a": self._ts_name(i), "time": self._fmt_laptime_spoken(ll),
+                                                    "b": self._ts_name(displaced) if displaced is not None else None},
+                                    {"quali": quali, "displaced": displaced is not None}, t, speaker="ANALYST", subjects=[i])
+
+        # -- 6. the flyer at sector one (quali): against his own best sector.
+        #       One flyer line per flyer_every_s; a run of first flyers at the
+        #       open is one line, not five.
+        if flyer is not None and (t - ts.get("last_flyer_t", -1e9)) >= float(cfg.get("flyer_every_s", 25.0)):
+            ts["last_flyer_t"] = t
+            i, s1, pb = flyer
+            delta = ((pb - s1) / 1000.0) if pb else None
+            return self._ts_air("TS_FLYER", {"a": self._ts_name(i),
+                                             "delta": _gap_words(abs(delta)) if delta and abs(delta) > 0.05 else None},
+                                {"up": bool(delta and delta > 0.05), "down": bool(delta and delta < -0.05),
+                                 "first": pb is None, "late": tl < 300}, t, subjects=[i])
+
+        # -- 7. the clock marks (7.6: minutes left, "about")
+        for mark in (15, 10, 5, 2, 1):
+            if tl and tl <= mark * 60 and mark not in ts["clock_said"] and ts["time_left_max"] > mark * 60 + 30:
+                ts["clock_said"].add(mark)
+                if mark == 5 and not ts["final_pivot"]:
+                    ts["final_pivot"] = True
+                    # the final five: the shape of the session so far (4, act 3; 5, act 3)
+                    hum = sorted([(ts["best"][h], h) for h in humans if h in ts["best"]])
+                    ctx = {"minutes": "five", "a": self._ts_name(qidx) if qidx is not None else None,
+                           "time": self._fmt_laptime_spoken(qms) if qms else None,
+                           "b": self._ts_name(hum[0][1]) if hum else None,
+                           "gap": gap_to_quickest(hum[0][0]) if hum else None}
+                    return self._ts_air("TS_FINAL", ctx, {"quali": quali, "has_board": qidx is not None and bool(hum),
+                                                          "human_quickest": bool(hum and hum[0][1] == qidx)}, t)
+                return self._ts_air("TS_CLOCK", {"minutes": _num_word(mark)},
+                                    {"quali": quali, "one": mark == 1, "late": mark <= 2}, t,
+                                    speaker="ANALYST" if mark in (10, 2) else "LEAD")
+
+        # -- 8. session end: the clock at zero (practice: summary; quali: hold pole for the classification)
+        if tl <= 0 and ts["time_left_max"] > 60 and not ts["ended"]:
+            fc = self.model.final_classification
+            if quali and fc is None:
+                # pole held: nothing until the classification (5, "Pole held")
+                if not ts.get("hold_said"):
+                    ts["hold_said"] = True
+                    return self._ts_air("TS_HOLD", {"a": self._ts_name(qidx) if qidx is not None else None},
+                                        {"has_a": qidx is not None}, t, speaker="ANALYST")
+                return False
+            ts["ended"] = True
+            hum = sorted([(ts["best"][h], h) for h in humans if h in ts["best"]])
+            if quali:
+                rows = fc.get("rows") or []
+                pole = next((r["idx"] for r in rows if r.get("position") == 1), qidx)
+                slots = []
+                for r in sorted(rows, key=lambda r: r.get("position") or 99):
+                    if r.get("position") and r["idx"] in hset:
+                        slots.append("%s %s" % (self._ts_name(r["idx"]), _ordinal_word(r["position"])))
+                ctx = {"a": self._ts_name(pole, full=True) if pole is not None else None,
+                       "time": self._fmt_laptime_spoken(ts["best"].get(pole)) if pole in ts["best"] else None,
+                       "list": _join_words(slots), "count": _num_word(len(slots))}
+                return self._ts_air("TS_GRID", ctx, {"has_list": bool(slots), "human_pole": pole in hset}, t)
+            ctx = {"a": self._ts_name(qidx, full=True) if qidx is not None else None,
+                   "time": self._fmt_laptime_spoken(qms) if qms else None,
+                   "b": self._ts_name(hum[0][1], full=True) if hum else None,
+                   "gap": gap_to_quickest(hum[0][0]) if hum else None,
+                   "count": _num_word(len(hum)) if hum else None}
+            return self._ts_air("TS_END", ctx, {"has_board": qidx is not None, "has_human": bool(hum),
+                                                "human_quickest": bool(hum and hum[0][1] == qidx)}, t)
+        if ts["ended"]:
+            return False
+
+        # -- 9. the board (4: gaps, never positions; 5: the provisional order as a story)
+        board_every = float(cfg.get("board_every_quali_s" if quali else "board_every_s", 180.0 if quali else 240.0))
+        if qidx is not None and (ts["last_board_t"] is None or (t - ts["last_board_t"]) >= board_every) \
+                and (t - ts["t_open"]) >= float(cfg.get("board_first_after_s", 150.0)):
+            ts["last_board_t"] = t
+            hum = sorted([(ts["best"][h], h) for h in humans if h in ts["best"]])[:4]
+            parts = []
+            for ms, h in hum:
+                g = gap_to_quickest(ms)
+                parts.append("%s %s" % (self._ts_name(h), ("on the quickest time" if h == qidx else (g + " off" if g else "within a tenth"))))
+            ctx = {"a": self._ts_name(qidx), "time": self._fmt_laptime_spoken(qms), "list": _join_words(parts),
+                   "count": _num_word(len(hum))}
+            return self._ts_air("TS_BOARD", ctx, {"quali": quali, "has_list": bool(parts),
+                                                  "human_quickest": qidx in hset}, t, speaker="ANALYST")
+
+        # -- 10. practice check-in rotation (4, act 2): the human whose arc moved last and
+        #        has waited longest; what he has, what he found, how far off
+        if not quali and humans:
+            every = float(cfg.get("checkin_every_s", 75.0))
+            if ts["last_checkin_t"] is None or (t - ts["last_checkin_t"]) >= every:
+                cands = [h for h in humans if h in ts["best"]]
+                if cands:
+                    cands.sort(key=lambda h: (ts["checkin_t"].get(h, -1e9), -ts["best_t"].get(h, 0)))
+                    h = cands[0]
+                    if (t - ts["checkin_t"].get(h, -1e9)) >= every * 2:
+                        ts["checkin_t"][h] = t
+                        ts["last_checkin_t"] = t
+                        ms = ts["best"][h]
+                        ctx = {"a": self._ts_name(h), "time": self._fmt_laptime_spoken(ms),
+                               "gap": gap_to_quickest(ms), "run": _num_word(ts["runs"].get(h, 1)),
+                               "ago": _num_word(int(round((t - ts["best_t"].get(h, t)) / 60.0))) if (t - ts["best_t"].get(h, t)) >= 90 else None}
+                        return self._ts_air("TS_CHECKIN", ctx, {"quickest": h == qidx, "has_gap": bool(ctx["gap"]),
+                                                                "stale": bool(ctx["ago"])}, t,
+                                            speaker="ANALYST", subjects=[h])
+        return False
+
+    @staticmethod
+    def _fmt_laptime_spoken(ms):
+        """1:39.204 -> "one thirty-nine point two" (tenths, the way a booth says
+        it; whole seconds under ten get the booth's "oh": 1:07.4 -> "one oh seven
+        point four")."""
+        if not ms:
+            return None
+        s = ms / 1000.0
+        m = int(s // 60)
+        tenths = int(round((s - m * 60) * 10))
+        whole, tenth = divmod(tenths, 10)
+        if whole >= 60:
+            m, whole = m + 1, whole - 60
+        if whole < 10:
+            sec = "oh %s" % _num_word_99(whole)
+        else:
+            sec = _num_word_99(whole)
+        return "%s %s point %s" % (_num_word_99(m), sec, _num_word_99(tenth))
 
     def _lobby_segment(self, t):
         """V8.24 (14 OCT): the lobby. While Lobby Info is on the wire -- the
@@ -8650,7 +8951,13 @@ class V3Booth:
             # V8.5 (OK run 12:43): three near-identical model lines in 30 s
             # ("Valor's face is a picture of utter delight ..."). A line that
             # shares most of its words with a recent line is a repeat too.
-            if self.stories is not None and self.rp_near_jaccard > 0:
+            # V8.25: the timed-session lines are template lines about
+            # different drivers from a small set of shapes; "Alan on a flyer,
+            # four tenths up" and "Mike on a flyer, two tenths up" share most
+            # of their words and are both news. The exact-repeat check above
+            # still applies to them.
+            if self.stories is not None and self.rp_near_jaccard > 0 \
+                    and not (claim.facts or {}).get("timed_session"):
                 mine = set(w.lower() for w in text.split())
                 for (et, txt) in self._recent_texts:
                     if (t - et) > self.rp_near_window:
@@ -15909,6 +16216,8 @@ class P_SF_07(StoryProcessor):
             return
         eng = self.eng
         m = eng.model
+        if getattr(m.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
+            return                      # V8.25: no podium for a qualifying classification
         fc = m.final_classification
         if not fc:
             return
@@ -17045,6 +17354,9 @@ class BabyHooverV3:
                 # V8.13: the submission gate's ledger
                 "session_colour": {"enabled": bool((b._colour_cfg or {}).get("enabled", True)),
                                    "lines": b.counter_colour},
+                "timed_session": {"enabled": bool((b._ts_cfg or {}).get("enabled", True)),
+                                  "lines": b.counter_timed,
+                                  "kind": (b._ts or {}).get("kind")},
                 "submit_gate": {"depth": b._submit_depth,
                                 "must_priority": b._submit_must_priority,
                                 "at_intake": b.counter_submit_now,

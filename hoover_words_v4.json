@@ -3034,6 +3034,729 @@
           "present": "{count} of them yet to confirm."
         }
       ]
+    },
+    "TS_OPEN": {
+      "_about": "V8.25 (Day Programme): the explainer at open, once (7.6). {session} practice/qualifying, {minutes} about how long is left.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": true,
+            "quali": false
+          },
+          "present": "Welcome to practice. About {minutes} minutes on the clock, and this is where the drivers learn the car and the track. Nobody is racing anybody yet. What matters is each driver finding time against his own last lap, and how far off the quickest time he is."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": true,
+            "quali": false
+          },
+          "present": "Practice is open, about {minutes} minutes of it. Positions mean nothing here. We watch each of our drivers against himself: the lap he had, the lap he finds, and the gap to the quickest time of the session."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": false,
+            "quali": false
+          },
+          "present": "Practice is open. Nobody is racing anybody yet. We watch each driver against his own last lap, and against the quickest time of the session."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": true,
+            "quali": true
+          },
+          "present": "Qualifying. About {minutes} minutes to set a lap, and the quickest lap decides the grid for the race. Every flying lap counts, every deleted lap costs, and the clock is the enemy."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": true,
+            "quali": true
+          },
+          "present": "Qualifying is open, about {minutes} minutes on the board. One lap decides where you start the race. We follow each flying lap through the sectors, and whether it is good enough."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": false,
+            "quali": true
+          },
+          "present": "Qualifying is open. The quickest lap decides the grid for the race, and the clock is the enemy."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The session is open, and we are watching the laps as they come in.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_BEST": {
+      "_about": "V8.25 (Day Programme): a league driver's new personal best. {time} the lap, {found} what he took off his previous best, {gap} to the quickest, {pos} provisional place in qualifying, {run} his run count.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true,
+            "has_gap": false,
+            "quali": false
+          },
+          "present": "{a} is on the board. A {time} first time out."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true,
+            "quali": false,
+            "quickest": true
+          },
+          "present": "{a} opens his account with a {time}, that is the quickest time of the session so far."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true,
+            "has_gap": true,
+            "quali": false
+          },
+          "present": "{a} puts in his first lap, a {time}, {gap} off the quickest time so far."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": false,
+            "found": true,
+            "quali": false,
+            "quickest": true
+          },
+          "present": "{a} finds {found}. A {time}, and that is the quickest lap of the session so far."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "first": false,
+            "found": true,
+            "quali": false,
+            "quickest": true
+          },
+          "present": "That is the one for {a}. He takes {found} off his own best, a {time}, and nobody has gone quicker than that today."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": false,
+            "found": true,
+            "has_gap": true,
+            "quali": false
+          },
+          "present": "{a} improves. {found} found, a {time}, and he is {gap} off the quickest time."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "first": false,
+            "found": true,
+            "has_gap": true,
+            "quali": false
+          },
+          "present": "Progress for {a}. A {time}, {found} better than his last, still {gap} off the quickest time so far."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": false,
+            "has_gap": false,
+            "quali": false,
+            "quickest": false
+          },
+          "present": "{a} improves to a {time}, within a tenth of the quickest time so far."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true,
+            "pole": true,
+            "quali": true
+          },
+          "present": "{a} goes provisional pole. A {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "found": true,
+            "pole": true,
+            "quali": true
+          },
+          "present": "{a} with a {time}, and that is provisional pole."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "found": true,
+            "pole": true,
+            "quali": true
+          },
+          "present": "{a} finds {found} and takes provisional pole with a {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "pole": true,
+            "quali": true
+          },
+          "present": "Provisional pole for {a}, a {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true,
+            "has_gap": true,
+            "has_pos": true,
+            "pole": false,
+            "quali": true
+          },
+          "present": "{a} is on the board. A {time} first time, provisionally {pos}, {gap} off provisional pole."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "found": true,
+            "has_gap": true,
+            "has_pos": true,
+            "pole": false,
+            "quali": true
+          },
+          "present": "{a} with a {time}, {found} better, that puts him {pos}, {gap} off pole."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "found": true,
+            "has_pos": true,
+            "pole": false,
+            "quali": true
+          },
+          "present": "{a} improves. A {time}, {found} found, provisionally {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_pos": true,
+            "pole": false,
+            "quali": true
+          },
+          "present": "{a} with a {time}, provisionally {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} with a {time}.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_QUICKEST": {
+      "_about": "V8.25 (Day Programme): an AI car sets the quickest time. Practice only when it displaces one of ours ({b}); qualifying always, as provisional pole.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": true,
+            "quali": false
+          },
+          "present": "{a} goes quickest now, a {time}, and that knocks {b} off the top of the times."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": true,
+            "quali": false
+          },
+          "present": "{a} with a {time}, the quickest time so far, and {b} loses the top spot."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": false,
+            "quali": true
+          },
+          "present": "{a} takes provisional pole. A {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": false,
+            "quali": true
+          },
+          "present": "Provisional pole goes to {a}, a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": true,
+            "quali": true
+          },
+          "present": "{a} takes provisional pole from {b}, a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "displaced": true,
+            "quali": true
+          },
+          "present": "{b} loses provisional pole. {a} goes top with a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} sets the quickest time so far, a {time}.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_FLYER": {
+      "_about": "V8.25 (Day Programme): a flying lap through sector one in qualifying, against his own best sector. {delta} the sector difference.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "up": true
+          },
+          "present": "{a} on a flyer, and he is {delta} up through the first sector."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "up": true
+          },
+          "present": "Purple start for {a}. {delta} quicker than his best through sector one."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "down": true
+          },
+          "present": "{a} on a lap, {delta} down on his own best in the first sector. He needs the rest of it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "down": true
+          },
+          "present": "{a} is through sector one, {delta} slower than he has been. Not the start he wanted."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "first": true
+          },
+          "present": "{a} is through the first sector on his first flying lap."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "down": false,
+            "first": false,
+            "late": true,
+            "up": false
+          },
+          "present": "{a} on a flying lap, through sector one, and this one has to count."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "down": false,
+            "first": false,
+            "late": false,
+            "up": false
+          },
+          "present": "{a} is through the first sector on another lap."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} is on a flying lap.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_INVALID": {
+      "_about": "V8.25 (Day Programme): a deleted lap in qualifying. {minutes} left on the clock.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_minutes": true,
+            "late": false
+          },
+          "present": "That lap is deleted for {a}. {minutes} minutes left to find another one."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_minutes": true,
+            "late": false
+          },
+          "present": "Lap deleted for {a}. He has {minutes} minutes to go again."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_minutes": true,
+            "late": true
+          },
+          "present": "Deleted. {a} loses that lap with {minutes} minutes left, and the clock is against him now."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_minutes": false
+          },
+          "present": "That one is gone for {a}, lap deleted, and there is barely time for another."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Lap deleted for {a}.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_CLOCK": {
+      "_about": "V8.25 (Day Programme): a clock mark (7.6): {minutes} to go.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "late": false,
+            "quali": false
+          },
+          "present": "About {minutes} minutes left in practice."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "late": false,
+            "quali": false
+          },
+          "present": "{minutes} minutes to go in the session."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "late": true,
+            "one": false,
+            "quali": false
+          },
+          "present": "About {minutes} minutes of practice left."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true,
+            "quali": false
+          },
+          "present": "Last minute of practice."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "late": false,
+            "quali": true
+          },
+          "present": "About {minutes} minutes left in qualifying."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "late": false,
+            "quali": true
+          },
+          "present": "{minutes} minutes on the clock. Anyone not on a lap soon is out of time."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "late": true,
+            "one": false,
+            "quali": true
+          },
+          "present": "Two minutes left. Anyone starting a lap now is on his last one."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true,
+            "quali": true
+          },
+          "present": "Last minute of qualifying. Whoever is on track now has one lap, and that is it."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{minutes} minutes left.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_FINAL": {
+      "_about": "V8.25 (Day Programme): the final-five pivot: the shape of the session. {a}/{time} the quickest, {b}/{gap} our best-placed driver.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "human_quickest": false,
+            "quali": false
+          },
+          "present": "Five minutes left in practice, and the quickest time of the session is {a} with a {time}. Of ours, {b} is closest, {gap} off."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "human_quickest": true,
+            "quali": false
+          },
+          "present": "Into the last five minutes of practice. {a} holds the quickest time of the session, a {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": false,
+            "quali": false
+          },
+          "present": "Five minutes of practice left."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "human_quickest": false,
+            "quali": true
+          },
+          "present": "Five minutes left in qualifying, and provisional pole is {a} with a {time}. Of ours, {b} is closest, {gap} off. Everything now is a last lap."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "human_quickest": true,
+            "quali": true
+          },
+          "present": "Five minutes of qualifying left, and one of ours is on provisional pole. {a}, a {time}. Can he hold it?"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": false,
+            "quali": true
+          },
+          "present": "Five minutes left in qualifying, and everything from here is a last lap."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Five minutes to go.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_HOLD": {
+      "_about": "V8.25 (Day Programme): the clock at zero in qualifying, pole held until the classification. {a} the provisional pole sitter.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_a": true
+          },
+          "present": "The clock is at zero. {a} has provisional pole, but nothing is official until the classification comes through."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_a": false
+          },
+          "present": "Time is up. We wait on the final classification before anything is called."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Time is up in qualifying.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_GRID": {
+      "_about": "V8.25 (Day Programme): the grid, from the Final Classification. {a}/{time} pole, {list} each league driver's slot, {count} how many of ours.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_list": true,
+            "human_pole": false
+          },
+          "present": "The classification is in. Pole position, {a}, with a {time}. Our drivers line up like this: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_list": true,
+            "human_pole": true
+          },
+          "present": "It is official. One of ours on pole: {a}, a {time}. The rest of our grid: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_list": false
+          },
+          "present": "The classification is in, and {a} takes pole with a {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The grid is set for the race.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_END": {
+      "_about": "V8.25 (Day Programme): practice ends: the compressed summary. {a}/{time} the quickest, {b}/{gap} our best, {count} how many of ours set a time.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "has_human": true,
+            "human_quickest": false
+          },
+          "present": "That is practice. Quickest time of the session, {a}, with a {time}. Of ours, {b} was closest, {gap} off, and {count} of our drivers set a time. Qualifying is next, and that is where it starts to count."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "has_human": true,
+            "human_quickest": true
+          },
+          "present": "That is the end of practice, and one of ours set the quickest time of the session: {a}, a {time}. Qualifying is next, and that is where it starts to count."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_board": true,
+            "has_human": false
+          },
+          "present": "That is practice. {a} ends it with the quickest time, a {time}. Qualifying is next."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "That is the end of practice. Qualifying is next.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_BOARD": {
+      "_about": "V8.25 (Day Programme): the board read as gaps, never positions (4); the provisional order in qualifying (5). {list} our drivers with their gaps.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_list": true,
+            "human_quickest": false,
+            "quali": false
+          },
+          "present": "The times so far. {a} quickest with a {time}. Of ours: {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_list": true,
+            "human_quickest": false,
+            "quali": false
+          },
+          "present": "Where we stand: {a} has the quickest time of the session, a {time}. Our drivers: {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_list": true,
+            "human_quickest": true,
+            "quali": false
+          },
+          "present": "The times so far, and one of ours is top of them. {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_list": true,
+            "human_quickest": false,
+            "quali": true
+          },
+          "present": "Provisional pole is {a}, a {time}. Our drivers: {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_list": true,
+            "human_quickest": true,
+            "quali": true
+          },
+          "present": "The provisional order, and one of ours is on pole: {list}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The quickest time so far is {a}, a {time}.",
+          "fallback": true
+        }
+      ]
+    },
+    "TS_CHECKIN": {
+      "_about": "V8.25 (Day Programme): practice check-in on one of ours (4, act two). {time} his best, {gap} to the quickest, {run} how many laps, {ago} minutes since his best.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_gap": true,
+            "quickest": false,
+            "stale": false
+          },
+          "present": "{a} has a {time} as his best, {gap} off the quickest time, {run} laps in."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_gap": true,
+            "quickest": false,
+            "stale": false
+          },
+          "present": "Checking in on {a}: {run} laps done, best of them a {time}, {gap} off the quickest."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_gap": true,
+            "quickest": false,
+            "stale": true
+          },
+          "present": "{a} has not improved on his {time} for {ago} minutes. He is {gap} off the quickest time."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "quickest": true
+          },
+          "present": "{a} is still holding the quickest time of the session, a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "has_gap": false,
+            "quickest": false
+          },
+          "present": "{a} is within a tenth of the quickest time, a {time}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "{a} has a {time} as his best so far.",
+          "fallback": true
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."
