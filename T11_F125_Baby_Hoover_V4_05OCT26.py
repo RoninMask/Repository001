@@ -7288,6 +7288,19 @@ class V3Booth:
         # writer per --writer after construction.
         wr = config.get("v3", "writer", default={}) or {}
         self._recent_n = wr.get("recent_lines", 4)
+        # V8.13 (14 OCT): the submission gate. On 09 OCT every claim was sent
+        # to the model the moment it was raised: 4,070 submissions for 99
+        # aired lines in one run, 2,674 of them cancelled after being paid
+        # for. That emptied the API credit at 22:47 and crowded the lines
+        # that mattered. Now only the claims about to air are submitted: the
+        # top submit_depth of the queue by air priority, re-checked every
+        # tick, plus any must-call (hard, or at/above submit_must_priority),
+        # which is sent the instant it is raised. 0 = no gate (the old way).
+        self._submit_depth = int(wr.get("submit_depth", 2))
+        self._submit_must_priority = float(wr.get("submit_must_priority", 90.0))
+        self.counter_submit_deferred = 0   # claims held at intake
+        self.counter_submit_sweep = 0      # claims submitted later by the sweep
+        self.counter_submit_now = 0        # claims submitted at intake
         self.writer = TemplateWriter(self)
         self._last_line_result = None
         # Part R: the speech channel. None (default --speech none) means the
@@ -7304,10 +7317,56 @@ class V3Booth:
         self._dwell_preview(claim)
         # Part N: fire the model round trip the moment the claim enters the
         # queue, so it happens inside the queue wait that already exists. The
-        # template writer's submit() is a no-op.
+        # template writer's submit() is a no-op. V8.13: only when the gate
+        # says so; otherwise the sweep in tick() submits it when it reaches
+        # the front.
         if self.writer.needs_blob:
-            self.writer.submit(
-                self._line_request(claim, past=False, t=claim.t_create))
+            if self._submit_now(claim):
+                self.counter_submit_now += 1
+                self.writer.submit(
+                    self._line_request(claim, past=False, t=claim.t_create))
+            else:
+                self.counter_submit_deferred += 1
+
+    def _eff_priority(self, c):
+        """The air priority tick() ranks by (story beats earn the on-screen
+        bonus; everything else is its raised priority)."""
+        if c.kind.startswith(STORY_KIND_PREFIX):
+            return min(c.priority + self._on_screen_bonus(c), 98.0)
+        return c.priority
+
+    def _submit_now(self, claim):
+        """V8.13: submit at intake only for a must-call, or while fewer than
+        submit_depth claims that outrank this one already hold a request."""
+        depth = self._submit_depth
+        if depth <= 0:
+            return True
+        if getattr(claim, "hard", False) or claim.priority >= self._submit_must_priority:
+            return True
+        mine = self._eff_priority(claim)
+        ahead = 0
+        for c in self.queue:
+            if c is claim or not self.writer.is_submitted(c.claim_id):
+                continue
+            if self._eff_priority(c) >= mine:
+                ahead += 1
+                if ahead >= depth:
+                    return False
+        return True
+
+    def _submit_sweep(self, t):
+        """V8.13: each tick, the top submit_depth claims on the queue by air
+        priority get their request if they do not have one yet. A claim that
+        rose to the front after a drop ahead of it is submitted here, with
+        the lead-time hold in tick() then giving the answer its chance."""
+        if not self.writer.needs_blob or self._submit_depth <= 0 or not self.queue:
+            return
+        ranked = sorted(self.queue, key=lambda c: (self._eff_priority(c), -c.t_create),
+                        reverse=True)
+        for c in ranked[:self._submit_depth]:
+            if not self.writer.is_submitted(c.claim_id):
+                self.counter_submit_sweep += 1
+                self.writer.submit(self._line_request(c, past=False, t=t))
 
     def _max_age_for(self, claim):
         ov = getattr(claim, "max_age_override", None)
@@ -7954,6 +8013,7 @@ class V3Booth:
         # spread by the pacing governor (Part C).
         self._new_race_check(t)
         self._lights(t)
+        self._submit_sweep(t)          # V8.13: requests for the front of the queue
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
@@ -8812,6 +8872,11 @@ class Writer:
         """V8.4: the claim was dropped before it aired; forget its request."""
         return None
 
+    def is_submitted(self, claim_id):
+        """V8.13: True once this claim has a request of its own (in flight,
+        cached, or answered). The submission gate asks before spending."""
+        return False
+
     def write_line(self, request):        # -> LineResult
         raise NotImplementedError
 
@@ -9029,6 +9094,9 @@ class ModelWriter(Writer):
         fut = p.get("future") if p else None
         if fut is not None and fut.cancel():
             self.counter["cancelled"] += 1
+
+    def is_submitted(self, claim_id):
+        return claim_id in self._pending
 
     @staticmethod
     def _sentences_for(request):
@@ -9537,6 +9605,9 @@ class HybridWriter(Writer):
         r = self._routed.pop(claim_id, None)
         if r is not None and r[0] is not self.template:
             r[0].discard(claim_id)
+
+    def is_submitted(self, claim_id):
+        return claim_id in self._routed
 
     def answer_pending(self, claim_id):
         w, _ = self._routed.get(claim_id, (None, None))
@@ -16392,6 +16463,12 @@ class BabyHooverV3:
             b = self.booth
             manifest["booth_v8"] = {
                 "lead_holds": getattr(b, "counter_lead_holds", 0),
+                # V8.13: the submission gate's ledger
+                "submit_gate": {"depth": b._submit_depth,
+                                "must_priority": b._submit_must_priority,
+                                "at_intake": b.counter_submit_now,
+                                "deferred": b.counter_submit_deferred,
+                                "by_sweep": b.counter_submit_sweep},
                 "dwell": {"enabled": b.dwell_enabled, "dwell_s": b.dwell_s,
                           "holds": b.counter_dwell_holds,
                           "stories_told": b.counter_dwell_focus,
