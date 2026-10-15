@@ -351,16 +351,23 @@ def check_lines(lines, roster, did):
 
 # ---- build --------------------------------------------------------------------
 
-def latest_per_driver(raw_dir, roster, log):
-    """-> {driver_id: conv}, plus a list of calls that matched nobody."""
+def latest_per_driver(raw_dir, roster, log, since=None):
+    """-> {driver_id: conv}, plus a list of calls that matched nobody.
+    V1.1 (14 OCT): `since` (a unix time) ignores every call that started
+    before it, so only race-week interviews count and an old call never airs
+    as if it were fresh. The roll call then shows who still owes one."""
     best, orphans = {}, []
     if not os.path.isdir(raw_dir):
         return best, orphans
+    skipped_old = 0
     for fn in sorted(os.listdir(raw_dir)):
         if not fn.endswith(".json"):
             continue
         conv = load_json(os.path.join(raw_dir, fn))
         if (conv.get("status") or "done") != "done":
+            continue
+        if since is not None and (call_start(conv) or 0) < since:
+            skipped_old += 1
             continue
         tag = call_vars(conv).get("gamertag")
         d = roster.by_gamertag(tag)
@@ -374,11 +381,25 @@ def latest_per_driver(raw_dir, roster, log):
             continue
         if did not in best or call_start(conv) > call_start(best[did]):
             best[did] = conv
+    if skipped_old:
+        log("  %d call(s) before the --since date were left out" % skipped_old)
     return best, orphans
 
 
+def parse_since(text):
+    """'2026-10-17' or '2026-10-17 18:00' (local time) -> unix seconds."""
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return time.mktime(datetime.datetime.strptime(text.strip(), fmt).timetuple())
+        except ValueError:
+            continue
+    raise SystemExit("--since wants a date like 2026-10-17 (or 2026-10-17 18:00), not %r" % text)
+
+
 def build(args, roster, paths, log):
-    best, orphans = latest_per_driver(paths["raw"], roster, log)
+    best, orphans = latest_per_driver(paths["raw"], roster, log, since=args.since_t)
     for fn, tag in orphans:
         log("  ! call %s has gamertag %r, which is not in the roster -- not used" % (fn, tag))
     akey = None if args.no_model else get_key(args.key_var)
@@ -458,10 +479,28 @@ def build(args, roster, paths, log):
             ent["match"] = {"handle": rd["match"]["handle"], "spoken": rd["spoken"]["short"],
                             "aliases": list(rd.get("aliases") or [])}
             ent["_source"] = "interview %s (%s pass)" % (conv.get("conversation_id"), used)
-    if not args.dry_run and built:
+    # V1.1 (14 OCT): under --since, a driver with no qualifying call loses any
+    # interview facts a previous build left him, so an old interview never
+    # airs as fresh. Hand-written facts (no _source) are kept.
+    cleared = []
+    if args.since_t is not None:
+        for d in roster.drivers:
+            did = d["driver_id"]
+            ent = dossier["drivers"].get(did)
+            if did in best or not ent or not str(ent.get("_source", "")).startswith("interview"):
+                continue
+            if ent.get("facts") or ent.get("armed"):
+                cleared.append(roster.on_air(did))
+                dossier["drivers"][did] = {"facts": [], "armed": {},
+                                           "_cleared": "no interview since %s" % args.since}
+        if cleared:
+            log("  cleared the old interview facts of: %s (no call since %s)"
+                % (", ".join(cleared), args.since))
+    if not args.dry_run and (built or cleared):
         dossier["_interviews"] = {"tool": TOOL_VERSION,
                                   "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                  "drivers": sorted(built)}
+                                  "drivers": sorted(built),
+                                  "since": args.since}
         save_json(paths["dossier"], dossier)
     return built
 
@@ -506,9 +545,11 @@ def pull(args, roster, paths, log):
     log("Fetched %d new call(s); %d on the agent in total." % (new, len(convs)))
 
 
-def status(roster, paths, log):
-    best, orphans = latest_per_driver(paths["raw"], roster, lambda m: None)
+def status(roster, paths, log, since=None, since_text=None):
+    best, orphans = latest_per_driver(paths["raw"], roster, lambda m: None, since=since)
     log("")
+    if since is not None:
+        log("  Interviews since %s only" % since_text)
     log("  %-9s %-17s %s" % ("DRIVER", "GAMERTAG", "INTERVIEW"))
     for d in roster.drivers:
         did = d["driver_id"]
@@ -517,7 +558,7 @@ def status(roster, paths, log):
             when = datetime.datetime.fromtimestamp(t).strftime("%d %b %H:%M") if t else "done"
             mark = "done  %s" % when
         else:
-            mark = "--  not yet"
+            mark = "--  not yet" if since is None else "--  not since %s" % since_text
         log("  %-9s %-17s %s" % (d["spoken"]["short"], d["match"]["handle"], mark))
     if orphans:
         log("  + %d call(s) with a gamertag not in the roster" % len(orphans))
@@ -575,12 +616,12 @@ def check(args, roster, paths, log):
         os.makedirs(tpaths["raw"])
         for f in fx:
             shutil.copyfile(f, os.path.join(tpaths["raw"], os.path.basename(f)))
-        best, orphans = latest_per_driver(tpaths["raw"], roster, lambda m: None)
+        best, orphans = latest_per_driver(tpaths["raw"], roster, lambda m: None)   # fixture: no --since
         step(bool(best), "call matched to a driver by gamertag",
              ", ".join("%s -> %s" % (call_vars(c).get("gamertag"), roster.on_air(d)) for d, c in best.items()))
         step(not orphans, "no orphan calls", "; ".join("%s (%s)" % o for o in orphans))
         quiet = []
-        a2 = argparse.Namespace(**vars(args)); a2.no_model = True; a2.dry_run = False
+        a2 = argparse.Namespace(**vars(args)); a2.no_model = True; a2.dry_run = False; a2.since_t = None
         built = build(a2, roster, tpaths, quiet.append)
         step(bool(built), "card built (rules pass, no model)")
         for did, card in sorted(built.items()):
@@ -624,8 +665,9 @@ def check(args, roster, paths, log):
     log("4. Your real folder")
     for var in (args.el_key_var, args.key_var):
         log("     %-20s %s" % (var, "set" if get_key(var) else "NOT SET (pull needs the ElevenLabs key; build is plainer without the Claude key)"))
-    rbest, rorph = latest_per_driver(paths["raw"], roster, lambda m: None)
-    log("     calls on disk: %d driver(s) with an interview, %d orphan(s)" % (len(rbest), len(rorph)))
+    rbest, rorph = latest_per_driver(paths["raw"], roster, lambda m: None, since=args.since_t)
+    log("     calls on disk%s: %d driver(s) with an interview, %d orphan(s)"
+        % ((" since %s" % args.since) if args.since else "", len(rbest), len(rorph)))
     for d in roster.drivers:
         log("       %-8s %s" % (roster.on_air(d["driver_id"]), "done" if d["driver_id"] in rbest else "--"))
     dz_doc = load_json(paths["dossier"], None) or {}
@@ -672,7 +714,11 @@ def main(argv=None):
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--no-model", action="store_true", help="skip the Claude pass")
     ap.add_argument("--dry-run", action="store_true", help="print cards, write nothing")
+    ap.add_argument("--since", default=None,
+                    help="only calls on or after this date count (2026-10-17, or 2026-10-17 18:00); "
+                         "older interviews are left out and the roll call shows who still owes one")
     args = ap.parse_args(argv)
+    args.since_t = parse_since(args.since)
 
     paths = {"roster": os.path.join(args.root, "hoover_roster_league.json"),
              "dossier": os.path.join(args.root, "hoover_dossier.json"),
@@ -695,7 +741,7 @@ def main(argv=None):
             say("")
             say("Wrote %d card(s) and updated %s" % (len(built), os.path.basename(paths["dossier"])))
     if args.command in ("all", "status", "pull", "build"):
-        status(roster, paths, say)
+        status(roster, paths, say, since=args.since_t, since_text=args.since)
 
 
 if __name__ == "__main__":
