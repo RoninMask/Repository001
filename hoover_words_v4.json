@@ -2072,6 +2072,36 @@
     "S_SF_07": {
       "variants": [
         {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "podium"
+          },
+          "present": "Your podium: {a} wins it, {b} second, {c} third."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "podium"
+          },
+          "present": "So the top three: {a}, {b} and {c}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "podium",
+            "human_on": true
+          },
+          "present": "The podium is {a}, {b} and {c}, and one of our own is standing on it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "podium",
+            "human_on": false
+          },
+          "present": "{a} from {b} and {c} on the podium; our drivers were fighting further back tonight."
+        },
+        {
           "speaker": "ANALYST",
           "when": {
             "beat": "best_human",

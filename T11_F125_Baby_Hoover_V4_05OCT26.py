@@ -15597,12 +15597,14 @@ class P_SF_07(StoryProcessor):
     def __init__(self, engine):
         StoryProcessor.__init__(self, engine)
         self._best_said = False
+        self._podium_said = False
 
     def observe(self, t):
         eng = self.eng
         m = eng.model
         if m.state not in ("finishing", "classified"):
             return
+        self._podium(t)
         # best human: once every human has a finish position (or the field is
         # classified). V3's WINNER/RESULT/CORRECTION keep their own lines.
         if self._best_said:
@@ -15628,6 +15630,40 @@ class P_SF_07(StoryProcessor):
                   view={"only": len(ranked) == 1})
         self.close(t, rec, "best_human")
         self._interview_payoffs(t, hs)
+
+    def _podium(self, t):
+        """V8.18 (14 OCT): the podium, once, from the Final Classification
+        (never from the road order: penalties move it). Three full names,
+        P1 to P3, as a must-call so it airs before the post-race colour; a
+        human on it is named like anyone else (the booth never says human)."""
+        if self._podium_said:
+            return
+        eng = self.eng
+        m = eng.model
+        fc = m.final_classification
+        if not fc:
+            return
+        rows = fc.get("rows") or []
+        top = {}
+        for idx, row in enumerate(rows):
+            if idx >= MAX_CARS:
+                break
+            p = (row or {}).get("position")
+            if p in (1, 2, 3) and p not in top:
+                top[p] = idx
+        if len(top) < 3:
+            return
+        self._podium_said = True
+        subjects = [top[1], top[2], top[3]]
+        humans_on = [i for i in subjects if eng.is_human(i)]
+        rec = self.open(t, subjects, fields={"podium": subjects,
+                                             "humans_on": len(humans_on)},
+                        phase="podium")
+        self.beat(t, rec, "transition", "podium",
+                  ctx={"a": eng.name(top[1]), "b": eng.name(top[2]), "c": eng.name(top[3])},
+                  view={"human_on": bool(humans_on)}, must=True,
+                  subjects=subjects)
+        self.close(t, rec, "podium")
 
     def _interview_payoffs(self, t, hs):
         """09 OCT: the pre-race interview, checked against the result. Every
