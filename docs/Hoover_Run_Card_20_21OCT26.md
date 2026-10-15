@@ -1,6 +1,6 @@
 # Baby Hoover — Run Card · 20 OCT test event and 21 OCT official race
 
-**Build:** `claude/interview-ingest`, build 14OCT26, script 5.1.0 (or later on this branch). **Machine:** the Oklahoma PC (i5-9400F, RTX 3070, 48 GB). **Both days at Abu Dhabi.** Blanks in `[ ]` are yours to fill.
+**Build:** `claude/interview-ingest`, build 14OCT26, script 5.2.0 (or later on this branch). **Machine:** the Oklahoma PC (i5-9400F, RTX 3070, 48 GB). **Both days at Abu Dhabi.** Blanks in `[ ]` are yours to fill.
 
 **Code freeze: 19 OCT.** After that only the data files change (config, words, roster, dossier, lore) — no `.py`. Whatever passes the 20th is what races on the 21st.
 
@@ -29,7 +29,7 @@
 
 16. **Record, then Stream, then Hoover.** OBS: Start Recording. Start Streaming. Then dashboard → Session → preset **Race: live, HYBRID writer** → night label `practice` on the 20th, `official` on the 21st → **Start session**.
 17. **One Hoover run per session.** Start it while the lobby forms; **Stop and finalise** after the flag; start again for the next session. Never close the console with the X.
-18. During practice and qualifying you will hear a history card every two minutes and nothing else — that is the quiet-session colour, by design. If you want it off: `hoover_config_v4.json` → `v3.session_colour.enabled: false` before the next start.
+18. In the lobby you will hear arrivals by name and who we are waiting on. In practice: the explainer, each league driver's personal bests with gaps to the quickest time, the board every four minutes, clock marks, a summary at zero. In qualifying: flyers, results with provisional place, deleted laps, the clock, then pole held at zero until the classification and the grid read out. A history card still fills the gaps. If the programme misbehaves and you want only the cards: `hoover_config_v4.json` → `v3.timed_session.enabled: false` before the next start; `v3.session_colour.enabled: false` silences the cards too.
 19. Watch during the first lap of the first session: OBS Stats → Skipped (encoding), Missed (rendering), Dropped (network). All zero through lap one = the configuration holds. Write the three numbers down.
 20. Watch the dashboard's **Writer lanes** tile. A red **Cloud writer stopped** banner means the credit is gone: Hoover carries on with the local lane and templates; top up between sessions.
 21. **Do not fix anything between sessions.** Note it; it goes on the list for after the 21st. The one exception is a session that cannot start at all.
