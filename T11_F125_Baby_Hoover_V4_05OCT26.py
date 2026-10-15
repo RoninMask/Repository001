@@ -11030,6 +11030,125 @@ def _wav_pcm16(path):
         return w.readframes(w.getnframes()), w.getframerate()
 
 
+def _pcm16_to_wav(path, pcm, rate_hz):
+    import wave
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate_hz)
+        w.writeframes(pcm)
+
+
+def tts_test_names(config, settings, args, sd, roster_path=None, out=print):
+    """V8.15 (14 OCT) --tts-test names: every roster driver's everyday and
+    full name, read by the LEAD and the ANALYST voices through the real
+    speech channel (same model, same voice settings, same trim and loudness),
+    played on the monitor and saved as one WAV beside the run outputs. The
+    point is to HEAR the names before race night: a spelling that reads wrong
+    is fixed in the dashboard's Names card and this is run again. ElevenLabs
+    characters are spent (a few hundred)."""
+    rows = []
+    here = os.path.dirname(os.path.abspath(__file__))
+    rpath = roster_path or os.path.join(here, ROSTER_FILE_NAME)
+    roster = Roster(rpath)
+    humans = [e for e in roster.entries
+              if e.get("participation") == "human" and (e.get("match") or {}).get("handle")]
+    if not humans:
+        rows.append(_check("Roster", RED, "no human drivers in %s" % rpath,
+                           "Fill the Names card on the dashboard first."))
+        return rows, 1
+    key_var = getattr(args, "speech_key_var", "ELEVENLABS_API_KEY")
+    if not os.environ.get(key_var):
+        rows.append(_check("ElevenLabs key", RED, "$%s is not set" % key_var,
+                           "Set %s in Windows environment variables, then open a new "
+                           "window." % key_var))
+        return rows, 1
+    # the lines: everyday name, then the full name, as a booth would say them
+    lines = []
+    for e in humans:
+        sp = e.get("spoken") or {}
+        short, full = sp.get("short"), sp.get("full") or sp.get("short")
+        if not short:
+            continue
+        lines.append(("LEAD", "%s." % short))
+        if full and full != short:
+            lines.append(("ANALYST", "%s." % full))
+        else:
+            lines.append(("ANALYST", "%s." % short))
+    rc = config.get("v3", "speech", "realtime", default={}) or {}
+    rate = rc.get("sample_rate_hz", 24000)
+    # the channel is used for synthesis and conditioning only (player stub, as
+    # audio_check does); playback below is our own, on the monitor
+    ns = argparse.Namespace(speech="elevenlabs", speech_dry_run=False,
+                            speech_device=None, speech_key_var=key_var)
+    ch = SpeechChannel(config, ns, live=False, player=lambda *a: None)
+    pcm_all = bytearray()
+    gap = b"\x00\x00" * int(rate * 0.45)
+    spoken = []
+    failed = []
+    t0 = time.time()
+    for voice_role, text in lines:
+        voice = ch.voices.get(voice_role)
+        if not voice:
+            failed.append((text, "no %s voice in config" % voice_role))
+            continue
+        try:
+            pcm, _ = ch._synth(text, voice)
+            pcm, _, _ = ch._process(pcm)
+        except Exception as e:
+            failed.append((text, "%s: %s" % (type(e).__name__, str(e)[:100])))
+            continue
+        pcm_all += pcm + gap
+        spoken.append("%s (%s)" % (text.rstrip("."), voice_role.lower()))
+    ms = (time.time() - t0) * 1000.0
+    ch.close()
+    if failed:
+        rows.append(_check("Names synthesised", RED if not spoken else YELLOW,
+                           "%d of %d failed: %s" % (len(failed), len(lines),
+                                                   "; ".join("%s (%s)" % f for f in failed[:4])),
+                           "Check the key, the internet connection and the voice ids in config."))
+    else:
+        rows.append(_check("Names synthesised", GREEN,
+                           "%d lines in %.1f s: %s" % (len(spoken), ms / 1000.0, ", ".join(spoken))))
+    if not pcm_all:
+        return rows, 1
+    outdir = os.path.join(os.path.abspath(getattr(args, "out", None) or "hoover_v3_out"), "tts_test")
+    os.makedirs(outdir, exist_ok=True)
+    wav = os.path.join(outdir, "names_%s.wav" % time.strftime("%d%b%y_%H%M").upper())
+    try:
+        _pcm16_to_wav(wav, bytes(pcm_all), rate)
+        rows.append(_check("Clip saved", GREEN, wav,
+                           "Play it again any time; send it to anyone who should hear the names."))
+    except Exception as e:
+        rows.append(_check("Clip saved", YELLOW, "could not write %s: %s" % (wav, e)))
+    # play on the monitor (the speakers), not the cable: this is for your ears
+    ms_dev = _settings_device(settings, "device_audible")
+    monitor = ms_dev.get("name") if ms_dev else rc.get("device_audible")
+    m_api = ms_dev.get("hostapi") if ms_dev else None
+    if sd is None:
+        rows.append(_check("Played on your speakers", YELLOW, "audio packages missing",
+                           "Open the saved clip instead."))
+    elif not monitor:
+        rows.append(_check("Played on your speakers", YELLOW, "no monitor device set",
+                           "Run Pick devices, or open the saved clip."))
+    else:
+        hit = resolve_output_device(sd, monitor, m_api)
+        if hit is None:
+            rows.append(_check("Played on your speakers", YELLOW,
+                               "%r not found on this machine" % monitor,
+                               "Run Pick devices, or open the saved clip."))
+        else:
+            ok, detail = _write_block(sd, hit[0], rate, bytes(pcm_all))
+            rows.append(_check("Played on your speakers", GREEN if ok else YELLOW,
+                               "%s: %s" % (monitor, detail),
+                               "" if ok else "Open the saved clip instead."))
+    rows.append(_check("What to do", GREEN,
+                       "A name that sounds wrong is a spelling for the voice, not a code change: "
+                       "change it in the dashboard's Names card (spell it the way it sounds, "
+                       "e.g. Kannedy) and run this again."))
+    return rows, (1 if any(r["state"] == RED for r in rows) else 0)
+
+
 def tts_test_local(config, settings, args, sd, out=print):
     """V8 --tts-test local: one sentence, synthesised by the Windows voice,
     played down the cable (what OBS records) and the monitor. Proves the
@@ -17008,10 +17127,13 @@ def main():
     ap.add_argument("--local-model", default=None,
                     help="model name for the local lane (default from config "
                          "v3.local.model, else llama3.2)")
-    ap.add_argument("--tts-test", choices=["local"], default=None,
-                    help="speak ONE test sentence through the local Windows "
+    ap.add_argument("--tts-test", choices=["local", "names"], default=None,
+                    help="local: speak ONE test sentence through the local Windows "
                          "voice, down the cable and the monitor, then exit "
-                         "(V8: proves the local speech path; not used on air)")
+                         "(V8: proves the local speech path; not used on air). "
+                         "names (V8.15): every roster name in both ElevenLabs "
+                         "voices, played on your speakers and saved as a WAV, so "
+                         "the names are heard before race night")
     ap.add_argument("--writer-check", action="store_true",
                     help="check the cloud key and the local Ollama server with "
                          "one tiny request each, print green/yellow/red, exit")
@@ -17070,10 +17192,16 @@ def main():
     if args.tts_test:
         cfg_path = args.config or default_config_path()
         print(build_label())
-        print("Local voice test: one sentence through the Windows voice.")
-        print("")
-        rows, code = tts_test_local(Config(cfg_path), UserSettings(args.settings),
-                                    args, _sounddevice)
+        if args.tts_test == "names":
+            print("Names test: every roster name in both booth voices.")
+            print("")
+            rows, code = tts_test_names(Config(cfg_path), UserSettings(args.settings),
+                                        args, _sounddevice, roster_path=args.roster)
+        else:
+            print("Local voice test: one sentence through the Windows voice.")
+            print("")
+            rows, code = tts_test_local(Config(cfg_path), UserSettings(args.settings),
+                                        args, _sounddevice)
         print(format_check_rows(rows))
         print("")
         print("All clear." if code == 0 else "Something is red.")
