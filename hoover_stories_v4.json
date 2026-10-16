@@ -80,12 +80,18 @@
    "rotation": [
     "revisit",
     "human_race",
-    "stats"
+    "stats",
+    "sponsor"
    ],
    "cooldown_s": {
     "revisit": 60.0,
     "human_race": 120.0,
-    "stats": 180.0
+    "stats": 180.0,
+    "sponsor": {
+     "RACE": 300.0,
+     "QUALI": 180.0,
+     "PRACTICE": 120.0
+    }
    },
    "revisit_quiet_s": 30.0,
    "revisit_rows": [
@@ -95,7 +101,19 @@
     "HUM-06",
     "LEAD-01"
    ],
-   "max_age_s": 12.0
+   "max_age_s": 12.0,
+   "sponsor": {
+    "_about": "V9 (16 OCT): the paid-sponsor read. Sponsors come from hoover_overlay_settings.json (Overlays page). cadence is cooldown_s.sponsor per session kind; group is how many names per read per session kind; min_green_s keeps it out of the opening minutes; the card holds the logo for hold_s while the line airs. The booth only speaks in a race today (session_gate), so practice and qualifying reads wait for the Day Programme build.",
+    "enabled": true,
+    "group": {
+     "RACE": 1,
+     "QUALI": 2,
+     "PRACTICE": 3
+    },
+    "min_green_s": 120.0,
+    "hold_s": 15.0,
+    "priority": 10.0
+   }
   },
   "gap_jump_max_s": 15.0,
   "gap_jump_window_s": 20.0,

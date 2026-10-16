@@ -2680,6 +2680,66 @@
      "present": "The lights are on."
     }
    ]
+  },
+  "S_LULL_SPONSOR": {
+   "variants": [
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": false
+     },
+     "present": "This broadcast is brought to you by {a}."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": false
+     },
+     "present": "Our thanks tonight to {a}, who make this evening possible."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": false
+     },
+     "present": "Tonight's racing comes to you with thanks to {a}."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": false
+     },
+     "present": "A word for {a}, who bring you this broadcast."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": true
+     },
+     "present": "This broadcast is brought to you by {a}."
+    },
+    {
+     "speaker": "LEAD",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": true
+     },
+     "present": "Our thanks tonight to {a}, who make this evening possible."
+    },
+    {
+     "speaker": "ANALYST",
+     "when": {
+      "beat": "lull_sponsor",
+      "group": true
+     },
+     "present": "Tonight's racing comes to you with thanks to {a}."
+    }
+   ]
   }
  },
  "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."
