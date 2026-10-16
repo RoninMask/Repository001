@@ -95,7 +95,8 @@
     "sponsor": {
      "RACE": 300.0,
      "QUALI": 180.0,
-     "PRACTICE": 120.0
+     "PRACTICE": 120.0,
+     "UNKNOWN": 150.0
     }
    },
    "revisit_quiet_s": 30.0,
@@ -108,16 +109,22 @@
    ],
    "max_age_s": 12.0,
    "sponsor": {
-    "_about": "V9 (16 OCT): the paid-sponsor read. Sponsors come from hoover_overlay_settings.json (Overlays page). cadence is cooldown_s.sponsor per session kind; group is how many names per read per session kind; min_green_s keeps it out of the opening minutes; the card holds the logo for hold_s while the line airs.",
+    "_about": "V9 (16 OCT): the paid-sponsor read. Sponsors come from hoover_overlay_settings.json (Overlays page). cadence is cooldown_s.sponsor per session kind; group is how many names per read per session kind; min_green_s keeps it out of the opening minutes; the card holds the logo for hold_s while the line airs. Outside the race (lobby = UNKNOWN, PRACTICE, QUALI) the same cadence runs beside the colour cards: first read first_after_s into the session, a group read of every sponsor when the practice summary or quali grid has gone out (bookends), and the givers roll (ticker slot 1) once in the lobby after givers_after_s and once after the race podium.",
     "enabled": true,
     "group": {
      "RACE": 1,
      "QUALI": 2,
-     "PRACTICE": 3
+     "PRACTICE": 3,
+     "UNKNOWN": 2
     },
     "min_green_s": 120.0,
     "hold_s": 15.0,
-    "priority": 10.0
+    "priority": 10.0,
+    "first_after_s": 30.0,
+    "quiet_gap_s": 6.0,
+    "bookends": true,
+    "givers_in_lobby": true,
+    "givers_after_s": 45.0
    }
   },
   "gap_jump_max_s": 15.0,

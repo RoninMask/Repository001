@@ -3815,6 +3815,54 @@
             "group": true
           },
           "present": "Tonight's racing comes to you with thanks to {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lull_sponsor",
+            "bookend": "close"
+          },
+          "present": "That session came to you with thanks to {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lull_sponsor",
+            "bookend": "close"
+          },
+          "present": "Our thanks, as that session closes, to {a}."
+        }
+      ]
+    },
+    "GIVERS_ROLL": {
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "where": "lobby"
+          },
+          "present": "Before we begin, tonight's racing is made possible by our givers: {a}. Thank you, all of you."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "where": "lobby"
+          },
+          "present": "A word of thanks before the racing. Tonight's givers: {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "where": "close"
+          },
+          "present": "And as we close, our thanks once more to tonight's givers: {a}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "where": "close"
+          },
+          "present": "None of this happens without the givers. Tonight that was {a}. Thank you."
         }
       ]
     }

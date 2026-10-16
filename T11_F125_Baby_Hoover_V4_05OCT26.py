@@ -7543,6 +7543,8 @@ class V3Booth:
         self._lobby_restricted = set()
         self._colour_open_t = None         # when the quiet session was first seen
         self.counter_colour = 0
+        self._quiet_sp = {}                # V9.3: sponsor / givers state per quiet session
+        self._givers_closed = False
         self.writer = TemplateWriter(self)
         self._last_line_result = None
         # Part R: the speech channel. None (default --speech none) means the
@@ -8079,7 +8081,7 @@ class V3Booth:
                 ctx["pos"] = _ordinal_word(rp)
         elif k in ("LULL_INTERVIEW", "LULL_LORE"):
             ctx["line"] = f.get("line")
-        elif k.startswith("LOBBY_") or k.startswith("TS_"):
+        elif k.startswith("LOBBY_") or k.startswith("TS_") or k == "GIVERS_ROLL":
             # V8.24: the lobby lines carry their own fill and facts view
             ctx.update({kk: vv for kk, vv in (f.get("display") or {}).items() if vv is not None})
             fv.update(f.get("view") or {})
@@ -8299,6 +8301,14 @@ class V3Booth:
         # spread by the pacing governor (Part C).
         self._new_race_check(t)
         self._lights(t)
+        # V9.3: the givers roll once more after the race is classified and the
+        # podium has aired, when the channel has been quiet for a moment
+        if (not self._givers_closed and self.model.state in ("classified", "finishing", "closed")
+                and self.channel_busy_until <= t + 1e-9 and not self.queue
+                and self._last_air_end is not None and (t - self._last_air_end) >= 8.0
+                and getattr(self, "_podium_aired", True)):
+            self._givers_closed = True
+            self._givers_roll(t, "close")
         self._submit_sweep(t)          # V8.13: requests for the front of the queue
         if self._session_colour(t):    # V8.17: the quiet sessions get colour
             return
@@ -8393,6 +8403,8 @@ class V3Booth:
             return True                    # V8.25: the practice / qualifying programme
         if self._colour_open_t is None:
             self._colour_open_t = t
+        if self._quiet_sponsor(t, kind):   # V9.3: paid-sponsor reads and the givers roll
+            return True
         interval = float(cfg.get("interval_s", 120.0))
         first_after = float(cfg.get("first_after_s", 30.0))
         last = self._colour_last
@@ -8424,6 +8436,92 @@ class V3Booth:
         self.queue.append(claim)
         self._air(claim, t)                # the gate is bypassed on purpose
         return True
+
+    # ---- V9.3 (16 OCT): sponsor reads and the givers roll outside the race ----
+    def _quiet_sponsor(self, t, kind):
+        """In the lobby, practice and qualifying: the paid-sponsor read at the
+        per-session cadence (engine.lull.cooldown_s.sponsor), a group read of
+        every sponsor when the practice summary or the qualifying grid has
+        gone out, and the givers roll once in the lobby. Template kinds only;
+        the gate is bypassed like the colour cards. Nothing here reads the
+        race state, so nothing it says can be wrong about the session."""
+        eng = self.stories
+        if eng is None:
+            return False
+        lull = eng.scfg.e("lull", {}) or {}
+        sp = lull.get("sponsor", {}) or {}
+        if not sp.get("enabled", True):
+            return False
+        if self._last_air_end is not None and (t - self._last_air_end) < float(sp.get("quiet_gap_s", 6.0)):
+            return False
+        st = self._quiet_sp
+        if st.get("kind") != kind:
+            st.clear()
+            st.update({"kind": kind, "open_t": t, "last": None, "closed": False})
+        # the givers roll: once, in the lobby, after the first lobby line
+        if kind == "UNKNOWN" and not st.get("givers") and sp.get("givers_in_lobby", True) \
+                and self._lobby_lines >= 1 and (t - st["open_t"]) >= float(sp.get("givers_after_s", 45.0)):
+            st["givers"] = True
+            if self._givers_roll(t, "lobby"):
+                return True
+        # the closing group read after the practice summary / the quali grid
+        ts = self._ts
+        if kind in ("PRACTICE", "QUALI") and ts is not None and ts.get("ended") and not st.get("closed") \
+                and sp.get("bookends", True):
+            st["closed"] = True
+            claim = eng.sponsor_claim(t, 1, sp, everyone=True)
+            if claim is not None:
+                claim.facts["view"] = {"beat": "lull_sponsor", "bookend": "close"}
+                return self._quiet_air(claim, t)
+        # the cadence read
+        cd = (lull.get("cooldown_s", {}) or {}).get("sponsor", 300.0)
+        if isinstance(cd, dict):
+            cd = cd.get(kind, cd.get("PRACTICE", 120.0))
+        first = float(sp.get("first_after_s", 30.0))
+        due = (t - st["open_t"]) >= first if st.get("last") is None else (t - st["last"]) >= float(cd)
+        if not due:
+            return False
+        group = int((sp.get("group") or {}).get(kind, 1) or 1)
+        claim = eng.sponsor_claim(t, group, sp)
+        if claim is None:
+            return False
+        st["last"] = t
+        return self._quiet_air(claim, t)
+
+    def _quiet_air(self, claim, t):
+        claim.facts["session_colour"] = getattr(self.model.w, "session_kind", "RACE")
+        self.counter_colour += 1
+        self.queue.append(claim)
+        self._air(claim, t)
+        return True
+
+    def _givers_text(self):
+        """The Givers slot of the ticker (hoover_overlay_settings.json), as a
+        spoken list: separators become commas, nothing else is changed."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        try:
+            with open(os.path.join(here, "hoover_overlay_settings.json"), "r", encoding="utf-8") as f:
+                doc = json.load(f)
+            text = ((doc.get("ticker", {}) or {}).get("slots", {}) or {}).get("1", {}).get("text") or ""
+        except Exception:
+            return None
+        text = text.strip()
+        if not text:
+            return None
+        for sep in ("\u25c6", "\u00b7", "|", "/", "\n", ";"):
+            text = text.replace(sep, ",")
+        parts = [p.strip(" ,") for p in text.split(",") if p.strip(" ,")]
+        # a leading label such as "Thank you to tonight's givers:" is kept as said
+        return _join_words(parts) if len(parts) > 1 else (parts[0] if parts else None)
+
+    def _givers_roll(self, t, where):
+        text = self._givers_text()
+        if not text:
+            return False
+        claim = Claim("GIVERS_ROLL", CLASS_FILLER, [], [], t,
+                      facts={"display": {"a": text}, "view": {"where": where}, "timed_session": True},
+                      priority=11.0, speaker="LEAD", demotable=True)
+        return self._quiet_air(claim, t)
 
     # ---- V8.25 (14 OCT): practice and qualifying, guided by the Day Programme
     # white paper (13 OCT), sections 4, 5 and 7.6. Everything here is read off
@@ -14428,8 +14526,22 @@ class StoryEngine:
         if self.model.state == "final_lap":
             return None
         group = int((sp.get("group") or {}).get(kind, 1) or 1)
+        claim = self.sponsor_claim(t, group, sp)
+        if claim is not None:
+            self._lull_item_t["sponsor"] = t
+        return claim
+
+    def sponsor_claim(self, t, group, sp=None, everyone=False):
+        """Build one sponsor read (least recently read first, `group` names,
+        or every sponsor for a bookend). None when there are no sponsors."""
+        sp = sp or (self.scfg.e("lull", {}) or {}).get("sponsor", {}) or {}
+        sponsors = self._sponsors()
+        if not sponsors:
+            return None
         if not hasattr(self, "_sponsor_read_t"):
             self._sponsor_read_t = {}
+        if everyone:
+            group = len(sponsors)
         ordered = sorted(sponsors, key=lambda x: self._sponsor_read_t.get(x["name"], -1e9))
         picked = ordered[:max(1, min(group, len(ordered)))]
         for x in picked:
