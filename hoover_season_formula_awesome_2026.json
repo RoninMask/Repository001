@@ -1,0 +1,421 @@
+{
+  "schema": "hoover_season_v1",
+  "_about": "Season file for Formula Awesome 2026. Edit in the dashboard's Season page. Written names are what the screen shows; 'spoken' is what the voices say. Team and charity names below are PLACEHOLDERS until Dustin fills them in. Game team ids: 0 Mercedes 1 Ferrari 2 Red Bull 3 Williams 4 Aston Martin 5 Alpine 6 Racing Bulls 7 Haas 8 McLaren 9 Sauber.",
+  "league": {
+    "id": "formula_awesome",
+    "name": "Formula Awesome",
+    "season": "2026"
+  },
+  "grid_mode": "standard",
+  "name_mode": "last",
+  "ticker_separator": "  ◆  ",
+  "code_overrides": {
+    "p_dustin": "CAN",
+    "p_alex": "ACA",
+    "p_evan_c": "ECA",
+    "p_sholly": "SHO"
+  },
+  "people": [
+    {
+      "id": "p_dustin",
+      "first": "Dustin",
+      "last": "Canedy",
+      "spoken": "Dustin Kannedy",
+      "spoken_first": "Dustin",
+      "roles": [
+        "owner",
+        "manager",
+        "driver"
+      ],
+      "gamertag": "Ronin0700VII",
+      "race_number": 77,
+      "adult": true
+    },
+    {
+      "id": "p_alex",
+      "first": "Alex",
+      "last": "Canedy",
+      "spoken": "Alex Kannedy",
+      "spoken_first": "Alex",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "PuRe R3Z",
+      "race_number": 13,
+      "adult": true
+    },
+    {
+      "id": "p_evan_c",
+      "first": "Evan",
+      "last": "Canedy",
+      "spoken": "Evan Kannedy",
+      "spoken_first": "Evan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "ECxR6",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_sholly",
+      "first": "Evan",
+      "last": "Sholly",
+      "spoken": "Evan Sholly",
+      "spoken_first": "Evan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Shockin05",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_mike",
+      "first": "Mike",
+      "last": "Lababera",
+      "spoken": "Mike Lababera",
+      "spoken_first": "Mike",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "VaLoR",
+      "race_number": 21,
+      "adult": true
+    },
+    {
+      "id": "p_alan",
+      "first": "Alan",
+      "last": "Meadows",
+      "spoken": "Alan Meadows",
+      "spoken_first": "Alan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Raider968Raider",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_cade",
+      "first": "Cade",
+      "last": "Osterman",
+      "spoken": "Cade Osterman",
+      "spoken_first": "Cade",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Faze Noob3146",
+      "race_number": null,
+      "adult": true
+    }
+  ],
+  "charities": [
+    {
+      "id": "c_01",
+      "name": "Charity 1 (fill in)",
+      "code": "CH1",
+      "spoken": null
+    },
+    {
+      "id": "c_02",
+      "name": "Charity 2 (fill in)",
+      "code": "CH2",
+      "spoken": null
+    },
+    {
+      "id": "c_03",
+      "name": "Charity 3 (fill in)",
+      "code": "CH3",
+      "spoken": null
+    },
+    {
+      "id": "c_04",
+      "name": "Charity 4 (fill in)",
+      "code": "CH4",
+      "spoken": null
+    },
+    {
+      "id": "c_05",
+      "name": "Charity 5 (fill in)",
+      "code": "CH5",
+      "spoken": null
+    },
+    {
+      "id": "c_06",
+      "name": "Charity 6 (fill in)",
+      "code": "CH6",
+      "spoken": null
+    },
+    {
+      "id": "c_07",
+      "name": "Charity 7 (fill in)",
+      "code": "CH7",
+      "spoken": null
+    },
+    {
+      "id": "c_08",
+      "name": "Charity 8 (fill in)",
+      "code": "CH8",
+      "spoken": null
+    },
+    {
+      "id": "c_09",
+      "name": "Charity 9 (fill in)",
+      "code": "CH9",
+      "spoken": null
+    },
+    {
+      "id": "c_10",
+      "name": "Charity 10 (fill in)",
+      "code": "CH10",
+      "spoken": null
+    }
+  ],
+  "teams": [
+    {
+      "id": "t_01",
+      "name": "Team 1 (fill in)",
+      "code": "T01",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_01",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 0,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_dustin"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_02",
+      "name": "Team 2 (fill in)",
+      "code": "T02",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_02",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 1,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_alex"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_03",
+      "name": "Team 3 (fill in)",
+      "code": "T03",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_03",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 2,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_evan_c"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_04",
+      "name": "Team 4 (fill in)",
+      "code": "T04",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_04",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 3,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_sholly"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_05",
+      "name": "Team 5 (fill in)",
+      "code": "T05",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_05",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 4,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_mike"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_06",
+      "name": "Team 6 (fill in)",
+      "code": "T06",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_06",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 5,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_alan"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_07",
+      "name": "Team 7 (fill in)",
+      "code": "T07",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_07",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 6,
+      "colour": null,
+      "seats": [
+        {
+          "driver": "p_cade"
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_08",
+      "name": "Team 8 (fill in)",
+      "code": "T08",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_08",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 7,
+      "colour": null,
+      "seats": [
+        {
+          "driver": null
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_09",
+      "name": "Team 9 (fill in)",
+      "code": "T09",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_09",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 8,
+      "colour": null,
+      "seats": [
+        {
+          "driver": null
+        },
+        {
+          "driver": null
+        }
+      ]
+    },
+    {
+      "id": "t_10",
+      "name": "Team 10 (fill in)",
+      "code": "T10",
+      "spoken": null,
+      "owner": "p_dustin",
+      "manager": "p_dustin",
+      "charity": [
+        {
+          "id": "c_10",
+          "from": "2026-01-01"
+        }
+      ],
+      "game_team": 9,
+      "colour": null,
+      "seats": [
+        {
+          "driver": null
+        },
+        {
+          "driver": null
+        }
+      ]
+    }
+  ],
+  "deal": {
+    "event": null,
+    "assignments": {}
+  }
+}

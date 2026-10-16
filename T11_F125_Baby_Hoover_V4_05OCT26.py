@@ -5194,6 +5194,21 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                     s["drs"] = "available" if stt["drs_allowed"] else (
                         "in %d metres" % stt["drs_activation_m"] if stt["drs_activation_m"] else None)
                     s["ers_mode"] = ERS_MODES.get(stt["ers_mode"])
+            # V9: team and charity from the season file (what the writer may say)
+            sb = getattr(getattr(ctx, "tool", None), "season", None)
+            if sb is not None:
+                ident = sb.ident(i)
+                if ident is not None and ident.team_name:
+                    s["team"] = ident.team_spoken or ident.team_name
+                    allow(*_caps_words(s["team"]))
+                    if ident.charity_name:
+                        s["charity"] = ident.charity_spoken or ident.charity_name
+                        allow(*_caps_words(s["charity"]))
+                        note("%s races for %s, racing for %s" % (s["say"], s["team"], s["charity"]),
+                             "race", rec.id if rec else None, ("feel",), False, 0.45)
+                    else:
+                        note("%s races for %s" % (s["say"], s["team"]),
+                             "race", rec.id if rec else None, ("feel",), False, 0.4)
             subjects.append(s)
             if c.grid and c.position and abs(c.grid - c.position) >= 3:
                 allow(_ordinal_word(c.grid), _ordinal_word(c.position))
@@ -15309,6 +15324,463 @@ class P_DEV_08(StoryProcessor):
                 self.close(t, rec, "ceiling")
 
 
+
+# =============================================================================
+# SECTION V9 -- THE SEASON BRIDGE AND THE SNAPSHOT PUBLISHER (16 OCT 26)
+# =============================================================================
+# The overlay layer (hoover_overlay.py: timing tower, ticker, sponsor card)
+# never decodes UDP. Hoover publishes a small snapshot of what it already knows
+# -- running order, gaps, tyres, pit, camera car, session state, the tower's
+# state and the key moments -- on a local HTTP port, and the overlay draws it.
+#
+# Names, teams and charities come from the season file (hoover_season.py), the
+# one identity table the booth and the screen share. With --season-names on
+# (default when a season file is found) the booth's Roster is BUILT FROM the
+# season file so speech and screen cannot disagree; with it off the booth names
+# exactly as before and only the overlay reads the season.
+#
+# Everything here is additive: no season file and no listener means no change
+# to any artefact. The publisher runs in a daemon thread, never blocks the live
+# loop, and a port that cannot be bound is logged and ignored.
+
+try:
+    import hoover_season as _season_mod
+except Exception:
+    _season_mod = None
+
+PUBLISH_PORT_DEFAULT = 8781
+TOWER_COMPACT_START_LAPS = 2      # compact from lights out to the end of lap two
+TOWER_COMPACT_LAST_LAPS = 2       # ... and for the last two laps
+_ROWS_RESULT_OUT = (4, 5, 6, 7)   # DNF, DSQ, NC, retired
+
+
+def _hex_colour(rgb):
+    try:
+        r, g, b = rgb
+        if r or g or b:
+            return "#%02X%02X%02X" % (r, g, b)
+    except Exception:
+        pass
+    return None
+
+
+class SeasonBridge:
+    """Holds the Season and the per-car Identity cache. Resolution is keyed on
+    (game name, ai flag, game team, race number) so a car that changes hands
+    (a human leaves, the AI takes over) resolves again; nothing else moves."""
+
+    def __init__(self, path, names_on, log):
+        self.log = log
+        self.season = None
+        self.names_on = bool(names_on)
+        self.idents = {}
+        self._keys = {}
+        self._dealt_session = None
+        if _season_mod is None:
+            if path:
+                log("[season] hoover_season.py not found beside the tool -- season off")
+            return
+        if path:
+            s = _season_mod.Season(path)
+            if s.ok:
+                self.season = s
+                log("[season] %s: league %s, %d people, %d teams, grid %s, names %s"
+                    % (os.path.basename(path), s.league_id, len(s.people), len(s.teams),
+                       s.grid_mode, "season" if self.names_on else "booth ladder"))
+                coll = s.code_collisions()
+                if coll:
+                    log("[season] CODE COLLISIONS (fix in the GUI): %s" % coll)
+            else:
+                log("[season] %s not loaded: %s" % (path, s.error))
+
+    @property
+    def on(self):
+        return self.season is not None
+
+    def roster_doc(self):
+        return self.season.as_roster_doc() if self.on else None
+
+    def refresh(self, world, ext=None):
+        """Resolve every seen car; cheap, called from the snapshot builder."""
+        if self.season is not None:
+            self.season.reload_if_changed()
+        liveries = {}
+        if ext is not None and getattr(ext, "participants", None):
+            try:
+                for row in ext.participants.get("rows", []):
+                    liveries[row.get("idx")] = _hex_colour(row.get("livery") or ())
+            except Exception:
+                pass
+        ai_names = []
+        for c in world.cars:
+            if not c.seen:
+                continue
+            key = (c.name, c.ai, c.team, c.race_number)
+            if self._keys.get(c.idx) == key and c.idx in self.idents:
+                continue
+            if self.season is not None:
+                ident = self.season.resolve(c.idx, c.name, c.ai == 0, c.team,
+                                            c.race_number, liveries.get(c.idx))
+            elif _season_mod is not None:
+                ident = _season_mod.Season(None).resolve(c.idx, c.name, c.ai == 0, c.team,
+                                                         c.race_number, liveries.get(c.idx))
+            else:
+                ident = None
+            self.idents[c.idx] = ident
+            self._keys[c.idx] = key
+            if c.ai == 1 and c.name:
+                ai_names.append(c.name)
+        # F1 World: deal the open seats to the AI cars once per session
+        if (self.season is not None and self.season.grid_mode == "f1world" and ai_names
+                and self._dealt_session != getattr(world, "session_link", None)):
+            try:
+                n = self.season.deal([c.name for c in world.cars if c.seen and c.ai == 1 and c.name])
+                self._dealt_session = getattr(world, "session_link", None)
+                if n:
+                    self.log("[season] dealt %d AI driver(s) to open seats" % n)
+                    self._keys.clear()      # re-resolve with the new deal
+            except Exception as e:
+                self.log("[season] deal failed: %s" % type(e).__name__)
+
+    def ident(self, idx):
+        return self.idents.get(idx)
+
+
+class SnapshotPublisher:
+    """A daemon HTTP server on 127.0.0.1:<port>. GET /snapshot returns the
+    running order and session state as JSON; GET /health says who is here.
+    The snapshot is rebuilt at most every 100 ms, however many readers."""
+
+    def __init__(self, tool, port, log):
+        self.tool = tool
+        self.port = int(port)
+        self.log = log
+        self.thread = None
+        self.server = None
+        self._cache = (0.0, b"{}")
+        self._lock = threading.Lock()
+        self.best_lap = {}            # idx -> best lap ms seen this session
+        self._best_session = None
+        self.fastest_idx = None
+        self.fastest_ms = None
+        self.fastest_set_t = None
+        self.sponsor_hold = None      # {"file": ..., "name": ..., "until": t}
+        self.served = 0
+        self._pkt_total = -1
+        self._pkt_t = 0.0
+
+    # -- lifecycle -----------------------------------------------------------
+    def start(self):
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from socketserver import ThreadingMixIn
+        pub = self
+
+        class _Srv(ThreadingMixIn, HTTPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        class _H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, body, ctype="application/json"):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                path = self.path.split("?", 1)[0]
+                if path == "/snapshot":
+                    return self._send(200, pub.snapshot_bytes())
+                if path == "/health":
+                    return self._send(200, json.dumps({
+                        "tool": TOOL_NAME, "version": TOOL_VERSION, "served": pub.served,
+                        "season": bool(getattr(pub.tool, "season", None) and pub.tool.season.on),
+                    }).encode("utf-8"))
+                return self._send(404, b'{"error":"not found"}')
+
+        try:
+            self.server = _Srv(("127.0.0.1", self.port), _H)
+        except OSError as e:
+            self.log("[publish] cannot bind 127.0.0.1:%d (%s) -- overlay feed off" % (self.port, e))
+            self.server = None
+            return False
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True,
+                                       name="hoover-publish")
+        self.thread.start()
+        self.log("[publish] overlay feed on http://127.0.0.1:%d/snapshot" % self.port)
+        return True
+
+    def stop(self):
+        try:
+            if self.server is not None:
+                self.server.shutdown()
+        except Exception:
+            pass
+
+    # -- the snapshot --------------------------------------------------------
+    def snapshot_bytes(self):
+        now = time.time()
+        with self._lock:
+            if now - self._cache[0] < 0.1:
+                return self._cache[1]
+            try:
+                body = json.dumps(self.snapshot(), default=str).encode("utf-8")
+            except Exception as e:
+                body = json.dumps({"error": "%s: %s" % (type(e).__name__, e)}).encode("utf-8")
+            self._cache = (now, body)
+            self.served += 1
+            return body
+
+    def _track_fastest(self, w, ext):
+        link = getattr(w, "session_link", None)
+        if link != self._best_session:
+            self._best_session = link
+            self.best_lap, self.fastest_idx, self.fastest_ms, self.fastest_set_t = {}, None, None, None
+        hist = getattr(ext, "history", None) or {}
+        for c in w.cars:
+            if not c.seen:
+                continue
+            best = None
+            h = hist.get(c.idx)
+            if h and h.get("best_lap_num") and h.get("laps"):
+                try:
+                    lap = h["laps"][h["best_lap_num"] - 1]
+                    if lap.get("lap_ms") and (lap.get("valid_flags", 1) & 1):
+                        best = lap["lap_ms"]
+                except Exception:
+                    best = None
+            if best is None and c.last_lap_ms:
+                prev = self.best_lap.get(c.idx)
+                best = c.last_lap_ms if prev is None else min(prev, c.last_lap_ms)
+            if best:
+                self.best_lap[c.idx] = best
+        if self.best_lap:
+            idx, ms = min(self.best_lap.items(), key=lambda kv: kv[1])
+            if idx != self.fastest_idx or ms != self.fastest_ms:
+                self.fastest_idx, self.fastest_ms = idx, ms
+                self.fastest_set_t = time.time()
+
+    def _tower_state(self, w, model, is_race, leader_lap):
+        state = getattr(model, "state", None)
+        if state in ("classified", "finishing", "closed"):
+            return "expanded"
+        if not is_race:
+            return "normal"
+        if state in ("start_sequence", "formation", "restart_grid", "red_flag", "suspended"):
+            return "compact"
+        if w.safety_car:
+            return "compact"
+        if state == "green" and leader_lap and leader_lap <= TOWER_COMPACT_START_LAPS:
+            return "compact"
+        if state == "final_lap":
+            return "compact"
+        if w.total_laps and leader_lap and leader_lap > w.total_laps - TOWER_COMPACT_LAST_LAPS:
+            return "compact"
+        return "normal"
+
+    def snapshot(self):
+        tool = self.tool
+        w = tool.world
+        model = tool.model
+        gallery = getattr(tool, "gallery", None)
+        ext = getattr(w, "ext", None)
+        season = getattr(tool, "season", None)
+        if season is not None:
+            try:
+                season.refresh(w, ext)
+            except Exception as e:
+                tool._log("[season] refresh: %s" % type(e).__name__)
+        self._track_fastest(w, ext)
+        now = time.time()
+        tot = sum(w.packet_counts.values()) if w.packet_counts else 0
+        if tot != self._pkt_total:
+            self._pkt_total, self._pkt_t = tot, now
+        kind = getattr(w, "session_kind", "UNKNOWN")
+        is_race = kind == "RACE" or w.session_type in (15, 16, 17)
+        leader = None
+        for c in w.cars:
+            if c.seen and c.position == 1:
+                leader = c
+        leader_lap = leader.lap if leader is not None else 0
+        leader_best = self.best_lap.get(leader.idx) if leader is not None else None
+        camera = getattr(gallery, "current", None) if gallery is not None else None
+        if camera is None:
+            camera = w.spectator_car_idx
+        rows = []
+        for c in w.cars:
+            if not c.seen or c.position <= 0 or c.result_status in (0, 1):
+                continue
+            ident = season.ident(c.idx) if season is not None else None
+            rs = c.result_status
+            status = ""
+            if rs in _ROWS_RESULT_OUT:
+                status = "DSQ" if rs == 5 else ("NC" if rs == 6 else "OUT")
+            elif c.pit_status:
+                status = "PIT"
+            elif is_race and rs == RESULT_FINISHED_V3:
+                status = "FIN"
+            elif not is_race and c.driver_status == DRIVERSTATUS_GARAGE:
+                status = "GAR"
+            # gaps: race = interval to the car ahead (ms); other = best lap vs P1
+            gap = None
+            gap_kind = None
+            laps_down = 0
+            if is_race:
+                if leader_lap and c.lap and leader_lap - c.lap >= 1 and rs == RESULT_ACTIVE:
+                    laps_down = leader_lap - c.lap
+                    gap_kind = "laps"
+                elif c.position == 1:
+                    gap_kind = "leader"
+                else:
+                    gap, gap_kind = int(round((c.delta_front or 0.0) * 1000)), "interval"
+            else:
+                best = self.best_lap.get(c.idx)
+                if best is None:
+                    gap_kind = "none"
+                elif c.position == 1 or leader_best is None:
+                    gap, gap_kind = best, "laptime"
+                else:
+                    gap, gap_kind = best - leader_best, "delta"
+            tyre, tyre_age = None, None
+            if ext is not None:
+                try:
+                    ty = ext.tyre(c.idx)
+                    if ty:
+                        tyre, tyre_age = ty
+                except Exception:
+                    pass
+            row = {
+                "idx": c.idx, "pos": c.position, "grid": c.grid or None,
+                "human": c.ai == 0, "number": c.race_number,
+                "game_name": c.name, "spoken": c.spoken,
+                "lap": c.lap, "status": status, "result": rs,
+                "gap_ms": gap, "gap_kind": gap_kind, "laps_down": laps_down,
+                "gap_leader_ms": int(round((c.delta_leader or 0.0) * 1000)) if is_race else None,
+                "last_lap_ms": c.last_lap_ms or None,
+                "best_lap_ms": self.best_lap.get(c.idx),
+                "tyre": tyre, "tyre_age": tyre_age,
+                "pit_stops": c.num_pit_stops, "penalties": c.penalties,
+                "camera": camera is not None and c.idx == camera,
+                "fastest": self.fastest_idx == c.idx,
+            }
+            if ident is not None:
+                row.update({
+                    "name": ident.written, "code": ident.code,
+                    "first": ident.first, "last": ident.last,
+                    "team": ident.team_name, "team_code": ident.team_code, "team_id": ident.team_id,
+                    "charity": ident.charity_name, "charity_code": ident.charity_code,
+                    "colour": ident.colour, "person_id": ident.person_id,
+                })
+            else:
+                row.update({"name": c.spoken, "code": (c.spoken or "")[:3].upper(),
+                            "team": None, "team_code": None, "charity": None,
+                            "charity_code": None, "colour": None})
+            rows.append(row)
+        rows.sort(key=lambda r: r["pos"])
+        state = getattr(model, "state", None)
+        lights = w.lights_out_t
+        moments = {
+            "lights_out": bool(lights and now - lights < 8.0) if isinstance(lights, (int, float)) else False,
+            "final_lap": state == "final_lap",
+            "chequered": w.chequered_t is not None,
+            "podium": state in ("classified", "finishing", "closed"),
+            "safety_car": int(w.safety_car or 0),
+            "new_fastest": bool(self.fastest_set_t and now - self.fastest_set_t < 6.0),
+        }
+        ev = getattr(tool, "event_stamp", None) or {}
+        hold = self.sponsor_hold
+        if hold and hold.get("until", 0) < now:
+            hold = None
+        snap = {
+            "t": now, "tool": "%s_%s" % (TOOL_NAME, TOOL_VERSION),
+            "live": bool(self._pkt_total > 0 and now - self._pkt_t < 3.0),
+            "session_kind": kind, "session_type": w.session_type,
+            "session_name": {1: "Practice 1", 2: "Practice 2", 3: "Practice 3", 4: "Practice",
+                             5: "Qualifying 1", 6: "Qualifying 2", 7: "Qualifying 3",
+                             8: "Qualifying", 9: "Qualifying", 10: "Shootout", 11: "Shootout",
+                             12: "Shootout", 13: "Shootout", 14: "Shootout", 15: "Race",
+                             16: "Race", 17: "Race", 18: "Time Trial"}.get(w.session_type, kind.title()),
+            "is_race": is_race, "state": state,
+            "track_id": w.track_id,
+            "track": TRACK_NAMES.get(w.track_id, "") or "",
+            "lap": leader_lap, "total_laps": w.total_laps, "time_left": w.time_left,
+            "tower_state": self._tower_state(w, model, is_race, leader_lap),
+            "moments": moments,
+            "camera_idx": camera,
+            "fastest_idx": self.fastest_idx, "fastest_ms": self.fastest_ms,
+            "event": ev,
+            "season": ({"league": season.season.league_id, "grid_mode": season.season.grid_mode,
+                        "name_mode": season.season.name_mode, "names_on": season.names_on,
+                        "separator": season.season.separator,
+                        "racing_info": season.season.racing_info_items()}
+                       if season is not None and season.on else None),
+            "sponsor_hold": hold,
+            "rows": rows,
+        }
+        return snap
+
+
+def _raceday_results(tool):
+    """{idx: result row} from the final classification when there is one,
+    else from lap data (the same choice _archive_session makes)."""
+    m = tool.model
+    w = tool.world
+    fc = getattr(m, "final_classification", None)
+    ext = getattr(w, "ext", None)
+    extra = {r["idx"]: r for r in (ext.final_class or {}).get("rows", [])} \
+        if ext is not None and getattr(ext, "final_class", None) else {}
+    out = {}
+    rows = fc["rows"] if fc else [
+        {"idx": c.idx, "position": c.position, "grid": c.grid, "pit_stops": c.num_pit_stops,
+         "result_status": c.result_status} for c in w.cars if c.seen and c.position > 0]
+    for r in rows:
+        if r.get("position", 0) <= 0:
+            continue
+        c = w.cars[r["idx"]]
+        ex = extra.get(r["idx"], {})
+        out[r["idx"]] = {
+            "position": r["position"], "grid": r.get("grid"), "status": r.get("result_status"),
+            "pit_stops": r.get("pit_stops"),
+            "points": ex.get("points") if ex.get("points") else F1_POINTS.get(r["position"], 0),
+            "best_lap_ms": ex.get("best_lap_ms") or (c.last_lap_ms or None),
+        }
+    return out
+
+
+def write_raceday_record(tool, prefix, manifest):
+    """<stem>_raceday.json and .csv: who sat in every seat, for which team and
+    charity, with the result, stamped with league, event date and status."""
+    season = getattr(tool, "season", None)
+    if season is None or _season_mod is None:
+        return None
+    try:
+        season.refresh(tool.world, getattr(tool.world, "ext", None))
+        ev = dict(getattr(tool, "event_stamp", None) or {})
+        ev["session"] = manifest.get("stem") or os.path.basename(prefix)
+        ev["track"] = TRACK_NAMES.get(tool.world.track_id, "") or None
+        s = season.season if season.on else _season_mod.Season(None)
+        results = _raceday_results(tool)
+        idents = {i: season.ident(i) for i in results if season.ident(i) is not None}
+        rows = s.raceday_rows(idents, results, ev)
+        doc = {"schema": "hoover_raceday_v1", "event": ev,
+               "league": (season.season.league if season.on else None),
+               "grid_mode": (season.season.grid_mode if season.on else None),
+               "rows": rows}
+        with open(prefix + "_raceday.json", "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False, default=str)
+        with open(prefix + "_raceday.csv", "w", encoding="utf-8", newline="") as f:
+            f.write(s.rows_to_csv(rows))
+        return len(rows)
+    except Exception as e:
+        tool._log("[raceday] not written: %s: %s" % (type(e).__name__, e))
+        return None
+
+
 class BabyHooverV3:
     def __init__(self, args):
         self.args = args
@@ -15320,7 +15792,43 @@ class BabyHooverV3:
         here = os.path.dirname(os.path.abspath(__file__))
         cfg_path = args.config or default_config_path(here)
         self.config = Config(cfg_path)
-        self.roster = Roster(args.roster)
+        self.log_lines = []
+        # V9 (16 OCT): the season file. --season PATH | off; default is the
+        # one hoover_season_*.json beside the tool (or the --league one).
+        self.season = None
+        self.event_stamp = self._event_stamp(args)
+        season_arg = getattr(args, "season", None)
+        season_path = None
+        if season_arg and season_arg.lower() != "off" and _season_mod is not None:
+            season_path = season_arg
+        elif season_arg is None and _season_mod is not None:
+            season_path = _season_mod.find_season_file(here, getattr(args, "league", None))
+        # The booth takes its names from an auto-found season file only with the
+        # story layer on, so --stories off stays V3 byte-for-byte (the identity
+        # gate). An explicit --season PATH always names the booth.
+        names_on = getattr(args, "season_names", "on") == "on" and (
+            season_arg is not None or getattr(args, "stories", "off") == "on")
+        self.season = SeasonBridge(season_path, names_on, self._log) if season_path else None
+        if self.season is not None and not self.season.on:
+            self.season = None
+        if self.season is not None and not self.event_stamp.get("league"):
+            self.event_stamp["league"] = self.season.season.league_id
+        if self.season is not None and names_on and not args.roster:
+            self.roster = Roster(None)
+            doc = self.season.roster_doc()
+            self.roster.league = doc.get("league")
+            self.roster.entries = doc.get("drivers", [])
+            self.roster.path = self.season.season.path
+            for e in self.roster.entries:
+                m_ = e.get("match", {})
+                if m_.get("handle"):
+                    self.roster.by_handle[m_["handle"]] = e
+                if m_.get("race_number") is not None:
+                    self.roster.by_number[m_["race_number"]] = e
+            self._log("[season] booth roster built from the season file (%d drivers)"
+                      % len(self.roster.entries))
+        else:
+            self.roster = Roster(args.roster)
         self.world = World()
         self.parser = Parser(self.world, self._log)
         self.model = RaceModel(self.world, self.config, self.roster, self._log,
@@ -15381,6 +15889,7 @@ class BabyHooverV3:
                 predictions=self.stories.predictions, archive=self.archive,
                 tracks=TrackReference(tpath, self._log), dossier=Dossier(dpath, self._log),
                 rules=rules, cfg=self.config)
+            self.booth.blobctx.tool = self      # V9: the season bridge
             # V8.3: the processors read the track table through the same
             # context (the off and the places-lost guess name the corner)
             self.stories.blobctx = self.booth.blobctx
@@ -15397,6 +15906,27 @@ class BabyHooverV3:
         self._fallback_order = self.config.get(
             "v3", "naming", "fallback_order",
             default=["team", "number", "generic"])
+        # V9: the overlay feed. On by default; --no-publish turns it off.
+        self.publisher = None
+        if not getattr(args, "no_publish", False):
+            self.publisher = SnapshotPublisher(
+                self, getattr(args, "publish", None) or PUBLISH_PORT_DEFAULT, self._log)
+            if not self.publisher.start():
+                self.publisher = None
+
+    @staticmethod
+    def _event_stamp(args):
+        """V9: league / event date / status / label, written into the manifest,
+        the snapshot and the race-day record. --event-status wins; otherwise
+        --night-label maps practice->practice, official->championship."""
+        status = getattr(args, "event_status", None)
+        label = getattr(args, "night_label", None)
+        if not status:
+            status = {"practice": "practice", "official": "championship"}.get(label or "", None)
+        return {"league": getattr(args, "league", None),
+                "date": getattr(args, "event_date", None) or getattr(args, "night_id", None)
+                or datetime.now().strftime("%Y-%m-%d"),
+                "status": status, "night_label": label}
 
     def _make_writer(self):
         """Part L: build the writer for --writer. template is the current path;
@@ -15898,6 +16428,12 @@ class BabyHooverV3:
             "tool": V3_TOOL_NAME,
             "script_version": V3_SCRIPT_VERSION,
             "config_hash": self.config.hash,
+            "event": self.event_stamp,
+            "season": ({"file": os.path.basename(self.season.season.path),
+                        "league": self.season.season.league_id,
+                        "grid_mode": self.season.season.grid_mode,
+                        "names_on": self.season.names_on}
+                       if getattr(self, "season", None) is not None else None),
             "source": self.source,
             "source_capture": src_cap,
             "pace": self.pace,
@@ -15996,6 +16532,11 @@ class BabyHooverV3:
                     f.write(json.dumps(ev, sort_keys=True, default=str) + "\n")
             with open(p + "_story_timeline.txt", "w", encoding="utf-8") as f:
                 f.write("\n".join(self.stories.timeline_lines()) + "\n")
+        # V9: the race-day record for the league system (JSON + CSV)
+        if getattr(self, "season", None) is not None:
+            n_rows = write_raceday_record(self, p, manifest)
+            if n_rows is not None:
+                manifest["raceday_rows"] = n_rows
         with open(p + "_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
 
@@ -16389,6 +16930,19 @@ def main():
                          "first_record, or +N.NN / -N.NN seconds from lights out")
     ap.add_argument("--port", type=int, default=20777, help="UDP port (live)")
     ap.add_argument("--bind", default="0.0.0.0", help="UDP bind address (live)")
+    # V9 (16 OCT): season file, overlay feed, event stamp
+    ap.add_argument("--season", default=None,
+                    help="season file (hoover_season_<league>_2026.json) or 'off'; "
+                         "default: the one season file beside the tool")
+    ap.add_argument("--season-names", choices=["on", "off"], default="on",
+                    help="on: the booth names from the season file; off: booth names as before")
+    ap.add_argument("--league", default=None, help="league id (picks the season file, stamps the record)")
+    ap.add_argument("--event-status", choices=["friendly", "practice", "official", "championship"],
+                    default=None, help="what tonight counts for (stamped on every record)")
+    ap.add_argument("--event-date", default=None, help="event date YYYY-MM-DD (default: today)")
+    ap.add_argument("--publish", type=int, default=None,
+                    help="overlay feed port (default %d)" % PUBLISH_PORT_DEFAULT)
+    ap.add_argument("--no-publish", action="store_true", help="no overlay feed")
     ap.add_argument("--idle-close", type=float, default=None,
                     help="close a live session after this many seconds without "
                          "lap data (default: the idle watchdog from config)")
