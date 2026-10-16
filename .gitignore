@@ -20,3 +20,7 @@ hoover_v3_out/
 patch_devices.py
 __pycache__/
 *.pyc
+
+# overlay: sponsor images stay on the machine
+sponsors/*
+!sponsors/READ_ME.txt

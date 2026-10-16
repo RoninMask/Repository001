@@ -1,0 +1,97 @@
+{
+  "_about": "Overlay settings. Edited by the dashboard's Overlays page; re-read live.",
+  "web_port": 8780,
+  "hoover_feed": "http://127.0.0.1:8781/snapshot",
+  "surfaces": {
+    "tower": true,
+    "ticker": true,
+    "sponsor": true,
+    "feature": false,
+    "radio": false
+  },
+  "tower": {
+    "width": 320,
+    "row_height": 34,
+    "max_rows": 22,
+    "name_mode": "code",
+    "columns": {
+      "position": true,
+      "colour": true,
+      "name": true,
+      "team": true,
+      "charity": true,
+      "gap": true,
+      "interval": false,
+      "last_lap": false,
+      "best_lap": false,
+      "tyre": true,
+      "tyre_age": false,
+      "pit_stops": false,
+      "pit_tag": true,
+      "penalties": false,
+      "gained": false,
+      "camera": true,
+      "fastest": true
+    },
+    "expand": {
+      "enabled": true,
+      "period_s": 60,
+      "hold_s": 8,
+      "offsets_s": {
+        "name": 0,
+        "team": 20,
+        "charity": 40
+      }
+    },
+    "camera_row_expand_s": 5,
+    "expand_extra_px": 170,
+    "camera_row_extra_px": 300,
+    "states_from_hoover": true,
+    "hide_when_idle": true
+  },
+  "ticker": {
+    "height": 44,
+    "speed_px_s": 90,
+    "separator": "  ◆  ",
+    "mode": "cycle",
+    "cycle_s": 45,
+    "slots": {
+      "1": {
+        "label": "GIVERS",
+        "text": ""
+      },
+      "2": {
+        "label": "RELIEF",
+        "text": ""
+      },
+      "3": {
+        "label": "NEWS",
+        "text": ""
+      },
+      "4": {
+        "label": "RACING INFO",
+        "text": "",
+        "auto": "racing_info"
+      }
+    }
+  },
+  "sponsor": {
+    "width": 480,
+    "height": 300,
+    "every_s": 15,
+    "fade_ms": 900,
+    "order": "sorted",
+    "label": "This broadcast brought to you by",
+    "folder": "sponsors",
+    "list": []
+  },
+  "feature": {
+    "hold_s": 8,
+    "fade_ms": 800,
+    "schedule_min": 0
+  },
+  "radio": {
+    "hold_s": 12,
+    "label": "TEAM RADIO"
+  }
+}
