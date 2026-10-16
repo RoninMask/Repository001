@@ -110,14 +110,57 @@ td.n{font-variant-numeric:tabular-nums;text-align:right;color:var(--dim)}
 .mono{font-family:var(--mono);font-size:12.5px}
 .muted{color:var(--dim)}
 pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:#cdd6e1}
+/* V1.1: the top bar carries the event picker and Start/Stop on every page */
+header.unset{box-shadow:inset 0 -3px 0 var(--red)}
+.evt{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px 6px}
+.evt select,.evt input{background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12.5px}
+.evt input[type=date]{width:135px}
+.evt .k{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;padding-left:4px}
+.evt.unset select#evstatus{border-color:var(--red)}
+#topctl{display:flex;gap:8px;align-items:center}
+#topctl .btn.big{padding:9px 20px}
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch i{position:absolute;inset:0;background:#2a3340;border-radius:22px;transition:.2s;cursor:pointer}
+.switch i::before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+i{background:var(--green)}
+.switch input:checked+i::before{transform:translateX(18px)}
+.surf{display:flex;align-items:center;gap:12px;justify-content:space-between;margin-bottom:8px}
+.surf h3{margin:0}
+.obs{font-family:var(--mono);font-size:12px;color:#cfe3ff;background:#0a0d10;border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:inline-flex;gap:10px;align-items:center}
+.obs button{all:unset;cursor:pointer;color:var(--accent);font-weight:700;font-family:system-ui}
+.cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;margin-top:8px}
+.cols label{display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer}
+.thumbs{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.thumb{width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
+.thumb img{width:100%;height:70px;object-fit:contain;background:#fff;border-radius:4px}
+.thumb input{width:100%;margin-top:5px;background:#0f1318;border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-size:12px}
+.thumb small{display:block;color:var(--dim);font-size:11px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seasontbl td input,.seasontbl td select{width:100%;background:#0f1318;border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-size:12.5px}
+.seasontbl td{padding:4px 5px}
+.seasontbl input.code{width:56px;text-transform:uppercase;font-weight:700}
+.seasontbl input.bad{border-color:var(--red);background:rgba(229,72,77,.12)}
+textarea.slot{width:100%;min-height:64px;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;resize:vertical}
+.grey{opacity:.5}
+main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--text)}
 </style>
 </head>
 <body>
-<header>
+<header id="hdr">
   <div class="brand">HOOVER <b>DASH</b></div>
+  <div class="evt" id="evt" title="What tonight is: stamped on every record">
+    <span class="k">League</span><select id="evleague"><option value="">…</option></select>
+    <span class="k">Date</span><input type="date" id="evdate">
+    <span class="k">Counts as</span><select id="evstatus"><option value="">choose…</option><option value="friendly">Friendly (nothing recorded)</option><option value="practice">Practice</option><option value="official">Official (no points)</option><option value="championship">Championship</option></select>
+  </div>
   <span class="chip" id="conn"><span class="dot pulse"></span><span>Connecting…</span></span>
   <span class="chip" id="proc"><span class="dot"></span><span>Standby</span></span>
   <span class="tool-label grow" id="toollabel">Looking for Hoover…</span>
+  <div id="topctl">
+    <button class="btn go big" id="btnstart">Start session</button>
+    <button class="btn stop big" id="btnstop" style="display:none">Stop and finalise</button>
+    <button class="btn" id="btnkill" style="display:none">Force stop</button>
+  </div>
 </header>
 <div class="toast" id="toast"></div>
 <div class="wrap">
@@ -126,6 +169,8 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
   <button data-tab="ses">Session</button>
   <button data-tab="live">Live</button>
   <button data-tab="runs">Runs</button>
+  <button data-tab="season">Season</button>
+  <button data-tab="overlays">Overlays</button>
   <button data-tab="this">This Hoover</button>
   <div class="sp"></div>
   <small id="dashver">dashboard</small>
@@ -202,9 +247,7 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
     <div class="cmd" id="cmd">…</div>
     <div class="note" id="cmdnote" style="margin-top:6px"></div>
     <div class="row" style="margin-top:12px">
-      <button class="btn go big" id="btnstart">Start session</button>
-      <button class="btn stop big" id="btnstop" style="display:none">Stop and finalise</button>
-      <button class="btn" id="btnkill" style="display:none">Force stop</button>
+      <span class="note">Start and Stop live in the top bar, on every page.</span>
       <span class="note" id="startnote"></span>
     </div>
   </div>
@@ -236,6 +279,117 @@ pre.ver{margin:0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;col
   <div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Recent session folders</h3>
     <div class="row"><button class="btn" id="btnruns">Refresh</button><button class="btn" id="btnopenout">Open output folder</button></div></div>
     <div id="runlist" style="margin-top:10px" class="note">…</div></div>
+</section>
+
+<!-- SEASON -->
+<section id="season">
+  <h2>Season</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row"><h3 style="margin:0">Season file</h3><select id="seasonfile"></select>
+        <span class="note" id="seasonnote"></span></div>
+      <div class="row"><button class="btn" id="btnseasonreload">Re-read</button><button class="btn accent" id="btnseasonsave">Save season</button></div>
+    </div>
+    <div class="fields" style="margin-top:10px">
+      <div class="field"><label>League name</label><input type="text" id="sname"></div>
+      <div class="field"><label>Grid mode</label><select id="sgrid"><option value="standard">Standard: each team is assigned a game team (livery, cars and AI drivers fixed)</option><option value="f1world">F1 World: custom liveries, AI dealt to open seats each race day</option></select></div>
+      <div class="field"><label>Name mode (tower short form and codes)</label><select id="snamemode"><option value="last">Last name (CAN from Canedy)</option><option value="first">First name (DUS from Dustin)</option></select></div>
+      <div class="field"><label>Ticker separator</label><input type="text" id="ssep"></div>
+    </div>
+    <div class="note" id="collnote" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">People</h3><button class="btn" id="btnaddperson">Add person</button></div>
+    <div class="note">Written names are what the screen shows. "Spoken" is what the voices say — spell it the way it sounds (Kannedy). A person who drives needs the exact gamertag. The code is the first three letters of the chosen name mode unless you override it.</div>
+    <div style="overflow:auto;margin-top:8px"><table class="seasontbl" id="people"></table></div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">Charities</h3><button class="btn" id="btnaddcharity">Add charity</button></div>
+    <div style="overflow:auto;margin-top:8px"><table class="seasontbl" id="charities"></table></div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">Teams</h3><div class="row"><button class="btn" id="btnredeal" title="F1 World only: clear the AI seat deal">Redeal AI seats</button><button class="btn" id="btnaddteam">Add team</button></div></div>
+    <div class="note">Owner holds the rights; manager runs the team; both default to Dustin. In Standard mode the game team fixes the livery, both cars and the AI drivers. A human races for whichever team's car he is in that day.</div>
+    <div style="overflow:auto;margin-top:8px"><table class="seasontbl" id="teams"></table></div>
+  </div>
+  <div class="card">
+    <h3>Race day: who is in every seat</h3>
+    <div class="note">Live from the overlay feed while Hoover or the UDP test source is running.</div>
+    <div id="raceday" style="margin-top:8px" class="note">No feed.</div>
+  </div>
+</section>
+
+<!-- OVERLAYS -->
+<section id="overlays">
+  <h2>Overlays</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row"><h3 style="margin:0">Overlay program</h3><span class="chip" id="ovstatus"><span class="dot"></span><span>…</span></span><span class="note" id="ovfeed"></span></div>
+      <div class="row"><button class="btn go" id="btnovstart">Start overlays</button><button class="btn" id="btnovtest" title="Development only: decode UDP here instead of reading Hoover">Start in UDP test mode</button><button class="btn stop" id="btnovstop">Stop overlays</button><button class="btn accent" id="btnovsave">Save settings</button></div>
+    </div>
+    <div class="note" style="margin-top:8px"><b>In OBS:</b> Sources → + → Browser → paste a URL below with its width and height. <b>In F1 25</b> (spectator): On-Screen Display → turn the game's timing tower off. Settings land on the stream within a second of Save.</div>
+  </div>
+
+  <div class="card">
+    <div class="surf"><h3>Timing tower</h3><div class="row"><span class="obs" id="obs_tower"></span><label class="switch"><input type="checkbox" data-surface="tower"><i></i></label></div></div>
+    <div class="fields">
+      <div class="field"><label>Width (px)</label><input type="text" data-ov="tower.width"></div>
+      <div class="field"><label>Row height (px)</label><input type="text" data-ov="tower.row_height"></div>
+      <div class="field"><label>Rows shown</label><input type="text" data-ov="tower.max_rows"></div>
+      <div class="field"><label>Name column shows</label><select data-ov="tower.name_mode"><option value="code">Three-letter code</option><option value="short">Short name (name mode)</option><option value="full">Full name</option></select></div>
+      <div class="field"><label>Expansion: period (s)</label><input type="text" data-ov="tower.expand.period_s"></div>
+      <div class="field"><label>Expansion: hold (s)</label><input type="text" data-ov="tower.expand.hold_s"></div>
+      <div class="field"><label>Name opens at (s into the period)</label><input type="text" data-ov="tower.expand.offsets_s.name"></div>
+      <div class="field"><label>Team opens at (s)</label><input type="text" data-ov="tower.expand.offsets_s.team"></div>
+      <div class="field"><label>Charity opens at (s)</label><input type="text" data-ov="tower.expand.offsets_s.charity"></div>
+      <div class="field"><label>Camera row opens for (s)</label><input type="text" data-ov="tower.camera_row_expand_s"></div>
+      <div class="field"><div class="boolf"><input type="checkbox" data-ov="tower.expand.enabled" id="ovexp"><label for="ovexp" style="margin:0;color:var(--text)">Column rotation on</label></div></div>
+      <div class="field"><div class="boolf"><input type="checkbox" data-ov="tower.states_from_hoover" id="ovst"><label for="ovst" style="margin:0;color:var(--text)">Compact / expanded states from Hoover</label></div></div>
+    </div>
+    <h3 style="margin-top:12px">Columns</h3>
+    <div class="cols" id="towercols"></div>
+  </div>
+
+  <div class="card">
+    <div class="surf"><h3>Ticker</h3><div class="row"><span class="obs" id="obs_ticker"></span><label class="switch"><input type="checkbox" data-surface="ticker"><i></i></label></div></div>
+    <div class="fields">
+      <div class="field"><label>Showing</label><select data-ov="ticker.mode"><option value="off">Off</option><option value="slot1">Slot 1: Givers</option><option value="slot2">Slot 2: Relief</option><option value="slot3">Slot 3: News</option><option value="slot4">Slot 4: Racing info</option><option value="cycle">Cycle through the filled slots</option></select></div>
+      <div class="field"><label>Cycle every (s)</label><input type="text" data-ov="ticker.cycle_s"></div>
+      <div class="field"><label>Speed (px/s)</label><input type="text" data-ov="ticker.speed_px_s"></div>
+      <div class="field"><label>Height (px)</label><input type="text" data-ov="ticker.height"></div>
+      <div class="field"><label>Separator</label><input type="text" data-ov="ticker.separator"></div>
+    </div>
+    <div class="fields" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Slot 1 · <input type="text" data-ov="ticker.slots.1.label" style="width:120px;display:inline-block"> (givers: named at the start and end of the programme)</label><textarea class="slot" data-ov="ticker.slots.1.text"></textarea></div>
+      <div class="field"><label>Slot 2 · <input type="text" data-ov="ticker.slots.2.label" style="width:120px;display:inline-block"></label><textarea class="slot" data-ov="ticker.slots.2.text"></textarea></div>
+      <div class="field"><label>Slot 3 · <input type="text" data-ov="ticker.slots.3.label" style="width:120px;display:inline-block"></label><textarea class="slot" data-ov="ticker.slots.3.text"></textarea></div>
+      <div class="field"><label>Slot 4 · <input type="text" data-ov="ticker.slots.4.label" style="width:120px;display:inline-block"> — generated from the season file</label><div class="note mono" id="slot4preview" style="max-height:64px;overflow:auto"></div></div>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="note">Show now:</span><button class="btn" data-tick="slot1">Givers</button><button class="btn" data-tick="slot2">Relief</button><button class="btn" data-tick="slot3">News</button><button class="btn" data-tick="slot4">Racing info</button><button class="btn" data-tick="cycle">Cycle</button><button class="btn" data-tick="off">Off</button></div>
+  </div>
+
+  <div class="card">
+    <div class="surf"><h3>Sponsor card (paid sponsors)</h3><div class="row"><span class="obs" id="obs_sponsor"></span><label class="switch"><input type="checkbox" data-surface="sponsor"><i></i></label></div></div>
+    <div class="fields">
+      <div class="field"><label>Label</label><input type="text" data-ov="sponsor.label"></div>
+      <div class="field"><label>Seconds per logo</label><input type="text" data-ov="sponsor.every_s"></div>
+      <div class="field"><label>Fade (ms)</label><input type="text" data-ov="sponsor.fade_ms"></div>
+      <div class="field"><label>Order</label><select data-ov="sponsor.order"><option value="sorted">Filename order</option><option value="shuffle">Shuffle</option></select></div>
+      <div class="field"><label>Width × height (px)</label><div class="row"><input type="text" data-ov="sponsor.width" style="width:70px"><input type="text" data-ov="sponsor.height" style="width:70px"></div></div>
+    </div>
+    <div class="row" style="margin-top:10px"><span class="note">Logo folder: <span class="mono" id="sponsorfolder"></span></span><button class="btn" id="btnopensponsors">Open folder</button><span class="note">Drop PNG/JPG/SVG logos in; they appear on the next rotation. Give each a name and a spoken spelling so the booth can read it.</span></div>
+    <div class="thumbs" id="thumbs"></div>
+  </div>
+
+  <div class="card">
+    <div class="surf"><h3>Featured advertisement (full screen)</h3><div class="row"><span class="obs" id="obs_feature"></span><label class="switch"><input type="checkbox" data-surface="feature"><i></i></label></div></div>
+    <div class="row"><span class="note">Hold (s)</span><input type="text" data-ov="feature.hold_s" style="width:60px;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:4px 6px"><span class="note">Fade (ms)</span><input type="text" data-ov="feature.fade_ms" style="width:70px;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:4px 6px"><select id="featfile"></select><button class="btn accent" id="btnfeature">Fire featured ad</button></div>
+  </div>
+
+  <div class="card">
+    <div class="surf"><h3>Team radio indicator</h3><div class="row"><span class="obs" id="obs_radio"></span><label class="switch"><input type="checkbox" data-surface="radio"><i></i></label></div></div>
+    <div class="row"><select id="radiodriver"></select><input type="text" id="radiotext" placeholder="one line of text (optional)" style="width:280px;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:4px 6px"><button class="btn" id="btnradio" disabled title="No audio source yet: the surface is built, the clips come later">Fire team radio (no audio source yet)</button></div>
+  </div>
 </section>
 
 <!-- THIS HOOVER -->
@@ -391,10 +545,32 @@ function syncForm(){
     div.classList.toggle("set", FORM[flag] !== undefined);
   });
 }
+// ---------- V1.1: the event picker (top bar). Saved in this browser; stamped on every run.
+const EV = JSON.parse(localStorage.getItem("hoover_event") || "{}");
+function evSave(){ localStorage.setItem("hoover_event", JSON.stringify(EV)); evRender(); renderCmd(); }
+function evRender(){
+  $("#evdate").value = EV.date || today();
+  $("#evstatus").value = EV.status || "";
+  if (EV.league) $("#evleague").value = EV.league;
+  const unset = !EV.status;
+  $("#hdr").classList.toggle("unset", unset); $("#evt").classList.toggle("unset", unset);
+}
+$("#evdate").onchange = e => { EV.date = e.target.value; evSave(); };
+$("#evstatus").onchange = e => { EV.status = e.target.value; evSave(); };
+$("#evleague").onchange = e => { EV.league = e.target.value; evSave(); loadSeason(); };
+function evArgs(){
+  const a = [];
+  if (!TOOL) return a;
+  if (EV.status && has("--event-status")) a.push("--event-status", EV.status);
+  if (EV.date && has("--event-date")) a.push("--event-date", EV.date);
+  if (EV.league && has("--league")) a.push("--league", EV.league);
+  return a;
+}
 function buildArgs(){
   const args = [], dropped = [];
   const src = FORM["--source"];
   if (src) { if (has("--source")) args.push("--source", src); }
+  args.push(...evArgs());
   for (const [flag, val] of Object.entries(FORM)) {
     if (flag === "--source") continue;
     if (!has(flag)) { dropped.push(flag); continue; }
@@ -417,7 +593,8 @@ function renderCmd(){
   if (src === "live") notes.push("Live: start this once F1 25 is in the session and this PC is spectating. Stop with the red button; it finalises the session (script, manifest, archive).");
   if (FORM["--roster"]) notes.push("League roster on: drivers with a blank name are matched by their race number.");
   $("#cmdnote").innerHTML = notes.join("<br>");
-  $("#btnstart").disabled = running || ((src === "fast" || src === "replay") && !FORM["--replay"]);
+  $("#btnstart").disabled = running || ((src === "fast" || src === "replay") && !FORM["--replay"]) || !EV.status;
+  $("#btnstart").title = !EV.status ? "Choose what tonight counts as (top bar) before starting" : "";
   document.querySelectorAll('.field[data-flag="--replay"],.field[data-flag="--pace"],.field[data-flag="--pace-scale"]').forEach(d => d.style.display = src === "live" ? "none" : "");
 }
 
@@ -629,9 +806,147 @@ $("#btnfetch").onclick = async () => {
 };
 $("#btncheckout").onclick = async () => { const b = $("#branches").value; if (!b) return toast("Fetch branches first, then pick one."); if (confirm("Switch the Hoover folder to " + b + "?")) await api("/api/git", {op:"checkout", branch:b}); };
 
+// ---------- V1.1: season page
+let SEASON = null, SEASONFILE = null, GAME_TEAMS = {};
+const SEL = (opts, val, blank) => (blank ? `<option value="">${blank}</option>` : "") + opts.map(([v,t]) => `<option value="${esc(v)}" ${String(v)===String(val)?"selected":""}>${esc(t)}</option>`).join("");
+async function loadSeason(){
+  const d = await api("/api/season" + (EV.league ? "?file=hoover_season_" + encodeURIComponent(EV.league) + "_2026.json" : ""));
+  $("#evleague").innerHTML = d.files.map(f => { const id = f.replace(/^hoover_season_/, "").replace(/_\d{4}\.json$/, "").replace(/\.json$/, ""); return `<option value="${esc(id)}">${esc(id.replace(/_/g," "))}</option>`; }).join("") || `<option value="">no season file</option>`;
+  if (!EV.league && d.file) { EV.league = d.file.replace(/^hoover_season_/, "").replace(/_\d{4}\.json$/, ""); localStorage.setItem("hoover_event", JSON.stringify(EV)); }
+  evRender();
+  SEASON = d.doc; SEASONFILE = d.file; GAME_TEAMS = d.game_teams || {};
+  $("#seasonfile").innerHTML = d.files.map(f => `<option ${f===d.file?"selected":""}>${esc(f)}</option>`).join("");
+  if (!SEASON) { $("#seasonnote").textContent = "No season file beside the tool."; return; }
+  $("#seasonnote").textContent = "";
+  $("#sname").value = (SEASON.league||{}).name || ""; $("#sgrid").value = SEASON.grid_mode || "standard";
+  $("#snamemode").value = SEASON.name_mode || "last"; $("#ssep").value = SEASON.ticker_separator || "";
+  renderSeasonTables(d.collisions || {});
+}
+function codeOf(p){ const ov = (SEASON.code_overrides||{})[p.id]; if (ov) return ov.toUpperCase().slice(0,3); const base = (SEASON.name_mode === "first" ? p.first : p.last) || p.last || p.first || ""; return base.normalize("NFKD").replace(/[^A-Za-z]/g,"").slice(0,3).toUpperCase(); }
+function renderSeasonTables(coll){
+  const dup = new Set(); Object.values(coll).forEach(ids => ids.forEach(i => dup.add(i)));
+  const codes = {}; (SEASON.people||[]).forEach(p => { const c = codeOf(p); (codes[c] = codes[c] || []).push(p.id); });
+  Object.entries(codes).forEach(([c, ids]) => { if (ids.length > 1) ids.forEach(i => dup.add(i)); });
+  const people = SEASON.people || [];
+  $("#people").innerHTML = `<tr><th>First</th><th>Last</th><th>Spoken (full)</th><th>Spoken (first)</th><th>Gamertag</th><th>No.</th><th>Code</th><th>Owner</th><th>Manager</th><th>Driver</th><th>18+</th><th></th></tr>` +
+    people.map((p,i) => `<tr data-i="${i}">
+      <td><input data-k="first" value="${esc(p.first||"")}"></td><td><input data-k="last" value="${esc(p.last||"")}"></td>
+      <td><input data-k="spoken" value="${esc(p.spoken||"")}" placeholder="as it sounds"></td><td><input data-k="spoken_first" value="${esc(p.spoken_first||"")}"></td>
+      <td><input data-k="gamertag" value="${esc(p.gamertag||"")}"></td><td><input data-k="race_number" value="${p.race_number??""}" style="width:52px"></td>
+      <td><input class="code ${dup.has(p.id)?"bad":""}" data-k="_code" value="${esc(codeOf(p))}" title="${dup.has(p.id)?"Two people share this code: override one":"Override the derived code here"}"></td>
+      <td style="text-align:center"><input type="checkbox" data-role="owner" ${(p.roles||[]).includes("owner")?"checked":""}></td>
+      <td style="text-align:center"><input type="checkbox" data-role="manager" ${(p.roles||[]).includes("manager")?"checked":""}></td>
+      <td style="text-align:center"><input type="checkbox" data-role="driver" ${(p.roles||[]).includes("driver")?"checked":""}></td>
+      <td style="text-align:center"><input type="checkbox" data-k="adult" ${p.adult!==false?"checked":""}></td>
+      <td><button class="btn" data-del="people">×</button></td></tr>`).join("");
+  const chars = SEASON.charities || [];
+  $("#charities").innerHTML = `<tr><th>Name</th><th>Code (≤5)</th><th>Spoken (if different)</th><th></th></tr>` +
+    chars.map((c,i) => `<tr data-i="${i}"><td><input data-k="name" value="${esc(c.name||"")}"></td><td><input class="code" data-k="code" value="${esc(c.code||"")}" maxlength="5" style="width:70px"></td><td><input data-k="spoken" value="${esc(c.spoken||"")}"></td><td><button class="btn" data-del="charities">×</button></td></tr>`).join("");
+  const popts = people.map(p => [p.id, (p.first||"") + " " + (p.last||"")]);
+  const copts = chars.map(c => [c.id, c.name]);
+  const gopts = Object.entries(GAME_TEAMS).map(([k,v]) => [k, v]);
+  const teams = SEASON.teams || [];
+  $("#teams").innerHTML = `<tr><th>Team name</th><th>Code</th><th>Spoken (if different)</th><th>Owner</th><th>Manager</th><th>Charity</th><th>Game team</th><th>Seat 1</th><th>Seat 2</th><th>Colour</th><th></th></tr>` +
+    teams.map((t,i) => { const ch = Array.isArray(t.charity) ? (t.charity[t.charity.length-1]||{}).id : t.charity; return `<tr data-i="${i}">
+      <td><input data-k="name" value="${esc(t.name||"")}"></td><td><input class="code" data-k="code" value="${esc(t.code||"")}" maxlength="3"></td>
+      <td><input data-k="spoken" value="${esc(t.spoken||"")}"></td>
+      <td><select data-k="owner">${SEL(popts, t.owner, "—")}</select></td><td><select data-k="manager">${SEL(popts, t.manager, "—")}</select></td>
+      <td><select data-k="_charity">${SEL(copts, ch, "—")}</select></td>
+      <td><select data-k="game_team">${SEL(gopts, t.game_team, "—")}</select></td>
+      <td><select data-k="_seat0">${SEL(popts, (t.seats||[])[0]?.driver, "AI")}</select></td><td><select data-k="_seat1">${SEL(popts, (t.seats||[])[1]?.driver, "AI")}</select></td>
+      <td><input data-k="colour" value="${esc(t.colour||"")}" placeholder="#rrggbb or blank" style="width:92px"></td>
+      <td><button class="btn" data-del="teams">×</button></td></tr>`; }).join("");
+  const collisions = Object.entries(codes).filter(([c, ids]) => ids.length > 1);
+  $("#collnote").innerHTML = collisions.length ? `<span class="bad">Code collision: ${collisions.map(([c,ids]) => c + " (" + ids.map(id => (people.find(p=>p.id===id)||{}).first).join(", ") + ")").join("; ")}. Override one of them in the Code column; the booth will not air two cars with the same code.</span>` : `<span class="good">All codes unique.</span>`;
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { const tr = b.closest("tr"); SEASON[b.dataset.del].splice(+tr.dataset.i, 1); renderSeasonTables({}); });
+}
+function readSeasonTables(){
+  const g = (tbl, key) => document.querySelectorAll(`#${tbl} tr[data-i]`).forEach(tr => {
+    const row = SEASON[key][+tr.dataset.i];
+    tr.querySelectorAll("[data-k]").forEach(inp => {
+      const k = inp.dataset.k; let v = inp.type === "checkbox" ? inp.checked : inp.value.trim();
+      if (k === "race_number") v = v === "" ? null : parseInt(v, 10) || null;
+      if (k === "game_team") v = v === "" ? null : parseInt(v, 10);
+      if (k === "_code") { SEASON.code_overrides = SEASON.code_overrides || {}; const derived = (() => { const o = SEASON.code_overrides[row.id]; delete SEASON.code_overrides[row.id]; const c = codeOf(row); if (o) SEASON.code_overrides[row.id] = o; return c; })(); if (v && v.toUpperCase() !== derived) SEASON.code_overrides[row.id] = v.toUpperCase().slice(0,3); else delete SEASON.code_overrides[row.id]; return; }
+      if (k === "_charity") { row.charity = v ? [{id: v, from: (Array.isArray(row.charity) && row.charity.length && row.charity[row.charity.length-1].id === v) ? row.charity[row.charity.length-1].from : today()}] : []; return; }
+      if (k === "_seat0" || k === "_seat1") { row.seats = row.seats || [{}, {}]; row.seats[k === "_seat0" ? 0 : 1] = {driver: v || null}; return; }
+      if (k === "spoken" || k === "spoken_first" || k === "colour") v = v || null;
+      row[k] = v;
+    });
+    const roles = [...tr.querySelectorAll("[data-role]")].filter(c => c.checked).map(c => c.dataset.role);
+    if (tr.querySelector("[data-role]")) row.roles = roles;
+  });
+  g("people", "people"); g("charities", "charities"); g("teams", "teams");
+  SEASON.league = Object.assign(SEASON.league || {}, {name: $("#sname").value.trim()});
+  SEASON.grid_mode = $("#sgrid").value; SEASON.name_mode = $("#snamemode").value; SEASON.ticker_separator = $("#ssep").value;
+}
+$("#btnseasonsave").onclick = async () => { if (!SEASON) return; readSeasonTables(); const r = await api("/api/season", {file: SEASONFILE, doc: SEASON}); toast(r.ok ? "Season saved. Hoover and the overlay pick it up live." : esc(r.msg)); loadSeason(); };
+$("#btnseasonreload").onclick = loadSeason;
+$("#seasonfile").onchange = e => { EV.league = e.target.value.replace(/^hoover_season_/, "").replace(/_\d{4}\.json$/, ""); evSave(); loadSeason(); };
+const newId = (pre) => pre + "_" + Math.random().toString(36).slice(2, 7);
+$("#btnaddperson").onclick = () => { readSeasonTables(); SEASON.people.push({id: newId("p"), first: "", last: "", spoken: null, spoken_first: null, roles: ["driver"], gamertag: "", race_number: null, adult: true}); renderSeasonTables({}); };
+$("#btnaddcharity").onclick = () => { readSeasonTables(); SEASON.charities.push({id: newId("c"), name: "", code: "", spoken: null}); renderSeasonTables({}); };
+$("#btnaddteam").onclick = () => { readSeasonTables(); SEASON.teams.push({id: newId("t"), name: "", code: "", spoken: null, owner: "p_dustin", manager: "p_dustin", charity: [], game_team: null, colour: null, seats: [{driver: null}, {driver: null}]}); renderSeasonTables({}); };
+$("#btnredeal").onclick = async () => { if (!confirm("Clear the AI seat deal? The next session deals the open seats again.")) return; const r = await api("/api/season/redeal", {file: SEASONFILE}); toast(r.ok ? "Deal cleared." : esc(r.msg)); };
+
+// ---------- V1.1: overlays page
+let OV = null, OVSET = null;
+const OBS = {tower: ["/tower", "320 × 820"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
+const TOWERCOLS = [["position","Position"],["colour","Colour bar"],["name","Name"],["team","Team"],["charity","Charity"],["gap","Gap"],["interval","Interval (not gap to leader)"],["last_lap","Last lap"],["best_lap","Best lap"],["tyre","Tyre"],["tyre_age","Tyre age"],["pit_stops","Pit stops"],["pit_tag","PIT tag"],["penalties","Penalties"],["gained","Places gained/lost"],["camera","Camera marker"],["fastest","Fastest lap (purple)"]];
+function getPath(o, path){ return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
+function setPath(o, path, v){ const ks = path.split("."); let cur = o; ks.slice(0,-1).forEach(k => { cur[k] = cur[k] || {}; cur = cur[k]; }); cur[ks[ks.length-1]] = v; }
+async function loadOverlay(){
+  OV = await api("/api/overlay"); OVSET = OV.settings;
+  const st = OV.state;
+  $("#ovstatus").innerHTML = `<span class="dot ${OV.running || st ? "green" : ""}"></span><span>${OV.running ? "running" : (st ? "answering on " + OV.port : "not running")}</span>`;
+  $("#ovfeed").textContent = st ? (st.connected ? "feed: " + (st.session || "connected") + (st.live ? " · live" : "") : "feed: Hoover not publishing (" + (st.error || "start a session") + ")") : "";
+  Object.entries(OBS).forEach(([k, [path, size]]) => { const url = `http://localhost:${OV.port}${path}`; $("#obs_" + k).innerHTML = `${url} <span class="muted">${size}</span> <button data-copy="${url}">copy</button>`; });
+  document.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast("Copied " + esc(b.dataset.copy)); });
+  if (!OVSET) { toast("No hoover_overlay_settings.json yet: start the overlays once and it is created."); return; }
+  document.querySelectorAll("[data-surface]").forEach(c => c.checked = !!OVSET.surfaces[c.dataset.surface]);
+  document.querySelectorAll("[data-ov]").forEach(inp => { const v = getPath(OVSET, inp.dataset.ov); if (inp.type === "checkbox") inp.checked = !!v; else inp.value = v ?? ""; });
+  $("#towercols").innerHTML = TOWERCOLS.map(([k, t]) => `<label><input type="checkbox" data-col="${k}" ${OVSET.tower.columns[k] ? "checked" : ""}> ${t}</label>`).join("");
+  $("#slot4preview").textContent = st && st.ticker_slots && st.ticker_slots["4"] ? st.ticker_slots["4"].text : "(starts when the feed is up)";
+  $("#sponsorfolder").textContent = OV.sponsor_folder;
+  const listed = {}; (OVSET.sponsor.list || []).forEach(s => listed[s.file] = s);
+  $("#thumbs").innerHTML = OV.sponsor_files.length ? OV.sponsor_files.map(f => { const s = listed[f] || {}; return `<div class="thumb" data-file="${esc(f)}"><img src="/api/sponsor-image/${encodeURIComponent(f)}"><input data-sk="name" placeholder="Name on screen" value="${esc(s.name||"")}"><input data-sk="spoken" placeholder="Spoken spelling" value="${esc(s.spoken||"")}"><small title="${esc(f)}">${esc(f)}</small></div>`; }).join("") : `<div class="note">No logos yet. Open the folder and drop some in.</div>`;
+  $("#featfile").innerHTML = OV.sponsor_files.map(f => `<option value="${esc(f)}">${esc((listed[f]||{}).name || f)}</option>`).join("") || `<option value="">no logos</option>`;
+  const rows = (st && st.rows) || [];
+  $("#radiodriver").innerHTML = rows.filter(r => r.human).map(r => `<option>${esc(r.full || r.short)}</option>`).join("") || (SEASON ? (SEASON.people||[]).map(p => `<option>${esc((p.first||"")+" "+(p.last||""))}</option>`).join("") : "");
+  renderRaceday(st);
+}
+function renderRaceday(st){
+  if (!st || !st.rows || !st.rows.length) { $("#raceday").textContent = "No feed. Start a session (or the UDP test source) and this fills in."; return; }
+  const byTeam = {};
+  st.rows.forEach(r => { (byTeam[r.team || "(no team)"] = byTeam[r.team || "(no team)"] || []).push(r); });
+  $("#raceday").innerHTML = `<table><tr><th>Team</th><th>Charity</th><th>Seats</th></tr>` + Object.entries(byTeam).map(([t, rs]) => `<tr><td><b>${esc(t)}</b> <span class="tag">${esc(rs[0].team_code||"")}</span></td><td>${esc(rs[0].charity||"")} <span class="tag">${esc(rs[0].charity_code||"")}</span></td><td>${rs.map(r => `<span class="tag ${r.human?"h":""}">${esc(r.code)}</span> ${esc(r.full||r.short)}${r.human?"":" <span class='muted'>(AI)</span>"} P${r.pos}`).join("<br>")}</td></tr>`).join("") + `</table>`;
+}
+function readOverlay(){
+  if (!OVSET) return;
+  document.querySelectorAll("[data-surface]").forEach(c => OVSET.surfaces[c.dataset.surface] = c.checked);
+  document.querySelectorAll("[data-ov]").forEach(inp => { const cur = getPath(OVSET, inp.dataset.ov); let v = inp.type === "checkbox" ? inp.checked : inp.value; if (typeof cur === "number") v = parseFloat(v) || 0; setPath(OVSET, inp.dataset.ov, v); });
+  document.querySelectorAll("[data-col]").forEach(c => OVSET.tower.columns[c.dataset.col] = c.checked);
+  OVSET.sponsor.list = [...document.querySelectorAll(".thumb")].map(t => ({file: t.dataset.file, name: t.querySelector('[data-sk="name"]').value.trim(), spoken: t.querySelector('[data-sk="spoken"]').value.trim() || null, tagline: ((OVSET.sponsor.list||[]).find(s => s.file === t.dataset.file)||{}).tagline || ""})).filter(s => s.name);
+}
+$("#btnovsave").onclick = async () => { readOverlay(); const r = await api("/api/overlay/settings", {settings: OVSET}); toast(r.ok ? "Overlay settings saved; live within a second." : esc(r.msg)); setTimeout(loadOverlay, 600); };
+$("#btnovstart").onclick = async () => { const r = await api("/api/overlay/start", {}); toast(esc(r.msg)); setTimeout(loadOverlay, 1200); };
+$("#btnovtest").onclick = async () => { const r = await api("/api/overlay/start", {args: ["--source", "udp"]}); toast(esc(r.msg)); setTimeout(loadOverlay, 1200); };
+$("#btnovstop").onclick = async () => { await api("/api/overlay/stop", {}); setTimeout(loadOverlay, 600); };
+$("#btnopensponsors").onclick = async () => { await api("/api/open", {path: OV ? OV.sponsor_folder : "sponsors"}); };
+document.querySelectorAll("[data-tick]").forEach(b => b.onclick = async () => { const r = await api("/api/overlay/control", {action: "ticker", mode: b.dataset.tick}); if (!r.ok) toast(esc(r.msg)); });
+$("#btnfeature").onclick = async () => { readOverlay(); const r = await api("/api/overlay/control", {action: "feature", file: $("#featfile").value, hold_s: OVSET.feature.hold_s}); toast(r.ok ? "Featured ad on screen." : esc(r.msg)); };
+$("#btnradio").onclick = async () => { const r = await api("/api/overlay/control", {action: "radio", driver: $("#radiodriver").value, text: $("#radiotext").value}); if (!r.ok) toast(esc(r.msg)); };
+document.querySelectorAll("[data-surface]").forEach(c => c.onchange = async () => { readOverlay(); await api("/api/overlay/settings", {settings: OVSET}); });
+const _showTab = showTab;
+showTab = function(id){ _showTab(id); if (id === "season") loadSeason(); if (id === "overlays") loadOverlay(); };
+document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+setInterval(() => { if (document.querySelector("#overlays.on") || document.querySelector("#season.on")) api("/api/overlay").then(d => { OV = Object.assign(OV || {}, {state: d.state, running: d.running}); renderRaceday(d.state); if (document.querySelector("#overlays.on")) { $("#ovfeed").textContent = d.state ? (d.state.connected ? "feed: " + (d.state.session || "connected") + (d.state.live ? " · live" : "") : "feed: Hoover not publishing") : ""; } }); }, 3000);
+
 // ---------- go
 (async () => {
   await loadTool();
+  evRender();
+  loadSeason();
   runChecks();
   loadNames();
   setInterval(poll, 1000); poll();
