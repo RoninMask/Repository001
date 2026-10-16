@@ -323,6 +323,8 @@ class UdpSource(object):
                             self.best[idx] = ms
 
     def snapshot(self):
+        if self.season is not None:
+            self.season.reload_if_changed()
         with self.lock:
             now = time.time()
             is_race = self.session_type in RACE_TYPES

@@ -15402,8 +15402,9 @@ class SeasonBridge:
 
     def refresh(self, world, ext=None):
         """Resolve every seen car; cheap, called from the snapshot builder."""
-        if self.season is not None:
-            self.season.reload_if_changed()
+        if self.season is not None and self.season.reload_if_changed():
+            self._keys.clear()          # the file changed: resolve every car again
+            self.log("[season] season file changed on disk -- re-read")
         liveries = {}
         if ext is not None and getattr(ext, "participants", None):
             try:

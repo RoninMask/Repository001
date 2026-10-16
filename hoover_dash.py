@@ -39,10 +39,10 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
-DASH_VERSION = "1.0"
-DASH_DATE = "08OCT26"
+DASH_VERSION = "1.1"
+DASH_DATE = "16OCT26"
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHILD = os.path.join(HERE, "hoover_dash_child.py")
 TAG = "@@HOOVER "
@@ -689,6 +689,90 @@ def open_folder(path):
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+class OverlayProc:
+    """hoover_overlay.py as a background process beside the session. It is
+    started and stopped from the Overlays page and keeps running across
+    sessions; its console is folded into the dock with an [overlay] prefix."""
+
+    def __init__(self, session):
+        self.proc = None
+        self.session = session
+        self.started = None
+
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def start(self, folder, extra_args=()):
+        if self.running():
+            return True, "already running"
+        path = os.path.join(folder, "hoover_overlay.py")
+        if not os.path.isfile(path):
+            return False, "hoover_overlay.py is not beside the dashboard"
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP if WIN else 0
+        try:
+            self.proc = subprocess.Popen([sys.executable, "-u", path] + list(extra_args), cwd=folder,
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                                         creationflags=flags)
+        except Exception as e:
+            return False, str(e)
+        self.started = time.time()
+        threading.Thread(target=self._reader, args=(self.proc,), daemon=True).start()
+        self.session.log("$ python hoover_overlay.py %s" % " ".join(extra_args), "cmd")
+        return True, "started"
+
+    def _reader(self, p):
+        for raw in iter(p.stdout.readline, b""):
+            try:
+                self.session.log("[overlay] " + raw.decode("utf-8", "replace").rstrip(), "dash")
+            except Exception:
+                pass
+        self.session.log("[overlay] exited (%s)" % p.poll(), "dash")
+
+    def stop(self):
+        if not self.running():
+            return True
+        try:
+            if WIN:
+                self.proc.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                self.proc.terminate()
+        except Exception:
+            pass
+        for _ in range(20):
+            if not self.running():
+                return True
+            time.sleep(0.1)
+        try:
+            self.proc.kill()
+        except Exception:
+            pass
+        return True
+
+
+def _read_json(path, default=None):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def _write_json(path, doc):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _http_json(url, body=None, timeout=2.0):
+    import urllib.request
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
 class App:
     def __init__(self, tool_override, port_udp, folder=None):
         self.info = ToolInfo(os.path.abspath(folder) if folder else HERE, tool_override)
@@ -697,6 +781,28 @@ class App:
         self.listen_lock = threading.Lock()
         self.last_listen = None
         self.started = time.time()
+        self.overlay = OverlayProc(self.session)
+
+    # -- season files ----------------------------------------------------------
+    def season_files(self):
+        d = self.tool_dir()
+        try:
+            return sorted(n for n in os.listdir(d) if n.startswith("hoover_season_") and n.endswith(".json"))
+        except Exception:
+            return []
+
+    def season_path(self, name=None):
+        files = self.season_files()
+        if name and name in files:
+            return os.path.join(self.tool_dir(), name)
+        return os.path.join(self.tool_dir(), files[0]) if files else None
+
+    def overlay_settings_path(self):
+        return os.path.join(self.tool_dir(), "hoover_overlay_settings.json")
+
+    def overlay_port(self):
+        doc = _read_json(self.overlay_settings_path(), {}) or {}
+        return int(doc.get("web_port") or 8780)
 
     def tool_dir(self):
         return os.path.dirname(self.info.path) if self.info.path else HERE
@@ -749,6 +855,53 @@ def make_handler(app):
                                         "listen": app.last_listen})
             if u.path == "/api/runs":
                 return self._send(200, {"runs": list_runs(app.tool_dir(), app.session.out_root)})
+            # ---- V1.1: season, overlays, event ------------------------------
+            if u.path == "/api/season":
+                path = app.season_path(q.get("file"))
+                doc = _read_json(path, None) if path else None
+                coll = {}
+                try:
+                    sys.path.insert(0, app.tool_dir())
+                    import hoover_season as hs
+                    if path:
+                        coll = hs.Season(path).code_collisions()
+                    game_teams = hs.GAME_TEAMS
+                except Exception:
+                    game_teams = {}
+                return self._send(200, {"files": app.season_files(), "file": os.path.basename(path) if path else None,
+                                        "doc": doc, "collisions": coll, "game_teams": game_teams})
+            if u.path == "/api/overlay":
+                settings = _read_json(app.overlay_settings_path(), None)
+                port = app.overlay_port()
+                state = None
+                try:
+                    state = _http_json("http://127.0.0.1:%d/state.json" % port, timeout=1.0)
+                except Exception:
+                    state = None
+                folder = (settings or {}).get("sponsor", {}).get("folder") or "sponsors"
+                if not os.path.isabs(folder):
+                    folder = os.path.join(app.tool_dir(), folder)
+                files = []
+                try:
+                    files = sorted(n for n in os.listdir(folder)
+                                   if os.path.splitext(n)[1].lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+                except Exception:
+                    pass
+                return self._send(200, {"running": app.overlay.running(), "port": port, "settings": settings,
+                                        "state": state, "sponsor_folder": folder, "sponsor_files": files,
+                                        "settings_path": app.overlay_settings_path()})
+            if u.path.startswith("/api/sponsor-image/"):
+                name = unquote(u.path[len("/api/sponsor-image/"):])
+                settings = _read_json(app.overlay_settings_path(), {}) or {}
+                folder = settings.get("sponsor", {}).get("folder") or "sponsors"
+                if not os.path.isabs(folder):
+                    folder = os.path.join(app.tool_dir(), folder)
+                full = os.path.join(folder, name)
+                if "/" in name or "\\" in name or not os.path.isfile(full):
+                    return self._send(404, {"error": "not found"})
+                import mimetypes
+                with open(full, "rb") as f:
+                    return self._send(200, f.read(), mimetypes.guess_type(full)[0] or "application/octet-stream")
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -815,6 +968,47 @@ def make_handler(app):
                     return self._send(200, res)
                 finally:
                     app.listen_lock.release()
+            # ---- V1.1: season, overlays -------------------------------------
+            if u.path == "/api/season":
+                path = app.season_path(b.get("file"))
+                if not path:
+                    return self._send(400, {"ok": False, "msg": "no season file"})
+                doc = b.get("doc")
+                if not isinstance(doc, dict) or doc.get("schema") != "hoover_season_v1":
+                    return self._send(400, {"ok": False, "msg": "not a season document"})
+                try:
+                    _write_json(path, doc)
+                except Exception as e:
+                    return self._send(500, {"ok": False, "msg": str(e)})
+                return self._send(200, {"ok": True})
+            if u.path == "/api/season/redeal":
+                path = app.season_path(b.get("file"))
+                try:
+                    sys.path.insert(0, app.tool_dir())
+                    import hoover_season as hs
+                    hs.Season(path).redeal()
+                    return self._send(200, {"ok": True})
+                except Exception as e:
+                    return self._send(500, {"ok": False, "msg": str(e)})
+            if u.path == "/api/overlay/settings":
+                doc = b.get("settings")
+                if not isinstance(doc, dict):
+                    return self._send(400, {"ok": False, "msg": "no settings"})
+                try:
+                    _write_json(app.overlay_settings_path(), doc)
+                except Exception as e:
+                    return self._send(500, {"ok": False, "msg": str(e)})
+                return self._send(200, {"ok": True})
+            if u.path == "/api/overlay/control":
+                try:
+                    return self._send(200, _http_json("http://127.0.0.1:%d/control" % app.overlay_port(), b))
+                except Exception as e:
+                    return self._send(502, {"ok": False, "msg": "overlay not reachable: %s" % type(e).__name__})
+            if u.path == "/api/overlay/start":
+                ok, msg = app.overlay.start(app.tool_dir(), b.get("args") or [])
+                return self._send(200 if ok else 409, {"ok": ok, "msg": msg})
+            if u.path == "/api/overlay/stop":
+                return self._send(200, {"ok": app.overlay.stop()})
             if u.path == "/api/open":
                 p = b.get("path") or app.tool_dir()
                 full = os.path.abspath(p if os.path.isabs(p) else os.path.join(app.tool_dir(), p))
@@ -861,6 +1055,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if app.overlay.running():
+            app.overlay.stop()
         if app.session.running():
             print("Stopping the running session and finalising it ...")
             app.session.stop()
