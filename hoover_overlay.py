@@ -650,8 +650,11 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     if(d.camera_idx!==lastCam){ lastCam=d.camera_idx; camRowIdx=d.camera_idx; camRowUntil=now+(S.camera_row_expand_s||5); }
     const camRowOpen = state!=="compact" && camRowIdx!==null && now<camRowUntil;
     // the tower widens while anything is open, so nothing is pushed off the edge
+    // width is the base without the team and charity columns; each adds its own room
+    const compact = state==="compact";
+    const colsExtra = (compact?0:((C.team?46:0) + (C.charity?46:0))) + (C.last_lap?70:0) + (C.best_lap?70:0) + (C.gained?34:0);
     const extra = camRowOpen ? (S.camera_row_extra_px||300) : (wide ? (S.expand_extra_px||170) : 0);
-    tower.style.width=(S.width+extra)+"px";
+    tower.style.width=(S.width+colsExtra+extra)+"px";
     const shown=d.rows.slice(0,S.max_rows||22); const seen=new Set();
     rowsEl.style.height=(shown.length*rowH)+"px";
     shown.forEach((r,i)=>{
