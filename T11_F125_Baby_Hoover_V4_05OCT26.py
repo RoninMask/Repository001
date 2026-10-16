@@ -8927,6 +8927,13 @@ class V3Booth:
     def _air(self, claim, t):
         if claim.kind == "WINNER":
             self._winner_named = True
+        if claim.kind == "S_LULL_SPONSOR":
+            # V9: hold the sponsor card on the logo being read
+            pub = getattr(self, "publisher", None)
+            files = (claim.facts or {}).get("sponsor_files") or []
+            if pub is not None and files:
+                pub.sponsor_hold = {"file": files[0], "name": (claim.facts.get("sponsor_names") or [""])[0],
+                                    "until": time.time() + float(claim.facts.get("sponsor_hold_s", 15.0))}
         past = (t - claim.t_create) > 8.0 and claim.demotable
         cont = (claim.facts or {}).get("continuation")
         if cont:
@@ -10296,6 +10303,7 @@ class HybridWriter(Writer):
         self.local = local_writer           # the local lane (may be None)
         hy = config.get("v3", "hybrid", default={}) or {}
         self.model_kinds = set(hy.get("model_kinds", []) or [])
+        self.template_kinds = set(hy.get("template_kinds", ["S_LULL_SPONSOR"]) or [])
         self.model_story_kinds = hy.get("model_story_kinds", True)
         self.fall_back = hy.get("fall_back_to_template", True)
         # V8 lanes: which writer takes the blob's FAST lane and which the SLOW
@@ -10308,6 +10316,8 @@ class HybridWriter(Writer):
         self.counter = collections.Counter()
 
     def _use_model(self, kind):
+        if kind in self.template_kinds:       # V9: sponsor names are read as written
+            return False
         if kind in self.model_kinds:
             return True
         # V4: a story beat carries the record in its blob, which is exactly
@@ -14206,7 +14216,10 @@ class StoryEngine:
             if item in ("human_race", "stats", "interview", "lore") and not self.lull_active:
                 continue
             last = self._lull_item_t.get(item)
-            if not forced and last is not None and (t - last) < cool.get(item, 90.0):
+            cd = cool.get(item, 90.0)
+            if isinstance(cd, dict):          # V9: per session kind (sponsor cadence)
+                cd = cd.get(getattr(self.w, "session_kind", "RACE"), cd.get("RACE", 300.0))
+            if not forced and last is not None and (t - last) < cd:
                 continue
             builder = getattr(self, "_lull_" + item, None)
             claim = builder(t, cfg, forced) if builder else None
@@ -14358,6 +14371,84 @@ class StoryEngine:
         return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
                      facts={"line": card["line"], "source": "lore", "card": card.get("id")},
                      priority=9.0, speaker="ANALYST", demotable=True)
+
+    # ---- V9 (16 OCT): the paid-sponsor read -------------------------------------
+    _sponsor_cache = (0.0, None, [])
+
+    def _sponsors(self):
+        """Paid sponsors from hoover_overlay_settings.json beside the tool
+        (the Overlays page edits it): name, spoken spelling, logo file. Re-read
+        when the file changes. Only listed sponsors (with a name) are read."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(here, "hoover_overlay_settings.json")
+        try:
+            m = os.path.getmtime(path)
+        except Exception:
+            return []
+        mt, _p, cached = StoryEngine._sponsor_cache
+        if m == mt:
+            return cached
+        out = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+            for row in (doc.get("sponsor", {}) or {}).get("list", []) or []:
+                nm = (row.get("name") or "").strip()
+                if nm:
+                    out.append({"file": row.get("file"), "name": nm,
+                                "spoken": (row.get("spoken") or nm).strip()})
+        except Exception:
+            out = []
+        StoryEngine._sponsor_cache = (m, path, out)
+        return out
+
+    def _lull_sponsor(self, t, cfg, forced):
+        """'This broadcast is brought to you by ...': the sponsor(s) read
+        least recently, in a group sized per session (engine.lull.sponsor).
+        Not in the first minutes of green, not on the final lap. The claim
+        carries the logo file so the card holds it while the line airs."""
+        sp = cfg.get("sponsor", {}) or {}
+        if not sp.get("enabled", True):
+            return None
+        sponsors = self._sponsors()
+        if not sponsors:
+            return None
+        kind = getattr(self.w, "session_kind", "RACE")
+        # the cadence holds even when the silence floor forces a lull: a
+        # sponsor read repeated to fill air is worse than silence
+        last = self._lull_item_t.get("sponsor")
+        cd = (cfg.get("cooldown_s", {}) or {}).get("sponsor", 300.0)
+        if isinstance(cd, dict):
+            cd = cd.get(kind, cd.get("RACE", 300.0))
+        if last is not None and (t - last) < cd:
+            return None
+        anchor = getattr(self.model, "anchor_t", None)
+        if anchor is not None and (t - anchor) < sp.get("min_green_s", 120.0):
+            return None
+        if self.model.state == "final_lap":
+            return None
+        group = int((sp.get("group") or {}).get(kind, 1) or 1)
+        if not hasattr(self, "_sponsor_read_t"):
+            self._sponsor_read_t = {}
+        ordered = sorted(sponsors, key=lambda x: self._sponsor_read_t.get(x["name"], -1e9))
+        picked = ordered[:max(1, min(group, len(ordered)))]
+        for x in picked:
+            self._sponsor_read_t[x["name"]] = t
+        spoken = [x["spoken"] for x in picked]
+        if len(spoken) == 1:
+            said = spoken[0]
+        elif len(spoken) == 2:
+            said = "%s and %s" % (spoken[0], spoken[1])
+        else:
+            said = ", ".join(spoken[:-1]) + " and " + spoken[-1]
+        display = {"a": said}
+        view = {"beat": "lull_sponsor", "group": len(spoken) > 1}
+        claim = self._lull_claim("S_LULL_SPONSOR", [], t, display, view, speaker="LEAD",
+                                 priority=float(sp.get("priority", 10.0)))
+        claim.facts["sponsor_files"] = [x["file"] for x in picked]
+        claim.facts["sponsor_names"] = [x["name"] for x in picked]
+        claim.facts["sponsor_hold_s"] = float(sp.get("hold_s", 15.0))
+        return claim
 
     def _lull_stats(self, t, cfg, forced):
         """Stats of record: laps led, the fastest lap, cars out. Rotates."""
@@ -17292,6 +17383,7 @@ class BabyHooverV3:
                 self, getattr(args, "publish", None) or PUBLISH_PORT_DEFAULT, self._log)
             if not self.publisher.start():
                 self.publisher = None
+        self.booth.publisher = self.publisher
 
     @staticmethod
     def _event_stamp(args):
