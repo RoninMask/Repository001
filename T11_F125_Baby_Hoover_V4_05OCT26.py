@@ -18428,8 +18428,9 @@ def main():
     ap.add_argument("--season", default=None,
                     help="season file (hoover_season_<league>_2026.json) or 'off'; "
                          "default: the one season file beside the tool")
-    ap.add_argument("--season-names", choices=["on", "off"], default="on",
-                    help="on: the booth names from the season file; off: booth names as before")
+    ap.add_argument("--season-names", choices=["on", "off"], default="off",
+                    help="on: the booth names from the season file; off (default for the 21st): "
+                         "the roster's Real/Gamertag switch names the booth, the season file dresses the screen")
     ap.add_argument("--league", default=None, help="league id (picks the season file, stamps the record)")
     ap.add_argument("--event-status", choices=["friendly", "practice", "official", "championship"],
                     default=None, help="what tonight counts for (stamped on every record)")
