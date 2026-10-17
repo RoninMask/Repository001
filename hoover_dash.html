@@ -11,6 +11,8 @@
   --mono:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",Menlo,monospace;
 }
 *{box-sizing:border-box}
+input,select,textarea{color:var(--text);caret-color:var(--text)}
+input::placeholder,textarea::placeholder{color:var(--dim)}
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 button,select,input{font:inherit;color:inherit}
 header{display:flex;align-items:center;gap:16px;padding:10px 18px;border-bottom:1px solid var(--line);background:#0a0d11;position:sticky;top:0;z-index:5}
