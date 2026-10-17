@@ -250,13 +250,29 @@ class Season(object):
             pid = self._by_number.get(race_number)
         return self.people.get(pid) if pid else None
 
-    def team_for_car(self, game_team, game_name=None, is_human=False):
-        """Standard: the team assigned to this game team. F1 World: the team
-        this AI driver was dealt (humans are placed by their own team's car in
-        standard mode, and by the deal in f1world -- see deal_car)."""
+    def team_of_person(self, person_id):
+        """The team whose seat lists this person, if any."""
+        if not person_id:
+            return None
+        for t in self.teams.values():
+            for seat in t.get("seats") or []:
+                if seat.get("driver") == person_id:
+                    return t
+        return None
+
+    def team_for_car(self, game_team, game_name=None, is_human=False, person_id=None):
+        """Standard: the team assigned to this game team (a human scores for
+        the car he is in); when the lobby's car has no mapped team -- an F1
+        World lobby with custom liveries, as on 09 OCT -- a human falls back
+        to the seat that names him. F1 World: humans by their seat, AI by the
+        race-day deal."""
         if self.grid_mode == "standard":
             tid = self._by_game_team.get(game_team)
-            return self.teams.get(tid) if tid else None
+            if tid:
+                return self.teams.get(tid)
+            return self.team_of_person(person_id) if is_human else None
+        if is_human:
+            return self.team_of_person(person_id)
         key = _norm(game_name)
         tid_seat = self._deal.get(key)
         if tid_seat:
@@ -338,7 +354,7 @@ class Season(object):
             ident.last, ident.written = sn, sn
             ident.spoken_full = ident.spoken_short = sn or None
             ident.code = _code_from(sn)
-        team = self.team_for_car(game_team, game_name, is_human) if self.ok else None
+        team = self.team_for_car(game_team, game_name, is_human, ident.person_id) if self.ok else None
         if team is not None:
             ident.team_id = team["id"]
             ident.team_name = team.get("name")

@@ -744,6 +744,15 @@ class Parser:
                 c.ai = ai
             c.team = team
             c.race_number = racenum
+            # V9.4: the first livery colour (F1 25 adds up to four per car);
+            # the overlay draws the tower bar with it
+            try:
+                if ncol and len(_livery) >= 3 and any(_livery[:3]):
+                    if not hasattr(w, "liveries"):
+                        w.liveries = {}
+                    w.liveries[c.idx] = "#%02X%02X%02X" % (_livery[0], _livery[1], _livery[2])
+            except Exception:
+                pass
             # G6: this car's identity fields now come from Participants, so a
             # name resolved from here on is real, not a pre-roster placeholder.
             c.participated = True
@@ -16972,13 +16981,7 @@ class SeasonBridge:
         if self.season is not None and self.season.reload_if_changed():
             self._keys.clear()          # the file changed: resolve every car again
             self.log("[season] season file changed on disk -- re-read")
-        liveries = {}
-        if ext is not None and getattr(ext, "participants", None):
-            try:
-                for row in ext.participants.get("rows", []):
-                    liveries[row.get("idx")] = _hex_colour(row.get("livery") or ())
-            except Exception:
-                pass
+        liveries = dict(getattr(world, "liveries", {}) or {})
         ai_names = []
         for c in world.cars:
             if not c.seen:
@@ -17224,7 +17227,7 @@ class SnapshotPublisher:
                     pass
             row = {
                 "idx": c.idx, "pos": c.position, "grid": c.grid or None,
-                "human": c.ai == 0, "number": c.race_number,
+                "human": c.ai == 0, "number": c.race_number, "game_team": c.team,
                 "game_name": c.name, "spoken": c.spoken,
                 "lap": c.lap, "status": status, "result": rs,
                 "gap_ms": gap, "gap_kind": gap_kind, "laps_down": laps_down,
