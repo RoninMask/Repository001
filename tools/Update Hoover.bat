@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo === Update Hoover: %date% %time% > update_log.txt
 git fetch origin >> update_log.txt 2>&1
 git checkout claude/interview-ingest >> update_log.txt 2>&1
