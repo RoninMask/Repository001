@@ -346,14 +346,18 @@ class Season(object):
             ident.source = "season"
         elif is_human:
             nm = (game_name or "").strip()
-            ident.written = nm if nm and nm.lower() != "player" else "#%s" % (race_number or "?")
+            if nm.lower() == "player":                        # lobby hides names: car number instead
+                nm = ""
+            ident.written = nm or "#%s" % (race_number or "?")
             ident.spoken_full = ident.spoken_short = None    # the booth's ladder decides
             ident.code = _code_from(nm) or ("#%s" % race_number if race_number else "???")
         else:
             sn = _surname(game_name)
-            ident.last, ident.written = sn, sn
+            if (sn or "").lower() == "player":
+                sn = ""
+            ident.last, ident.written = sn, sn or "#%s" % (race_number or "?")
             ident.spoken_full = ident.spoken_short = sn or None
-            ident.code = _code_from(sn)
+            ident.code = _code_from(sn) or ("#%s" % race_number if race_number else "???")
         team = self.team_for_car(game_team, game_name, is_human, ident.person_id) if self.ok else None
         if team is not None:
             ident.team_id = team["id"]
