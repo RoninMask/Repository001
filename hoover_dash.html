@@ -894,7 +894,7 @@ $("#btnredeal").onclick = async () => { if (!confirm("Clear the AI seat deal? Th
 
 // ---------- V1.1: overlays page
 let OV = null, OVSET = null;
-const OBS = {tower: ["/tower", "720 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
+const OBS = {tower: ["/tower", "780 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
 const TOWERCOLS = [["position","Position"],["colour","Colour bar"],["name","Name"],["team","Team"],["charity","Charity"],["gap","Gap"],["interval","Interval (not gap to leader)"],["last_lap","Last lap"],["best_lap","Best lap"],["tyre","Tyre"],["tyre_age","Tyre age"],["pit_stops","Pit stops"],["pit_tag","PIT tag"],["penalties","Penalties"],["gained","Places gained/lost"],["camera","Camera marker"],["fastest","Fastest lap (purple)"]];
 function getPath(o, path){ return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
 function setPath(o, path, v){ const ks = path.split("."); let cur = o; ks.slice(0,-1).forEach(k => { cur[k] = cur[k] || {}; cur = cur[k]; }); cur[ks[ks.length-1]] = v; }

@@ -4,7 +4,7 @@ hoover_overlay.py -- Project Hoover's OBS overlay layer.
 
 One small local web server. OBS reads each surface as a Browser Source:
 
-    http://localhost:8780/tower     timing tower (720 x 900: room for the columns to open)
+    http://localhost:8780/tower     timing tower (780 x 900: room for the columns to open)
     http://localhost:8780/ticker    bottom ticker (1920 x 44)
     http://localhost:8780/sponsor   paid-sponsor card (480 x 300)
     http://localhost:8780/feature   full-screen featured advertisement (1920 x 1080)
@@ -679,7 +679,8 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   function render(d){
     const S=d.settings.tower, C=S.columns, on=d.settings.surfaces.tower;
     root.setProperty("--w",S.width+"px"); root.setProperty("--row",S.row_height+"px");
-    root.setProperty("--wide",Math.round(S.width*0.62)+"px");
+    // one column open: 62%% of the base width; all three open (after the flag): 48%% each
+    const wideOne=Math.round(S.width*0.62), wideAll=Math.round(S.width*0.48);
     const rowH=S.row_height;
     if(!on||(!d.rows.length&&S.hide_when_idle)){tower.classList.remove("on");return;} tower.classList.add("on");
     const state=S.states_from_hoover?(d.tower_state||"normal"):"normal";
@@ -717,7 +718,11 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     for(const [k,on] of [["name",C.name],["team",C.team],["charity",C.charity],["tyre",C.tyre],["last",C.last_lap],["best",C.best_lap],["gap",C.gap]]){
       const c=H.querySelector("."+k); c.style.display=on?"":"none"; if(["name","team","charity"].includes(k)) c.classList.toggle("wide", wide==="all"||wide===k); }
     H.querySelector(".gap").textContent = (C.interval||!d.is_race) ? (d.is_race?"Int":"Gap") : "Gap";
-    const extra = camRowOpen ? (S.camera_row_extra_px||300) : (wide ? (S.expand_extra_px||170) : 0);
+    // the room added is exactly what the open columns need, so nothing is ever pushed off the edge
+    const wideW = wide==="all" ? wideAll : wideOne; root.setProperty("--wide", wideW+"px");
+    const baseW = {name:56, team:46, charity:46}; let opened=0;
+    for(const k of ["name","team","charity"]){ if(C[k]!==false && (wide==="all"||wide===k)) opened += wideW-baseW[k]; }
+    const extra = camRowOpen ? (S.camera_row_extra_px||300) : opened;
     tower.style.width=(S.width+colsExtra+extra)+"px";
     const shown=d.rows.slice(0,S.max_rows||22); const seen=new Set();
     rowsEl.style.height=(shown.length*rowH)+"px";
@@ -909,7 +914,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <div class="how"><b>In OBS:</b> Sources → + → <b>Browser</b> → paste the URL, set the width and height below, tick <i>Shutdown source when not visible</i> off. Position and scale on the canvas as you like.<br>
 <b>In F1 25</b> (spectator): Settings → On-Screen Display → turn the <b>timing tower</b> off, so ours is the only one.</div>
 <table><tr><th>Surface</th><th>URL</th><th>Width × Height</th><th>Where</th></tr>
-<tr><td>Timing tower</td><td><code>http://localhost:%(port)d/tower</code></td><td>720 × 900</td><td>left edge; the tower draws 412 wide and opens to 712 when a column or the camera row expands</td></tr>
+<tr><td>Timing tower</td><td><code>http://localhost:%(port)d/tower</code></td><td>780 × 900</td><td>left edge; the tower draws 412 wide, 554 with one column open, 712 with the camera row, 742 after the flag with all three open</td></tr>
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
