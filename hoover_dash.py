@@ -955,6 +955,15 @@ def make_handler(app):
                                         "doc": doc, "collisions": coll, "game_teams": game_teams})
             if u.path == "/api/overlay":
                 settings = _read_json(app.overlay_settings_path(), None)
+                if settings is None:
+                    # V9.6: the working file is the PC's own; make it from the repo's default
+                    dflt = app.overlay_settings_path()[:-5] + ".default.json"
+                    if os.path.isfile(dflt):
+                        try:
+                            shutil.copyfile(dflt, app.overlay_settings_path())
+                            settings = _read_json(app.overlay_settings_path(), None)
+                        except Exception:
+                            settings = None
                 port = app.overlay_port()
                 state = None
                 try:
