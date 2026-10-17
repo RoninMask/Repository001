@@ -137,6 +137,26 @@
         "name": "Kim Newmyer, Christ is King",
         "spoken": "Kim Newmyer, Christ is King",
         "tagline": ""
+      },
+      {
+        "file": "10_symphony_boat_company.jpg",
+        "name": "Symphony Boat Company",
+        "spoken": "Symphony Boat Company"
+      },
+      {
+        "file": "11_rayce_engineering.jpg",
+        "name": "Rayce Engineering",
+        "spoken": "Race Engineering"
+      },
+      {
+        "file": "12_ingenuity_props.jpg",
+        "name": "Ingenuity Props",
+        "spoken": "Ingenuity Props"
+      },
+      {
+        "file": "13_louteq.jpg",
+        "name": "LoüTeq",
+        "spoken": "Lou Tech"
       }
     ],
     "full_bleed": true
