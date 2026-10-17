@@ -609,13 +609,23 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   .camico{width:16px;height:12px;flex:none;margin-right:6px;display:none}
   .row.cam .camico{display:block}
   .row.out .name,.row.out .num,.row.out .team,.row.out .charity{opacity:.45}
-  #tower.compact .team,#tower.compact .charity{width:0;opacity:0;margin:0}
+  /* V9.6: the permanent column labels under the session bar */
+  #cols{height:18px;display:flex;align-items:center;background:rgba(16,19,26,.96);border-bottom:1px solid rgba(255,255,255,.08);
+        font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+  #cols .pos{font-size:9px;background:none;height:auto}
+  #cols .bar{visibility:hidden;height:1px}
+  #cols .cell,#cols .num{font-size:9px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.14em}
+  #cols .tyre{border:none;border-radius:0;height:auto;line-height:1;font-size:9px;color:rgba(255,255,255,.5);width:27px;margin-right:0;text-align:center}
+  #cols .lapt{color:rgba(255,255,255,.5)}
+  #tower.compact #cols{height:16px}
   .row.camopen .num,.row.camopen .tyre,.row.camopen .gained,.row.camopen .tag{display:none!important}
   .row.camopen .cell{width:auto!important;flex:none;padding-right:12px;overflow:visible}
   .row.camopen .team::before,.row.camopen .charity::before{content:"\00b7";margin-right:12px;opacity:.5}
 </style></head><body>
 <div id="tower"><div id="head"><div><div id="session">Waiting</div><div id="sub">for Hoover</div></div><div id="lap"></div></div>
-<div id="sc">Safety car</div><div id="rows"></div></div>
+<div id="sc">Safety car</div>
+<div id="cols"><div class="pos">P</div><div class="bar"></div><div class="cell name">Name</div><div class="cell team">Team</div><div class="cell charity">Charity</div><div class="spacer"></div><div class="tyre">Tyre</div><div class="num lapt last">Last</div><div class="num lapt best">Best</div><div class="num gap">Gap</div></div>
+<div id="rows"></div></div>
 <script>
 (function(){
   const tower=document.getElementById("tower"), rowsEl=document.getElementById("rows");
@@ -658,7 +668,13 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     // the tower widens while anything is open, so nothing is pushed off the edge
     // width is the base without the team and charity columns; each adds its own room
     const compact = state==="compact";
-    const colsExtra = (compact?0:((C.team?46:0) + (C.charity?46:0))) + (C.last_lap?70:0) + (C.best_lap?70:0) + (C.gained?34:0);
+    const colsExtra = (C.team?46:0) + (C.charity?46:0) + (C.last_lap?70:0) + (C.best_lap?70:0) + (C.gained?34:0);
+    // the label row follows the columns and their expansion
+    const H=document.getElementById("cols");
+    H.querySelector(".pos").style.display=C.position?"":"none";
+    for(const [k,on] of [["name",C.name],["team",C.team],["charity",C.charity],["tyre",C.tyre],["last",C.last_lap],["best",C.best_lap],["gap",C.gap]]){
+      const c=H.querySelector("."+k); c.style.display=on?"":"none"; if(["name","team","charity"].includes(k)) c.classList.toggle("wide", wide==="all"||wide===k); }
+    H.querySelector(".gap").textContent = (C.interval||!d.is_race) ? (d.is_race?"Int":"Gap") : "Gap";
     const extra = camRowOpen ? (S.camera_row_extra_px||300) : (wide ? (S.expand_extra_px||170) : 0);
     tower.style.width=(S.width+colsExtra+extra)+"px";
     const shown=d.rows.slice(0,S.max_rows||22); const seen=new Set();
