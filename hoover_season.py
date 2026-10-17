@@ -270,8 +270,11 @@ class Season(object):
             tid = self._by_game_team.get(game_team)
             if tid:
                 return self.teams.get(tid)
-            return self.team_of_person(person_id) if is_human else None
-        if is_human:
+            if is_human:
+                return self.team_of_person(person_id)
+            # an AI car with no mapped game team (F1 World lobby replayed under
+            # Standard): no car is ever unassigned, so it takes the deal below
+        elif is_human:
             return self.team_of_person(person_id)
         key = _norm(game_name)
         tid_seat = self._deal.get(key)
@@ -289,6 +292,10 @@ class Season(object):
             return int(v.split("/")[1])
         except Exception:
             return None
+
+    def unmapped_ai(self, cars):
+        """Standard: AI (game_team, name) pairs whose game team maps to no league team."""
+        return [nm for gt, nm in cars if nm and not self._by_game_team.get(gt)]
 
     def open_seats(self):
         """F1 World: seats not held by a human and not yet dealt."""

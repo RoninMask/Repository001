@@ -17002,14 +17002,22 @@ class SeasonBridge:
             self._keys[c.idx] = key
             if c.ai == 1 and c.name:
                 ai_names.append(c.name)
-        # F1 World: deal the open seats to the AI cars once per session
-        if (self.season is not None and self.season.grid_mode == "f1world" and ai_names
+        # F1 World: deal the open seats to the AI cars once per session.
+        # Standard: only the AI cars whose game team maps to no league team
+        # (an F1 World lobby under Standard settings) -- no car stays unassigned.
+        if (self.season is not None and ai_names
                 and self._dealt_session != getattr(world, "session_link", None)):
             try:
-                n = self.season.deal([c.name for c in world.cars if c.seen and c.ai == 1 and c.name])
+                ai_cars = [c for c in world.cars if c.seen and c.ai == 1 and c.name]
+                if self.season.grid_mode == "f1world":
+                    names = [c.name for c in ai_cars]
+                else:
+                    names = self.season.unmapped_ai([(c.team, c.name) for c in ai_cars])
+                n = self.season.deal(names) if names else 0
                 self._dealt_session = getattr(world, "session_link", None)
                 if n:
-                    self.log("[season] dealt %d AI driver(s) to open seats" % n)
+                    self.log("[season] dealt %d AI driver(s) to open seats%s" % (
+                        n, "" if self.season.grid_mode == "f1world" else " (no game team mapped -- F1 World lobby?)"))
                     self._keys.clear()      # re-resolve with the new deal
             except Exception as e:
                 self.log("[season] deal failed: %s" % type(e).__name__)

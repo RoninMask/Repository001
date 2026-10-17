@@ -620,7 +620,7 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
 (function(){
   const tower=document.getElementById("tower"), rowsEl=document.getElementById("rows");
   const root=document.documentElement.style; const els={}; let lastFastest=null;
-  let expandCol=null, expandUntil=0, camRowIdx=null, camRowUntil=0, lastCam=null;
+  let expandCol=null, expandUntil=0, camRowIdx=null, camRowUntil=0, lastCam=null, lastTL=-1, lastTLat=0;
   const CAM='<svg class="camico" viewBox="0 0 16 12"><path fill="#fff" d="M1 2h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm11 3 4-2v6l-4-2z"/></svg>';
   const CLOCK='<div class="fl"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#fff" stroke-width="1.2"/><path d="M5 2.5V5l1.8 1.2" stroke="#fff" stroke-width="1.2" fill="none"/></svg></div>';
   function fmtTime(s){s=Math.max(0,s|0);return Math.floor(s/60)+":"+String(s%%60).padStart(2,"0");}
@@ -636,7 +636,12 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     document.getElementById("sub").textContent=d.track||"";
     const lap=document.getElementById("lap");
     if(d.is_race) lap.innerHTML=(d.lap?Math.min(d.lap,d.total_laps||d.lap):"-")+(d.total_laps?" / "+d.total_laps:"")+"<small>LAP</small>";
-    else lap.innerHTML=fmtTime(d.time_left)+"<small>LEFT</small>";
+    else {
+      // the game's own session clock; when it stops moving (a session the game
+      // does not time, or a paused lobby) the frozen number comes off the tower
+      const tl=d.time_left||0; if(tl!==lastTL){ lastTL=tl; lastTLat=Date.now(); }
+      lap.innerHTML = (tl>0 && Date.now()-lastTLat<15000) ? fmtTime(tl)+"<small>LEFT</small>" : "";
+    }
     const sc=document.getElementById("sc"); const scs=d.moments.safety_car||0;
     sc.textContent=scs===2?"Virtual safety car":(scs===3?"Formation lap":"Safety car"); sc.classList.toggle("on",scs===1||scs===2);
     // expansion schedule
