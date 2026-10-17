@@ -21,6 +21,4 @@ patch_devices.py
 __pycache__/
 *.pyc
 
-# overlay: sponsor images stay on the machine
-sponsors/*
-!sponsors/READ_ME.txt
+# overlay: paid-sponsor cards travel with the repo (keep them under ~400 KB each)

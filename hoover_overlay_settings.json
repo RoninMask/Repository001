@@ -83,7 +83,63 @@
     "order": "sorted",
     "label": "This broadcast brought to you by",
     "folder": "sponsors",
-    "list": []
+    "list": [
+      {
+        "file": "01_laura_canedy_realty.jpg",
+        "name": "Laura Canedy, Modern Abode Realty",
+        "spoken": "Laura Kannedy, Modern Abode Realty",
+        "tagline": ""
+      },
+      {
+        "file": "02_access_real_estate.jpg",
+        "name": "Access Real Estate",
+        "spoken": "Access Real Estate",
+        "tagline": ""
+      },
+      {
+        "file": "03_brian_head_cabin.jpg",
+        "name": "Brian Head Utah Cabin",
+        "spoken": "Brian Head Utah Cabin",
+        "tagline": ""
+      },
+      {
+        "file": "04_quenc.jpg",
+        "name": "Quenc",
+        "spoken": "Kwenk",
+        "tagline": ""
+      },
+      {
+        "file": "05_fourth_sentry_press.jpg",
+        "name": "Fourth Sentry Press",
+        "spoken": "Fourth Sentry Press",
+        "tagline": ""
+      },
+      {
+        "file": "06_flying_your_business_plan.jpg",
+        "name": "Flying Your Business Plan",
+        "spoken": "Flying Your Business Plan",
+        "tagline": ""
+      },
+      {
+        "file": "07_symphony_boat_company.jpg",
+        "name": "Symphony Boat Company",
+        "spoken": "Symphony Boat Company",
+        "tagline": ""
+      },
+      {
+        "file": "08_v1_broadcasting.jpg",
+        "name": "V1 Broadcasting",
+        "spoken": "V one Broadcasting",
+        "tagline": ""
+      },
+      {
+        "file": "09_kim_newmyer_christ_is_king.jpg",
+        "name": "Kim Newmyer, Christ is King",
+        "spoken": "Kim Newmyer, Christ is King",
+        "tagline": ""
+      }
+    ],
+    "full_bleed": true
   },
   "feature": {
     "hold_s": 8,

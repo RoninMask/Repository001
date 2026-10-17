@@ -95,6 +95,7 @@ DEFAULT_SETTINGS = {
     "sponsor": {
         "width": 480, "height": 300, "every_s": 15, "fade_ms": 900, "order": "sorted",
         "label": "This broadcast brought to you by",
+        "full_bleed": True,              # finished 16:9 ad cards fill the stage; False pads a logo on white
         "folder": "sponsors",
         "list": []                       # [{"file": "01_acme.png", "name": "Acme", "spoken": "Acme", "tagline": ""}]
     },
@@ -744,8 +745,11 @@ SPONSOR_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
   #label{position:absolute;left:26px;top:16px;right:18px;font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;line-height:1.2;
          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #label::after{content:"";display:block;width:44px;height:3px;margin-top:9px;background:var(--red)}
-  #stage{position:absolute;left:26px;right:18px;top:64px;bottom:18px;background:#fff;border-radius:6px}
+  #stage{position:absolute;left:26px;right:18px;top:64px;bottom:18px;background:#fff;border-radius:6px;overflow:hidden}
   #stage img{position:absolute;inset:0;width:100%%;height:100%%;object-fit:contain;padding:14px;box-sizing:border-box;opacity:0;transition:opacity var(--fade) ease}
+  /* full-bleed: finished ad cards fill the stage edge to edge, no white pad */
+  #card.bleed #stage{background:#0b0e14}
+  #card.bleed #stage img{padding:0;object-fit:cover}
   #stage img.show{opacity:1}
 </style></head><body>
 <div id="card"><div id="label">This broadcast brought to you by</div><div id="stage"><img id="a" alt=""><img id="b" alt=""></div></div>
@@ -761,6 +765,7 @@ SPONSOR_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
     S=d.settings.sponsor; const root=document.documentElement.style;
     root.setProperty("--w",S.width+"px"); root.setProperty("--h",S.height+"px"); root.setProperty("--fade",(S.fade_ms||900)+"ms");
     document.getElementById("label").textContent=S.label||"";
+    card.classList.toggle("bleed", S.full_bleed!==false);
     const files=d.sponsors.map(s=>s.file);
     if(!d.settings.surfaces.sponsor||!files.length){card.classList.remove("on");cur=null;return;}
     if(JSON.stringify(files)!==JSON.stringify(list)){ list=files; shuffled=null; if(idx>=list.length) idx=-1; }
@@ -782,6 +787,7 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
         opacity:0;transition:opacity var(--fade) ease;pointer-events:none}
   #full.on{opacity:1}
   #full img{max-width:70vw;max-height:60vh;object-fit:contain;background:#fff;padding:3vh 3vw;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  #full.bleed img{padding:0;background:transparent}
   #cap{margin-top:3vh;font-weight:600;font-size:2.2vh;letter-spacing:.16em;text-transform:uppercase;opacity:.85}
   #cap b{display:block;font-size:4vh;letter-spacing:.04em;text-transform:none;margin-top:1vh;color:#fff}
   #cap::before{content:"";display:block;width:60px;height:4px;background:var(--red);margin:0 auto 2vh}
@@ -792,7 +798,7 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
   const full=document.getElementById("full"), img=document.getElementById("img"), nm=document.getElementById("nm"); let seq=null;
   function render(d){
     document.documentElement.style.setProperty("--fade",(d.settings.feature.fade_ms||800)+"ms");
-    const c=d.commands&&d.commands.feature; const on=d.settings.surfaces.feature&&c;
+    const c=d.commands&&d.commands.feature; const on=d.settings.surfaces.feature&&c; full.classList.toggle("bleed", d.settings.sponsor.full_bleed!==false);
     if(!on){full.classList.remove("on");return;}
     if(c.seq!==seq){ seq=c.seq; const s=d.sponsors.find(x=>x.file===c.file)||d.sponsors[0]; if(s){ img.src="/sponsors/"+encodeURIComponent(s.file); nm.textContent=s.name||""; } }
     full.classList.add("on");
