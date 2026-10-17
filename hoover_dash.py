@@ -861,9 +861,16 @@ class App:
     def season_files(self):
         d = self.tool_dir()
         try:
-            return sorted(n for n in os.listdir(d) if n.startswith("hoover_season_") and n.endswith(".json"))
+            if d not in sys.path:
+                sys.path.insert(0, d)
+            import hoover_season as hs
+            return hs.ensure_working_copies(d)
         except Exception:
-            return []
+            try:
+                return sorted(n for n in os.listdir(d) if n.startswith("hoover_season_") and n.endswith(".json")
+                              and not n.endswith(".default.json"))
+            except Exception:
+                return []
 
     def season_path(self, name=None):
         files = self.season_files()

@@ -477,13 +477,34 @@ class Season(object):
 # finding the file
 # ---------------------------------------------------------------------------
 
+def ensure_working_copies(folder):
+    """V9.6: files the dashboard edits are not tracked by git (a pull must never
+    be blocked by a saved setting). The repo ships hoover_season_*.default.json;
+    the working hoover_season_*.json is created from it once, then owned by the
+    PC. Returns the working season file names."""
+    import shutil
+    try:
+        names = os.listdir(folder)
+    except Exception:
+        return []
+    for n in names:
+        if n.startswith("hoover_season_") and n.endswith(".default.json"):
+            work = n[:-len(".default.json")] + ".json"
+            if work not in names:
+                try:
+                    shutil.copyfile(os.path.join(folder, n), os.path.join(folder, work))
+                    names.append(work)
+                except Exception:
+                    pass
+    return sorted(n for n in names if n.startswith("hoover_season_") and n.endswith(".json")
+                  and not n.endswith(".default.json"))
+
+
 def find_season_file(folder, league_id=None):
     """The season file beside the tools. With a league id, that league's file;
     otherwise the only hoover_season_*.json present, else None."""
-    try:
-        names = sorted(n for n in os.listdir(folder)
-                       if n.startswith("hoover_season_") and n.endswith(".json"))
-    except Exception:
+    names = ensure_working_copies(folder)
+    if not names:
         return None
     if league_id:
         for n in names:

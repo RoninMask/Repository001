@@ -142,25 +142,67 @@ def _ms(ms):
 # ============================================================================
 
 class Settings(object):
+    """V9.6: two files. hoover_overlay_settings.default.json travels with the
+    repo (the sponsor list above all) and is never edited on a PC;
+    hoover_overlay_settings.json is the PC's own, written by the dashboard and
+    ignored by git, so a saved setting can never block an update. The local
+    file sits over the default; the sponsor list is the union of both by file
+    name, the local name and spoken spelling winning where set."""
     def __init__(self, path):
         self.path = path
+        self.default_path = path[:-5] + ".default.json" if path.endswith(".json") else path + ".default"
         self.doc = json.loads(json.dumps(DEFAULT_SETTINGS))
         self.mtime = None
+        self.dmtime = None
         self.lock = threading.Lock()
         if not os.path.isfile(path):
+            self.doc = self._base()
             self.save()
         self.reload()
+
+    def _base(self):
+        base = DEFAULT_SETTINGS
+        try:
+            if os.path.isfile(self.default_path):
+                with open(self.default_path, "r", encoding="utf-8") as f:
+                    base = _deep_merge(DEFAULT_SETTINGS, json.load(f))
+        except Exception as e:
+            sys.stdout.write("settings: default file: %s\n" % e)
+        return json.loads(json.dumps(base))
+
+    @staticmethod
+    def _merge_sponsors(default_list, local_list):
+        by_file = {}
+        order = []
+        for item in (default_list or []) + (local_list or []):
+            fn = (item or {}).get("file")
+            if not fn:
+                continue
+            if fn not in by_file:
+                by_file[fn] = dict(item)
+                order.append(fn)
+            else:
+                cur = by_file[fn]
+                for k, v in item.items():
+                    if v not in (None, ""):
+                        cur[k] = v
+        return [by_file[f] for f in order]
 
     def reload(self):
         try:
             m = os.path.getmtime(self.path)
-            if m == self.mtime:
+            dm = os.path.getmtime(self.default_path) if os.path.isfile(self.default_path) else None
+            if m == self.mtime and dm == self.dmtime:
                 return False
             with open(self.path, "r", encoding="utf-8") as f:
                 doc = json.load(f)
+            base = self._base()
+            merged = _deep_merge(base, doc)
+            merged.setdefault("sponsor", {})["list"] = self._merge_sponsors(
+                (base.get("sponsor") or {}).get("list"), (doc.get("sponsor") or {}).get("list"))
             with self.lock:
-                self.doc = _deep_merge(DEFAULT_SETTINGS, doc)
-                self.mtime = m
+                self.doc = merged
+                self.mtime, self.dmtime = m, dm
             return True
         except Exception as e:
             sys.stdout.write("settings: %s\n" % e)

@@ -22,3 +22,10 @@ __pycache__/
 *.pyc
 
 # overlay: paid-sponsor cards travel with the repo (keep them under ~400 KB each)
+
+# V9.6: files the dashboard edits belong to the PC. The repo ships *.default.json
+# templates; the working copies are created from them and never pulled over.
+hoover_overlay_settings.json
+hoover_season_*.json
+!hoover_season_*.default.json
+hoover_overlay_settings.json.tmp
