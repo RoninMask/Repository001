@@ -367,6 +367,7 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
       <div class="field"><label>Slot 3 · <input type="text" data-ov="ticker.slots.3.label" style="width:120px;display:inline-block"></label><textarea class="slot" data-ov="ticker.slots.3.text"></textarea></div>
       <div class="field"><label>Slot 4 · <input type="text" data-ov="ticker.slots.4.label" style="width:120px;display:inline-block"> — generated from the season file</label><div class="note mono" id="slot4preview" style="max-height:64px;overflow:auto"></div></div>
     </div>
+    <div class="row" style="margin-top:8px"><button class="btn go" id="btnovsave2">Save ticker text</button><span class="note">Typed text reaches the ticker only after Save; it is live within a second.</span></div>
     <div class="row" style="margin-top:8px"><span class="note">Show now:</span><button class="btn" data-tick="slot1">Givers</button><button class="btn" data-tick="slot2">Relief</button><button class="btn" data-tick="slot3">News</button><button class="btn" data-tick="slot4">Racing info</button><button class="btn" data-tick="cycle">Cycle</button><button class="btn" data-tick="off">Off</button></div>
   </div>
 
@@ -930,6 +931,7 @@ function readOverlay(){
   document.querySelectorAll("[data-col]").forEach(c => OVSET.tower.columns[c.dataset.col] = c.checked);
   OVSET.sponsor.list = [...document.querySelectorAll(".thumb")].map(t => ({file: t.dataset.file, name: t.querySelector('[data-sk="name"]').value.trim(), spoken: t.querySelector('[data-sk="spoken"]').value.trim() || null, tagline: ((OVSET.sponsor.list||[]).find(s => s.file === t.dataset.file)||{}).tagline || ""})).filter(s => s.name);
 }
+$("#btnovsave2").onclick = () => $("#btnovsave").onclick();
 $("#btnovsave").onclick = async () => { readOverlay(); const r = await api("/api/overlay/settings", {settings: OVSET}); toast(r.ok ? "Overlay settings saved; live within a second." : esc(r.msg)); setTimeout(loadOverlay, 600); };
 $("#btnovstart").onclick = async () => { const r = await api("/api/overlay/start", {}); toast(esc(r.msg)); setTimeout(loadOverlay, 1200); };
 $("#btnovtest").onclick = async () => { const r = await api("/api/overlay/start", {args: ["--source", "udp"]}); toast(esc(r.msg)); setTimeout(loadOverlay, 1200); };
