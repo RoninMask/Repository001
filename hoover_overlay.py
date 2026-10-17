@@ -4,7 +4,7 @@ hoover_overlay.py -- Project Hoover's OBS overlay layer.
 
 One small local web server. OBS reads each surface as a Browser Source:
 
-    http://localhost:8780/tower     timing tower (320 x 820)
+    http://localhost:8780/tower     timing tower (720 x 900: room for the columns to open)
     http://localhost:8780/ticker    bottom ticker (1920 x 44)
     http://localhost:8780/sponsor   paid-sponsor card (480 x 300)
     http://localhost:8780/feature   full-screen featured advertisement (1920 x 1080)
@@ -909,7 +909,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <div class="how"><b>In OBS:</b> Sources → + → <b>Browser</b> → paste the URL, set the width and height below, tick <i>Shutdown source when not visible</i> off. Position and scale on the canvas as you like.<br>
 <b>In F1 25</b> (spectator): Settings → On-Screen Display → turn the <b>timing tower</b> off, so ours is the only one.</div>
 <table><tr><th>Surface</th><th>URL</th><th>Width × Height</th><th>Where</th></tr>
-<tr><td>Timing tower</td><td><code>http://localhost:%(port)d/tower</code></td><td>320 × 820</td><td>left edge</td></tr>
+<tr><td>Timing tower</td><td><code>http://localhost:%(port)d/tower</code></td><td>720 × 900</td><td>left edge; the tower draws 412 wide and opens to 712 when a column or the camera row expands</td></tr>
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
