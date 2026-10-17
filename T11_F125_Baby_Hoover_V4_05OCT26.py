@@ -8856,8 +8856,9 @@ class V3Booth:
             nm = (pl.get("name") or "").strip()
             if nm and pl.get("telemetry_public") == 0 and nm not in self._lobby_restricted:
                 self._lobby_restricted.add(nm)
-                self.log("*** LOBBY: %s has telemetry set to Restricted -- no tyres, no damage, no "
-                         "setup for him all night. Ask him to set it to Public now. ***" % on_air(nm))
+                _log = getattr(self.model, "log", None) or (lambda m: print("[v3] " + m, flush=True))
+                _log("*** LOBBY: %s has telemetry set to Restricted -- no tyres, no damage, no "
+                     "setup for him all night. Ask him to set it to Public now. ***" % on_air(nm))
 
         def air(kind, ctx, view, pri=10.0, speaker="LEAD"):
             claim = Claim(kind, CLASS_FILLER, [], [], t,
