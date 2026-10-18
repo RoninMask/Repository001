@@ -29,3 +29,8 @@ hoover_overlay_settings.json
 hoover_season_*.json
 !hoover_season_*.default.json
 hoover_overlay_settings.json.tmp
+
+# V9.7: the night memory and the exported payout sheets are the PC's own
+hoover_night.json
+hoover_night.json.tmp
+results/
