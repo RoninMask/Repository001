@@ -1149,13 +1149,16 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   #frame{position:absolute;inset:0;transition:opacity .8s}
   #frame.off{opacity:0}
   svg#fr{position:absolute;inset:0;width:100vw;height:100vh}
-  #clocks{position:absolute;left:50%%;bottom:3.5vh;transform:translateX(-50%%);display:grid;
-          grid-template-columns:auto auto auto auto auto;column-gap:1.2vw;row-gap:1.3vh;align-items:center}
+  #clocks{position:absolute;left:50%%;top:50%%;transform:translate(-50%%,-50%%);display:grid;
+          grid-template-columns:auto auto auto;column-gap:1.4vw;row-gap:1.6vh;align-items:stretch}
+  .box{display:flex;align-items:center;justify-content:center;gap:.7vw;padding:1vh 1.1vw;border:2px solid rgba(255,42,26,.9);
+       border-radius:6px;box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 10px rgba(255,42,26,.55),inset 0 0 10px rgba(255,42,26,.25)}
+  .ttl{align-self:center}
   .r{display:contents}
   .r > *{transition:opacity .6s}
   .r.later > *{opacity:.78}
   .r.done > *{opacity:.55}
-  .dash{width:2.2vw;height:.45vh;background:var(--led);box-shadow:0 0 0 1px rgba(0,0,0,.85),0 0 8px rgba(255,42,26,.8)}
+
   .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.7vh;letter-spacing:.28em;color:var(--led);
        text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);text-align:right}
   .line{display:flex;align-items:flex-end;gap:.7vw}
@@ -1173,9 +1176,10 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     <pattern id="slatH" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="8" height="5" fill="#000"/></pattern>
     <pattern id="slatV" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="5" height="8" fill="#000"/></pattern>
   </defs>
-  <text transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="112"
-        textLength="1000" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMULA</text>
-  <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100" letter-spacing="14"
+  <!-- FORMUL reads bottom to top up the left edge; its A is AWESOME's first letter in the corner -->
+  <text transform="translate(103,1040) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="880" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMUL</text>
+  <text x="26" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100" letter-spacing="14"
         fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
   <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700"
         font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
@@ -1230,8 +1234,9 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
       const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"); const [tm,ap]=hm(t);
       const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now),H);
-      return `<div class="r ${cls}"><div class="ttl">${L[i]||""}</div><div>${segs(tm,H)}</div>`+
-             `<div class="ampm">${ap}<br>${C.tz||"CST"}</div><div class="dash"></div><div>${cd}</div></div>`;
+      return `<div class="r ${cls}"><div class="ttl">${L[i]||""}</div>`+
+             `<div class="box">${segs(tm,H)}<div class="ampm">${ap}<br>${C.tz||"CST"}</div></div>`+
+             `<div class="box">${cd}</div></div>`;
     }).join("");
   }
   async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); const d=await r.json();
