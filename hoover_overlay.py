@@ -1149,31 +1149,36 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   #frame{position:absolute;inset:0;transition:opacity .8s}
   #frame.off{opacity:0}
   svg#fr{position:absolute;inset:0;width:100vw;height:100vh}
-  #clocks{position:absolute;left:9vw;right:3vw;bottom:3.2vh;display:flex;justify-content:flex-end;gap:4.5vw;align-items:flex-end}
-  .col{display:flex;flex-direction:column;align-items:flex-start;transition:opacity .6s}
-  .col.later{opacity:.6}
-  .col.done{opacity:.45}
+  #clocks{position:absolute;left:50%%;bottom:3.5vh;transform:translateX(-50%%);display:grid;
+          grid-template-columns:auto auto auto auto auto;column-gap:1.2vw;row-gap:1.3vh;align-items:center}
+  .r{display:contents}
+  .r > *{transition:opacity .6s}
+  .r.later > *{opacity:.78}
+  .r.done > *{opacity:.55}
+  .dash{width:2.2vw;height:.45vh;background:var(--led);box-shadow:0 0 0 1px rgba(0,0,0,.85),0 0 8px rgba(255,42,26,.8)}
   .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.7vh;letter-spacing:.28em;color:var(--led);
-       text-shadow:0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);margin-bottom:.9vh}
+       text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);text-align:right}
   .line{display:flex;align-items:flex-end;gap:.7vw}
   .ampm{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.35vh;letter-spacing:.14em;color:var(--led);
-        text-shadow:0 0 6px rgba(255,42,26,.8);padding-bottom:.2vh;line-height:1.25}
-  .cd{margin-top:1vh}
-  .col svg{display:block;filter:drop-shadow(0 0 5px rgba(255,42,26,.9)) drop-shadow(0 0 14px rgba(255,42,26,.45))}
+        text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8);padding-bottom:.2vh;line-height:1.25}
+  .r svg{display:block;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.95)) drop-shadow(0 0 3px rgba(0,0,0,.8)) drop-shadow(0 0 6px rgba(255,42,26,.8)) drop-shadow(0 0 14px rgba(255,42,26,.4))}
   .sh{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:2.2vh;letter-spacing:.16em;color:var(--led);
       text-shadow:0 0 8px rgba(255,42,26,.9),0 0 20px rgba(255,42,26,.5)}
 </style></head><body>
 <div id="wrap">
 <div id="frame">
 <svg id="fr" viewBox="0 0 1920 1080" preserveAspectRatio="none">
-  <rect x="0" y="0" width="130" height="1080" fill="#050505"/>
-  <rect x="130" y="0" width="1790" height="120" fill="#050505"/>
-  <text transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="112"
-        textLength="1000" lengthAdjust="spacing" fill="#000" stroke="#1a1a1a" stroke-width="2">FORMULA</text>
-  <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="100" letter-spacing="14"
-        fill="#000" stroke="#1a1a1a" stroke-width="2">AWESOME</text>
+  <defs>
+    <!-- slatted lettering: black lines with open gaps, so the motion behind shows through the letters -->
+    <pattern id="slatH" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="8" height="5" fill="#000"/></pattern>
+    <pattern id="slatV" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="5" height="8" fill="#000"/></pattern>
+  </defs>
+  <text transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="112"
+        textLength="1000" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMULA</text>
+  <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100" letter-spacing="14"
+        fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
   <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700"
-        font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
+        font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
 </svg>
 </div>
 <div id="clocks"></div>
@@ -1221,13 +1226,12 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     const L=C.labels||["BROADCAST","QUALIFYING","RACE"];
     const ts=[start, new Date(+start+(C.quali_after_min||0)*60000), new Date(+start+(C.race_after_min||0)*60000)];
     let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
-    const H=Math.round(window.innerHeight*0.045);
+    const H=Math.round(window.innerHeight*0.05);
     document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
       const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"); const [tm,ap]=hm(t);
-      const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now), i===nextIdx?Math.round(H*1.35):H);
-      return `<div class="col ${cls}"><div class="ttl">${L[i]||""}</div>`+
-             `<div class="line">${segs(tm,Math.round(H*0.7))}<div class="ampm">${ap}<br>${C.tz||"CST"}</div></div>`+
-             `<div class="cd">${cd}</div></div>`;
+      const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now),H);
+      return `<div class="r ${cls}"><div class="ttl">${L[i]||""}</div><div>${segs(tm,H)}</div>`+
+             `<div class="ampm">${ap}<br>${C.tz||"CST"}</div><div class="dash"></div><div>${cd}</div></div>`;
     }).join("");
   }
   async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); const d=await r.json();
