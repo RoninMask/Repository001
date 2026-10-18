@@ -1179,8 +1179,9 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   <!-- FORMUL reads bottom to top up the left edge; its A is AWESOME's first letter in the corner -->
   <text transform="translate(103,1040) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
         textLength="880" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMUL</text>
-  <text x="26" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100" letter-spacing="14"
-        fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
+  <!-- AWESOME runs as far across as FORMULA runs up: corner (26) to 1040 -->
+  <text x="26" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="1014" lengthAdjust="spacing" fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
   <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700"
         font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
 </svg>
