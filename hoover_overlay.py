@@ -71,7 +71,7 @@ DEFAULT_SETTINGS = {
     "countdown": {"start": "21:00", "quali_after_min": 35, "race_after_min": 60, "tz": "CST",
                   "labels": ["BROADCAST", "QUALIFYING", "RACE"], "top_line": "A CHARITY RACE",
                   "sub_line": "Abu Dhabi · 21 October 2026 · Live on YouTube", "shortly": "STARTING SHORTLY",
-                  "hide_after_min": 3},
+                  "hide_after_min": 3, "frame": True, "accent": "#1DE9D6"},
     "tower": {
         "width": 320, "row_height": 34, "max_rows": 22,
         "name_mode": "code",            # code | short | full
@@ -1143,51 +1143,46 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
 
 COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover countdown</title>
 %(font)s<style>%(common)s
-  :root{--teal:#12A89A;--ink:#050608;--led:#ff2a1a}
+  :root{--led:#ff2a1a;--accent:#1DE9D6}
   #wrap{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}
   #wrap.on{opacity:1}
-  svg#frame{position:absolute;inset:0;width:100vw;height:100vh}
-  #panel{position:absolute;right:5.2vw;top:50%%;transform:translateY(-42%%);width:44vw;background:rgba(5,6,8,.9);
-         border:2px solid rgba(255,42,26,.55);border-radius:12px;box-shadow:0 0 40px rgba(255,42,26,.28), inset 0 0 30px rgba(255,42,26,.08);
-         padding:2.4vh 2vw 1.6vh}
-  #sub{font-size:1.6vh;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:1.6vh}
-  .row{display:flex;align-items:center;justify-content:space-between;padding:1.5vh 0;border-top:1px solid rgba(255,255,255,.08);
-       transition:opacity .6s}
-  .row.later{opacity:.55}
-  .row.done{opacity:.4}
-  .lt .l{font-size:1.8vh;font-weight:700;letter-spacing:.22em;color:#fff}
-  .lt .t{font-size:3.6vh;font-weight:600;color:#fff;margin-top:.4vh;font-variant-numeric:tabular-nums}
-  .lt .t small{font-size:1.6vh;font-weight:700;letter-spacing:.14em;color:rgba(255,255,255,.75);margin-left:.6vw}
-  .cd svg{display:block;filter:drop-shadow(0 0 6px rgba(255,42,26,.85)) drop-shadow(0 0 18px rgba(255,42,26,.45))}
-  .cd .sh{font-family:"Courier New",monospace;font-weight:700;font-size:3vh;letter-spacing:.12em;color:var(--led);
-          text-shadow:0 0 8px rgba(255,42,26,.9),0 0 22px rgba(255,42,26,.5)}
+  #frame{position:absolute;inset:0;transition:opacity .8s}
+  #frame.off{opacity:0}
+  svg#fr{position:absolute;inset:0;width:100vw;height:100vh}
+  #clocks{position:absolute;left:9vw;right:3vw;bottom:3.2vh;display:flex;justify-content:flex-end;gap:4.5vw;align-items:flex-end}
+  .col{display:flex;flex-direction:column;align-items:flex-start;transition:opacity .6s}
+  .col.later{opacity:.6}
+  .col.done{opacity:.45}
+  .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.7vh;letter-spacing:.28em;color:var(--led);
+       text-shadow:0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);margin-bottom:.9vh}
+  .line{display:flex;align-items:flex-end;gap:.7vw}
+  .ampm{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.35vh;letter-spacing:.14em;color:var(--led);
+        text-shadow:0 0 6px rgba(255,42,26,.8);padding-bottom:.2vh;line-height:1.25}
+  .cd{margin-top:1vh}
+  .col svg{display:block;filter:drop-shadow(0 0 5px rgba(255,42,26,.9)) drop-shadow(0 0 14px rgba(255,42,26,.45))}
+  .sh{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:2.2vh;letter-spacing:.16em;color:var(--led);
+      text-shadow:0 0 8px rgba(255,42,26,.9),0 0 20px rgba(255,42,26,.5)}
 </style></head><body>
 <div id="wrap">
-<svg id="frame" viewBox="0 0 1920 1080" preserveAspectRatio="none">
-  <defs>
-    <mask id="mL" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
-      <rect x="0" y="0" width="1920" height="1080" fill="#fff"/>
-      <text id="tF" x="0" y="0" transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif"
-            font-weight="700" font-size="112" textLength="1000" lengthAdjust="spacing" fill="#000">FORMULA</text>
-    </mask>
-    <mask id="mT" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
-      <rect x="0" y="0" width="1920" height="1080" fill="#fff"/>
-      <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="100"
-            letter-spacing="14" fill="#000">AWESOME</text>
-    </mask>
-  </defs>
-  <rect x="0" y="0" width="130" height="1080" fill="#050608" mask="url(#mL)"/>
-  <rect x="130" y="0" width="1790" height="120" fill="#12A89A" mask="url(#mT)"/>
-  <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="600"
-        font-size="40" letter-spacing="8" fill="#fff">A CHARITY RACE</text>
+<div id="frame">
+<svg id="fr" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+  <rect x="0" y="0" width="130" height="1080" fill="#050505"/>
+  <rect x="130" y="0" width="1790" height="120" fill="#050505"/>
+  <text transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="112"
+        textLength="1000" lengthAdjust="spacing" fill="#000" stroke="#1a1a1a" stroke-width="2">FORMULA</text>
+  <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="100" letter-spacing="14"
+        fill="#000" stroke="#1a1a1a" stroke-width="2">AWESOME</text>
+  <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700"
+        font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
 </svg>
-<div id="panel"><div id="sub"></div><div id="rows"></div></div>
+</div>
+<div id="clocks"></div>
 </div>
 <script>
 (function(){
   const SEG={"0":"abcdef","1":"bc","2":"abged","3":"abgcd","4":"fgbc","5":"afgcd","6":"afgedc","7":"abc","8":"abcdefg","9":"abcdfg"};
   function segs(text,h){
-    // seven-segment digits with pointed segment ends and faint ghost segments, like an old LED clock
+    // seven-segment digits with pointed ends and faint ghost segments, like an old alarm clock
     const W=h*0.58, T=h*0.11, G=h*0.018; let x=0, out="";
     const hz=(x0,y0,L)=>`${x0},${y0+T/2} ${x0+T/2},${y0} ${x0+L-T/2},${y0} ${x0+L},${y0+T/2} ${x0+L-T/2},${y0+T} ${x0+T/2},${y0+T}`;
     const vt=(x0,y0,L)=>`${x0+T/2},${y0} ${x0+T},${y0+T/2} ${x0+T},${y0+L-T/2} ${x0+T/2},${y0+L} ${x0},${y0+L-T/2} ${x0},${y0+T/2}`;
@@ -1195,7 +1190,7 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
       if(ch===":"){ const d=T*1.1;
         out+=`<rect x="${x+h*0.06}" y="${h*0.27}" width="${d}" height="${d}" fill="var(--led)"/><rect x="${x+h*0.06}" y="${h*0.64}" width="${d}" height="${d}" fill="var(--led)"/>`;
         x+=h*0.06+d+h*0.12; continue; }
-      const on=SEG[ch]||""; const f=id=>on.includes(id)?"var(--led)":"rgba(255,42,26,.08)";
+      const on=SEG[ch]||""; const f=id=>on.includes(id)?"var(--led)":"rgba(255,42,26,.09)";
       const L=W-T-2*G, V=(h-T)/2-2*G;
       const P=(id,pts)=>`<polygon points="${pts}" fill="${f(id)}"/>`;
       out+=P("a",hz(x+T/2+G,0,L))+P("g",hz(x+T/2+G,(h-T)/2,L))+P("d",hz(x+T/2+G,h-T,L))
@@ -1211,31 +1206,33 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     const d=new Date(); d.setHours(h,mi,0,0); return d;
   }
   const two=n=>String(n).padStart(2,"0");
-  function clock(d){ let h=d.getHours(), ap=h>=12?"PM":"AM"; h=h-(h>12?12:0); if(h===0) h=12; return h+":"+two(d.getMinutes())+" "+ap; }
+  function hm(d){ let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%%12||12; return [h+":"+two(d.getMinutes()), ap]; }
   function left(ms){ let s=Math.max(0,Math.floor(ms/1000)); const h=Math.floor(s/3600); s-=h*3600; const m=Math.floor(s/60); s-=m*60;
                      return h>0? h+":"+two(m)+":"+two(s) : two(m)+":"+two(s); }
   let C=null, on=false;
   function draw(){
-    const wrap=document.getElementById("wrap");
-    if(!C){ return; }
+    const wrap=document.getElementById("wrap"); if(!C) return;
     const start=parseStart(C.start); if(!start){ wrap.classList.remove("on"); return; }
     const now=new Date();
     if(!on || now-start > (C.hide_after_min||3)*60000){ wrap.classList.remove("on"); return; }
     wrap.classList.add("on");
-    document.getElementById("sub").textContent=C.sub_line||"";
-    document.getElementById("topline").textContent=C.top_line||"";
+    document.getElementById("frame").classList.toggle("off", C.frame===false);
+    const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", C.accent||"#1DE9D6");
     const L=C.labels||["BROADCAST","QUALIFYING","RACE"];
     const ts=[start, new Date(+start+(C.quali_after_min||0)*60000), new Date(+start+(C.race_after_min||0)*60000)];
     let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
-    document.getElementById("rows").innerHTML=ts.map((t,i)=>{
-      const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"), h=i===nextIdx?86:58;
-      const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now),h);
-      return `<div class="row ${cls}"><div class="lt"><div class="l">${L[i]||""}</div><div class="t">${clock(t)}<small>${C.tz||"CST"}</small></div></div><div class="cd">${cd}</div></div>`;
+    const H=Math.round(window.innerHeight*0.045);
+    document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
+      const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"); const [tm,ap]=hm(t);
+      const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now), i===nextIdx?Math.round(H*1.35):H);
+      return `<div class="col ${cls}"><div class="ttl">${L[i]||""}</div>`+
+             `<div class="line">${segs(tm,Math.round(H*0.7))}<div class="ampm">${ap}<br>${C.tz||"CST"}</div></div>`+
+             `<div class="cd">${cd}</div></div>`;
     }).join("");
   }
   async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); const d=await r.json();
     C=d.settings.countdown; on=!!d.settings.surfaces.countdown; }catch(e){} }
-  tick(); setInterval(tick,2000); setInterval(draw,250);
+  tick(); setInterval(tick,1500); setInterval(draw,250);
 })();
 </script></body></html>"""
 

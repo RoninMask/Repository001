@@ -395,14 +395,16 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
       <span class="note">Broadcast starts</span><input type="text" id="cdstart" data-ov="countdown.start" style="width:110px;font-size:15px;font-weight:600" placeholder="21:00">
       <button class="btn" data-slip="-5">−5 min</button><button class="btn" data-slip="5">+5 min</button>
       <span class="tag" id="cdb"></span><span class="tag" id="cdq"></span><span class="tag" id="cdr"></span>
-      <a href="#" id="cdmore" class="note" style="margin-left:auto">schedule…</a>
+      <span class="note" style="margin-left:auto">FORMULA AWESOME frame</span><label class="switch"><input type="checkbox" data-ov="countdown.frame"><i></i></label>
+      <a href="#" id="cdmore" class="note">schedule…</a>
     </div>
     <div class="fields" id="cdfields" style="display:none;margin-top:10px">
       <div class="field"><label>Qualifying (min after the start)</label><input type="text" data-ov="countdown.quali_after_min" style="width:60px"></div>
       <div class="field"><label>Race (min after the start)</label><input type="text" data-ov="countdown.race_after_min" style="width:60px"></div>
       <div class="field"><label>Time zone label</label><input type="text" data-ov="countdown.tz" style="width:60px"></div>
       <div class="field"><label>Fades out (min after the start)</label><input type="text" data-ov="countdown.hide_after_min" style="width:60px"></div>
-      <div class="field"><label>Top line (white, on the teal)</label><input type="text" data-ov="countdown.top_line"></div>
+      <div class="field"><label>Top line (teal)</label><input type="text" data-ov="countdown.top_line"></div>
+      <div class="field"><label>Teal colour</label><input type="text" data-ov="countdown.accent" style="width:90px"></div>
       <div class="field"><label>Line above the clocks</label><input type="text" data-ov="countdown.sub_line"></div>
     </div>
   </div>
