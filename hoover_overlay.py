@@ -111,7 +111,8 @@ DEFAULT_SETTINGS = {
         "pole": 10, "fastest_lap": 10,        # humans only
         "constructors": [50, 30, 20],         # top three teams, F1 points from both cars, AI counted
         "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
-        "fade_ms": 900, "auto_show": False, "auto_delay_s": 45,
+        "fade_ms": 900,
+        "auto_show": True, "auto_delay_s": 4, "auto_hold_s": 30,   # pops up with the game's after-race, 30 s, then fades
     },
     "radio": {"hold_s": 12, "label": "TEAM RADIO"}
 }
@@ -808,7 +809,7 @@ class Overlay(object):
             if (prizes.get("auto_show") and not self._auto_fired and cfg["surfaces"].get("results")
                     and now - self._podium_at >= float(prizes.get("auto_delay_s") or 0)):
                 self._auto_fired = True
-                self.control({"action": "results"})
+                self.control({"action": "results", "hold_s": prizes.get("auto_hold_s") or 30, "auto": True})
         else:
             self._podium_at = None
             if not snap.get("is_race"):
