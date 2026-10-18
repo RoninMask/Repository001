@@ -390,6 +390,29 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
   </div>
 
   <div class="card">
+    <div class="surf"><h3>Final results (full screen) — the charity payout sheet</h3><div class="row"><span class="obs" id="obs_results"></span><label class="switch"><input type="checkbox" data-surface="results"><i></i></label></div></div>
+    <div class="fields">
+      <div class="field"><label>Title</label><input type="text" data-ov="prizes.title"></div>
+      <div class="field"><label>Subtitle</label><input type="text" data-ov="prizes.subtitle"></div>
+      <div class="field"><label>Donor line (bottom left)</label><input type="text" data-ov="prizes.donor"></div>
+      <div class="field"><label>Headline (bottom right)</label><input type="text" data-ov="prizes.headline"></div>
+      <div class="field"><label>Top 3 humans ($ · by finishing order among the humans)</label><div class="row"><input type="text" data-ov="prizes.driver_top3.0" style="width:60px"><input type="text" data-ov="prizes.driver_top3.1" style="width:60px"><input type="text" data-ov="prizes.driver_top3.2" style="width:60px"></div></div>
+      <div class="field"><label>Every other human ($)</label><input type="text" data-ov="prizes.driver_other" style="width:60px"></div>
+      <div class="field"><label>Podium bounty ($ · overall P1 / P2 / P3, humans only)</label><div class="row"><input type="text" data-ov="prizes.podium_bounty.0" style="width:60px"><input type="text" data-ov="prizes.podium_bounty.1" style="width:60px"><input type="text" data-ov="prizes.podium_bounty.2" style="width:60px"></div></div>
+      <div class="field"><label>Pole ($ · human only)</label><input type="text" data-ov="prizes.pole" style="width:60px"></div>
+      <div class="field"><label>Fastest lap ($ · human only)</label><input type="text" data-ov="prizes.fastest_lap" style="width:60px"></div>
+      <div class="field"><label>Constructors' Cup ($ · top 3 teams, both cars' points)</label><div class="row"><input type="text" data-ov="prizes.constructors.0" style="width:60px"><input type="text" data-ov="prizes.constructors.1" style="width:60px"><input type="text" data-ov="prizes.constructors.2" style="width:60px"></div></div>
+      <div class="field"><label>Fade (ms)</label><input type="text" data-ov="prizes.fade_ms" style="width:70px"></div>
+      <div class="field"><label>Show by itself after the podium</label><div class="row"><label class="switch"><input type="checkbox" data-ov="prizes.auto_show"><i></i></label><span class="note">after</span><input type="text" data-ov="prizes.auto_delay_s" style="width:50px"><span class="note">s (off = you press Show)</span></div></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn accent" id="btnresults">Show results</button><button class="btn" id="btnresultshide">Hide</button>
+      <span class="note">Pole:</span><select id="ovpole"></select><span class="note">Fastest lap:</span><select id="ovfl"></select>
+      <span class="note" id="resnote"></span></div>
+    <div class="note" style="margin-top:6px">Pole is remembered from qualifying and fastest lap comes from the race; pick a driver here only to correct them. Pressing Show also writes <span class="mono">results/results_&lt;date&gt;.json</span> and <span class="mono">.csv</span> beside the tool.</div>
+    <div id="respreview" class="note mono" style="margin-top:8px;white-space:pre;max-height:220px;overflow:auto"></div>
+  </div>
+
+  <div class="card">
     <div class="surf"><h3>Team radio indicator</h3><div class="row"><span class="obs" id="obs_radio"></span><label class="switch"><input type="checkbox" data-surface="radio"><i></i></label></div></div>
     <div class="row"><select id="radiodriver"></select><input type="text" id="radiotext" placeholder="one line of text (optional)" style="width:280px;background:#0f1318;border:1px solid var(--line);border-radius:6px;padding:4px 6px"><button class="btn" id="btnradio" disabled title="No audio source yet: the surface is built, the clips come later">Fire team radio (no audio source yet)</button></div>
   </div>
@@ -522,9 +545,10 @@ function buildForm(){
   const quick = QUICK.map(f => opts.find(o => o.flag === f)).filter(Boolean);
   $("#quick").innerHTML = quick.map(o => fieldHTML(o, true)).join("") || `<div class="note">This Hoover has none of the usual options.</div>`;
   $("#allopts").innerHTML = opts.filter(o => !QUICK.includes(o.flag)).map(o => fieldHTML(o, false)).join("");
-  document.querySelectorAll(".field").forEach(div => {
+  document.querySelectorAll(".field[data-flag]").forEach(div => {
     const flag = div.dataset.flag, o = opt(flag);
     const el = div.querySelector("input,select");
+    if (!o || !el) return;
     const on = () => {
       if (o.kind === "bool") { if (el.checked) FORM[flag] = true; else delete FORM[flag]; }
       else { const v = el.value.trim(); if (v) FORM[flag] = v; else delete FORM[flag]; }
@@ -894,10 +918,10 @@ $("#btnredeal").onclick = async () => { if (!confirm("Clear the AI seat deal? Th
 
 // ---------- V1.1: overlays page
 let OV = null, OVSET = null;
-const OBS = {tower: ["/tower", "780 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
+const OBS = {tower: ["/tower", "780 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], results: ["/results", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
 const TOWERCOLS = [["position","Position"],["colour","Colour bar"],["name","Name"],["team","Team"],["charity","Charity"],["gap","Gap"],["interval","Interval (not gap to leader)"],["last_lap","Last lap"],["best_lap","Best lap"],["tyre","Tyre"],["tyre_age","Tyre age"],["pit_stops","Pit stops"],["pit_tag","PIT tag"],["penalties","Penalties"],["gained","Places gained/lost"],["camera","Camera marker"],["fastest","Fastest lap (purple)"]];
 function getPath(o, path){ return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
-function setPath(o, path, v){ const ks = path.split("."); let cur = o; ks.slice(0,-1).forEach(k => { cur[k] = cur[k] || {}; cur = cur[k]; }); cur[ks[ks.length-1]] = v; }
+function setPath(o, path, v){ const ks = path.split("."); let cur = o; ks.slice(0,-1).forEach((k, i) => { if (cur[k] == null || typeof cur[k] !== "object") cur[k] = /^\d+$/.test(ks[i+1]) ? [] : {}; cur = cur[k]; }); cur[ks[ks.length-1]] = v; }
 async function loadOverlay(){
   OV = await api("/api/overlay"); OVSET = OV.settings;
   const st = OV.state;
@@ -951,7 +975,28 @@ document.querySelectorAll("[data-surface]").forEach(c => c.onchange = async () =
 const _showTab = showTab;
 showTab = function(id){ _showTab(id); if (id === "season") loadSeason(); if (id === "overlays") loadOverlay(); };
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
-setInterval(() => { if (document.querySelector("#overlays.on") || document.querySelector("#season.on")) api("/api/overlay").then(d => { OV = Object.assign(OV || {}, {state: d.state, running: d.running}); renderRaceday(d.state); if (document.querySelector("#overlays.on")) { $("#ovfeed").textContent = d.state ? (d.state.connected ? "feed: " + (d.state.session || "connected") + (d.state.live ? " · live" : "") : "feed: Hoover not publishing") : ""; } }); }, 3000);
+function renderResults(st){
+  const R = st && st.results; if (!R) { $("#respreview").textContent = "No feed yet."; return; }
+  const money = x => "$" + (Math.round(x * 100) / 100);
+  const lines = [];
+  lines.push("Total tonight " + money(R.total || 0) + " of a possible " + money(R.maximum || 0) + " · " + (R.humans || 0) + " human driver(s)");
+  (R.drivers || []).filter(d => d.prize).forEach(d => lines.push(("P" + d.pos).padEnd(4) + d.name.padEnd(18).slice(0, 18) + " " + money(d.prize).padStart(6) + "  " + d.items.map(i => i.label).join(" + ") + "  → " + d.charity));
+  (R.constructors || []).filter(t => t.prize).forEach(t => lines.push(("C" + t.rank).padEnd(4) + (t.team || "").padEnd(18).slice(0, 18) + " " + money(t.prize).padStart(6) + "  " + t.points + " pts  → " + t.charity));
+  const B = R.bonuses || {};
+  lines.push("Pole: " + ((B.pole || {}).name || "not recorded") + ((B.pole || {}).paid ? " (paid)" : " (unpaid)") + "   Fastest lap: " + ((B.fastest_lap || {}).name || "not set") + ((B.fastest_lap || {}).paid ? " (paid)" : " (unpaid)"));
+  $("#respreview").textContent = lines.join("\n");
+  const opts = (st.rows || []).map(r => `<option value="${esc(r.code)}">${esc(r.full || r.short || r.code)}${r.human ? "" : " (AI)"}</option>`).join("");
+  const ov = R.overrides || {};
+  for (const [id, key] of [["#ovpole", "pole"], ["#ovfl", "fastest_lap"]]) {
+    const sel = $(id); if (document.activeElement === sel) continue;
+    sel.innerHTML = `<option value="">auto</option>` + opts; sel.value = ov[key] || "";
+  }
+}
+$("#btnresults").onclick = async () => { const r = await api("/api/overlay/control", {action: "results"}); toast(r.ok ? "Results on screen" + (r.exported_to ? "; sheet written to " + esc(r.exported_to) : "") : esc(r.msg || r.error)); };
+$("#btnresultshide").onclick = async () => { await api("/api/overlay/control", {action: "results_hide"}); };
+$("#ovpole").onchange = async () => { await api("/api/overlay/control", {action: "override", pole: $("#ovpole").value}); };
+$("#ovfl").onchange = async () => { await api("/api/overlay/control", {action: "override", fastest_lap: $("#ovfl").value}); };
+setInterval(() => { if (document.querySelector("#overlays.on") || document.querySelector("#season.on")) api("/api/overlay").then(d => { OV = Object.assign(OV || {}, {state: d.state, running: d.running}); renderRaceday(d.state); if (document.querySelector("#overlays.on")) { $("#ovfeed").textContent = d.state ? (d.state.connected ? "feed: " + (d.state.session || "connected") + (d.state.live ? " · live" : "") : "feed: Hoover not publishing") : ""; renderResults(d.state); } }); }, 3000);
 
 // ---------- go
 (async () => {

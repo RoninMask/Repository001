@@ -8,6 +8,7 @@ One small local web server. OBS reads each surface as a Browser Source:
     http://localhost:8780/ticker    bottom ticker (1920 x 44)
     http://localhost:8780/sponsor   paid-sponsor card (480 x 300)
     http://localhost:8780/feature   full-screen featured advertisement (1920 x 1080)
+    http://localhost:8780/results   full-screen final results and charity payout (1920 x 1080)
     http://localhost:8780/radio     team-radio indicator (420 x 90)
     http://localhost:8780/          the setup page: every source's URL and size
 
@@ -63,7 +64,7 @@ DEFAULT_SETTINGS = {
     "_about": "Overlay settings. Edited by the dashboard's Overlays page; re-read live.",
     "web_port": 8780,
     "hoover_feed": "http://127.0.0.1:8781/snapshot",
-    "surfaces": {"tower": True, "ticker": True, "sponsor": True, "feature": False, "radio": False},
+    "surfaces": {"tower": True, "ticker": True, "sponsor": True, "feature": False, "radio": False, "results": True},
     "tower": {
         "width": 320, "row_height": 34, "max_rows": 22,
         "name_mode": "code",            # code | short | full
@@ -100,6 +101,18 @@ DEFAULT_SETTINGS = {
         "list": []                       # [{"file": "01_acme.png", "name": "Acme", "spoken": "Acme", "tagline": ""}]
     },
     "feature": {"hold_s": 8, "fade_ms": 800, "schedule_min": 0},
+    # V9.7: the final results screen -- the charity payout sheet (17 OCT 26, donor-approved $500 night)
+    "prizes": {
+        "title": "FINAL RESULTS", "subtitle": "Formula Awesome Charity Race",
+        "donor": "Prizes funded by the Canedy Family Trust", "headline": "UP TO $500 FOR CHARITY",
+        "driver_top3": [60, 40, 25],          # top three humans by finishing order among the humans
+        "driver_other": 20,                   # every other human
+        "podium_bounty": [100, 50, 25],       # overall P1/P2/P3 when a human takes the place
+        "pole": 10, "fastest_lap": 10,        # humans only
+        "constructors": [50, 30, 20],         # top three teams, F1 points from both cars, AI counted
+        "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
+        "fade_ms": 900, "auto_show": False, "auto_delay_s": 45,
+    },
     "radio": {"hold_s": 12, "label": "TEAM RADIO"}
 }
 
@@ -460,6 +473,139 @@ class UdpSource(object):
 
 
 # ============================================================================
+# THE PAYOUT SHEET (V9.7)
+# ============================================================================
+
+def _money(x):
+    try:
+        x = float(x)
+    except Exception:
+        return 0.0
+    return x
+
+
+def compute_payouts(rows, prizes, pole=None, fastest_override=None, pole_override=None):
+    """The charity payout from a classification. rows are the overlay's view
+    rows (pos, human, code, full, team, team_code, charity, charity_code, status,
+    fastest). pole is the remembered qualifying P1 row. Returns a document the
+    results page draws and the dashboard previews. Pure: no state."""
+    P = prizes or {}
+    pts_table = list(P.get("points") or [25, 18, 15, 12, 10, 8, 6, 4, 2, 1])
+    out_status = ("OUT", "DSQ", "NC")
+    classified = sorted([r for r in rows if r.get("pos")], key=lambda r: r["pos"])
+    unclassified = [r for r in rows if not r.get("pos")]
+    order = classified + unclassified
+
+    def ident(r):
+        return {"code": r.get("code") or "", "name": r.get("full") or r.get("short") or r.get("code") or "",
+                "team": r.get("team") or "", "team_code": r.get("team_code") or "",
+                "charity": r.get("charity") or "", "charity_code": r.get("charity_code") or "",
+                "human": bool(r.get("human")), "colour": r.get("colour") or "#8A8F98"}
+
+    drivers = []
+    for r in order:
+        d = ident(r)
+        d.update({"pos": r.get("pos") or 0, "status": r.get("status") or "", "items": [], "prize": 0})
+        pos = r.get("pos") or 0
+        d["points"] = pts_table[pos - 1] if (pos and pos <= len(pts_table) and d["status"] not in out_status) else 0
+        drivers.append(d)
+    by_code = {d["code"]: d for d in drivers}
+
+    def give(d, label, amount):
+        amount = _money(amount)
+        if amount <= 0:
+            return
+        d["items"].append({"label": label, "amount": amount})
+        d["prize"] += amount
+
+    # driver prizes: humans by finishing order among the humans
+    humans = [d for d in drivers if d["human"]]
+    top3 = list(P.get("driver_top3") or [])
+    for i, d in enumerate(humans):
+        if i < len(top3):
+            give(d, "%s driver" % ["1st", "2nd", "3rd"][i], top3[i])
+        else:
+            give(d, "Driver", P.get("driver_other", 0))
+    # podium bounty: overall P1-P3, only when a human stands there
+    bounty = list(P.get("podium_bounty") or [])
+    bounties = []
+    for i, amt in enumerate(bounty):
+        d = next((x for x in drivers if x["pos"] == i + 1), None)
+        paid = bool(d and d["human"])
+        if paid:
+            give(d, "P%d bounty" % (i + 1), amt)
+        bounties.append({"pos": i + 1, "amount": _money(amt), "paid": paid,
+                         "name": d["name"] if d else "", "human": bool(d and d["human"]),
+                         "charity": d["charity"] if d else ""})
+    # pole: the remembered qualifying P1 (or the dashboard's override)
+    pole_row = None
+    if pole_override:
+        pole_row = by_code.get(pole_override) or next((x for x in drivers if x["name"] == pole_override), None)
+    elif pole:
+        pole_row = by_code.get(pole.get("code")) or (dict(ident(pole), pos=0) if pole.get("code") else None)
+    pole_doc = {"amount": _money(P.get("pole", 0)), "name": pole_row["name"] if pole_row else "",
+                "human": bool(pole_row and pole_row["human"]), "paid": False,
+                "charity": pole_row["charity"] if pole_row else ""}
+    if pole_row and pole_row["human"] and pole_doc["amount"] > 0:
+        target = by_code.get(pole_row["code"])
+        if target is not None:
+            give(target, "Pole", pole_doc["amount"])
+            pole_doc["paid"] = True
+    # fastest lap: the race's fastest (or the override)
+    fl_row = None
+    if fastest_override:
+        fl_row = by_code.get(fastest_override) or next((x for x in drivers if x["name"] == fastest_override), None)
+    else:
+        src = next((r for r in rows if r.get("fastest")), None)
+        fl_row = by_code.get(src.get("code")) if src else None
+    fl_doc = {"amount": _money(P.get("fastest_lap", 0)), "name": fl_row["name"] if fl_row else "",
+              "human": bool(fl_row and fl_row["human"]), "paid": False,
+              "charity": fl_row["charity"] if fl_row else ""}
+    if fl_row and fl_row["human"] and fl_doc["amount"] > 0:
+        give(fl_row, "Fastest lap", fl_doc["amount"])
+        fl_doc["paid"] = True
+    # constructors' cup: both cars' points, AI counted the same as humans
+    teams = {}
+    for d in drivers:
+        key = d["team_code"] or d["team"]
+        if not key:
+            continue
+        t = teams.setdefault(key, {"team": d["team"], "team_code": d["team_code"], "charity": d["charity"],
+                                   "charity_code": d["charity_code"], "colour": d["colour"],
+                                   "points": 0, "best_pos": 99, "cars": [], "prize": 0, "rank": 0})
+        t["points"] += d["points"]
+        t["best_pos"] = min(t["best_pos"], d["pos"] or 99)
+        t["cars"].append({"code": d["code"], "name": d["name"], "pos": d["pos"], "points": d["points"],
+                          "human": d["human"]})
+    cons = sorted(teams.values(), key=lambda t: (-t["points"], t["best_pos"]))
+    cprize = list(P.get("constructors") or [])
+    for i, t in enumerate(cons):
+        t["rank"] = i + 1
+        if i < len(cprize):
+            t["prize"] = _money(cprize[i])
+    # by charity
+    charities = {}
+    for d in drivers:
+        if d["prize"]:
+            c = charities.setdefault(d["charity"] or "(no charity)", {"charity": d["charity"] or "(no charity)",
+                                                                       "code": d["charity_code"], "total": 0})
+            c["total"] += d["prize"]
+    for t in cons:
+        if t["prize"]:
+            c = charities.setdefault(t["charity"] or "(no charity)", {"charity": t["charity"] or "(no charity)",
+                                                                       "code": t["charity_code"], "total": 0})
+            c["total"] += t["prize"]
+    total = sum(d["prize"] for d in drivers) + sum(t["prize"] for t in cons)
+    maximum = (sum(_money(x) for x in top3) + _money(P.get("driver_other", 0)) * max(0, len(humans) - len(top3))
+               + sum(_money(x) for x in bounty) + _money(P.get("pole", 0)) + _money(P.get("fastest_lap", 0))
+               + sum(_money(x) for x in cprize))
+    return {"drivers": drivers, "constructors": cons,
+            "bonuses": {"pole": pole_doc, "fastest_lap": fl_doc, "bounty": bounties},
+            "charities": sorted(charities.values(), key=lambda c: -c["total"]),
+            "total": total, "maximum": maximum, "humans": len(humans)}
+
+
+# ============================================================================
 # THE OVERLAY STATE (what every page polls)
 # ============================================================================
 
@@ -468,9 +614,66 @@ class Overlay(object):
         self.settings = settings
         self.source = source
         self.sponsor_dir = sponsor_dir
-        self.commands = {"feature": None, "radio": None, "ticker_slot": None, "sponsor_hold": None}
+        self.commands = {"feature": None, "radio": None, "ticker_slot": None, "sponsor_hold": None,
+                         "results": None}
         self.cmd_seq = 0
         self.lock = threading.Lock()
+        # V9.7: what the night remembers across sessions -- pole from qualifying,
+        # the dashboard's overrides -- kept beside the settings file (the PC's own)
+        self.night_path = os.path.join(os.path.dirname(settings.path), "hoover_night.json")
+        self.night = {"pole": None, "overrides": {"pole": None, "fastest_lap": None}, "fired": None}
+        try:
+            with open(self.night_path, "r", encoding="utf-8") as f:
+                self.night.update(json.load(f))
+        except Exception:
+            pass
+        self._night_dirty = False
+        self._podium_at = None
+        self._auto_fired = False
+
+    def _save_night(self):
+        try:
+            tmp = self.night_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.night, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, self.night_path)
+        except Exception:
+            pass
+
+    def results_doc(self, rows=None, snap=None):
+        cfg = self.settings.get()
+        if rows is None:
+            rows = self.state().get("rows", [])
+        ov = self.night.get("overrides") or {}
+        doc = compute_payouts(rows, cfg.get("prizes") or {}, pole=self.night.get("pole"),
+                              fastest_override=ov.get("fastest_lap"), pole_override=ov.get("pole"))
+        doc["event"] = (snap or {}).get("event") or {}
+        doc["track"] = (snap or {}).get("track") or ""
+        return doc
+
+    def export_results(self, doc):
+        """Write the payout sheet beside the tool as JSON and CSV (for the league system)."""
+        try:
+            folder = os.path.join(os.path.dirname(self.settings.path), "results")
+            os.makedirs(folder, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            with open(os.path.join(folder, "results_%s.json" % stamp), "w", encoding="utf-8") as f:
+                json.dump(doc, f, indent=2, ensure_ascii=False)
+            with open(os.path.join(folder, "results_%s.csv" % stamp), "w", encoding="utf-8", newline="") as f:
+                f.write("pos,code,name,human,team,charity,points,prize,items\n")
+                for d in doc["drivers"]:
+                    f.write("%s,%s,\"%s\",%s,\"%s\",\"%s\",%s,%s,\"%s\"\n" % (
+                        d["pos"], d["code"], d["name"], int(d["human"]), d["team"], d["charity"],
+                        d["points"], d["prize"], "; ".join("%s $%g" % (i["label"], i["amount"]) for i in d["items"])))
+                f.write("\nrank,team,charity,points,prize\n")
+                for t in doc["constructors"]:
+                    f.write("%s,\"%s\",\"%s\",%s,%s\n" % (t["rank"], t["team"], t["charity"], t["points"], t["prize"]))
+                f.write("\ncharity,total\n")
+                for c in doc["charities"]:
+                    f.write("\"%s\",%s\n" % (c["charity"], c["total"]))
+            return folder
+        except Exception:
+            return None
 
     def sponsors(self):
         cfg = self.settings.get()["sponsor"]
@@ -507,10 +710,29 @@ class Overlay(object):
                 self.commands["sponsor_hold"] = {"seq": self.cmd_seq, "file": body.get("file"),
                                                  "name": body.get("name"),
                                                  "until": now + float(body.get("hold_s") or 15)}
+            elif action == "results":
+                hold = float(body.get("hold_s") or 0)
+                self.commands["results"] = {"seq": self.cmd_seq, "until": (now + hold) if hold > 0 else None}
+                self.night["fired"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                self._night_dirty = True
+            elif action == "results_hide":
+                self.commands["results"] = None
+            elif action == "override":
+                ov = self.night.setdefault("overrides", {})
+                for k in ("pole", "fastest_lap"):
+                    if k in body:
+                        ov[k] = body.get(k) or None
+                self._night_dirty = True
             elif action == "clear":
                 self.commands = {k: None for k in self.commands}
             else:
                 return {"ok": False, "error": "unknown action"}
+        if self._night_dirty:
+            self._night_dirty = False
+            self._save_night()
+        if action == "results":
+            folder = self.export_results(self.results_doc())
+            return {"ok": True, "seq": self.cmd_seq, "exported_to": folder}
         return {"ok": True, "seq": self.cmd_seq}
 
     def state(self):
@@ -527,7 +749,7 @@ class Overlay(object):
                 text = sep.join(snap["season"].get("racing_info") or [])
             slots[k] = {"label": sl.get("label", ""), "text": text}
         with self.lock:
-            cmds = {k: (v if (v is None or v.get("until", now + 1) > now) else None)
+            cmds = {k: (v if (v is None or v.get("until") is None or v.get("until") > now) else None)
                     for k, v in self.commands.items()}
             if cmds["ticker_slot"] is None and self.commands["ticker_slot"] is not None:
                 cmds["ticker_slot"] = self.commands["ticker_slot"]
@@ -569,7 +791,42 @@ class Overlay(object):
                 "pit_stops": r.get("pit_stops") or 0, "penalties": r.get("penalties") or 0,
                 "gained": gained, "camera": bool(r.get("camera")), "fastest": bool(r.get("fastest")),
             })
+        # V9.7: the night's memory and the payout sheet
+        sname = (snap.get("session_name") or "").lower()
+        if rows and sname.startswith("quali") and rows[0].get("pos") == 1:
+            top = rows[0]
+            if (self.night.get("pole") or {}).get("code") != top.get("code"):
+                self.night["pole"] = {k: top.get(k) for k in ("code", "full", "short", "team", "team_code",
+                                                              "charity", "charity_code", "human", "colour")}
+                self.night["pole"]["name"] = top.get("full") or top.get("short") or top.get("code")
+                self._save_night()
+        prizes = cfg.get("prizes") or {}
+        moments = snap.get("moments") or {}
+        if snap.get("is_race") and moments.get("podium"):
+            if self._podium_at is None:
+                self._podium_at = now
+            if (prizes.get("auto_show") and not self._auto_fired and cfg["surfaces"].get("results")
+                    and now - self._podium_at >= float(prizes.get("auto_delay_s") or 0)):
+                self._auto_fired = True
+                self.control({"action": "results"})
+        else:
+            self._podium_at = None
+            if not snap.get("is_race"):
+                self._auto_fired = False
+        with self.lock:
+            cmds = {k: (v if (v is None or v.get("until") is None or v.get("until") > now) else None)
+                    for k, v in self.commands.items()}
+            if cmds["ticker_slot"] is None and self.commands["ticker_slot"] is not None:
+                cmds["ticker_slot"] = self.commands["ticker_slot"]
+        results = compute_payouts(rows, prizes, pole=self.night.get("pole"),
+                                  fastest_override=(self.night.get("overrides") or {}).get("fastest_lap"),
+                                  pole_override=(self.night.get("overrides") or {}).get("pole"))
+        results["event"] = snap.get("event") or {}
+        results["track"] = snap.get("track") or ""
+        results["pole_memory"] = self.night.get("pole")
+        results["overrides"] = self.night.get("overrides") or {}
         return {
+            "results": results,
             "t": now, "connected": snap.get("connected", False), "live": snap.get("live", False),
             "error": snap.get("error"),
             "session": snap.get("session_name") or "", "is_race": snap.get("is_race", False),
@@ -579,7 +836,7 @@ class Overlay(object):
             "moments": snap.get("moments") or {}, "camera_idx": snap.get("camera_idx"),
             "event": snap.get("event") or {},
             "rows": rows,
-            "settings": {k: cfg[k] for k in ("surfaces", "tower", "ticker", "sponsor", "feature", "radio")},
+            "settings": {k: cfg[k] for k in ("surfaces", "tower", "ticker", "sponsor", "feature", "radio", "prizes")},
             "ticker_slots": slots,
             "sponsors": self.sponsors(),
             "sponsor_hold": hold,
@@ -876,6 +1133,102 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
 })();
 </script></body></html>"""
 
+RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover results</title>
+%(font)s<style>%(common)s
+  :root{--fade:900ms;--panel:rgba(16,19,26,.92);--line:rgba(255,255,255,.08);--dim:rgba(255,255,255,.55)}
+  #full{position:absolute;inset:0;background:rgba(8,10,14,.96);opacity:0;transition:opacity var(--fade) ease;pointer-events:none;
+        display:grid;grid-template-rows:9vh 1fr 8vh;padding:0 3vw;box-sizing:border-box}
+  #full.on{opacity:1}
+  #hd{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--red)}
+  #hd .t{font-weight:700;font-size:3.4vh;letter-spacing:.12em;text-transform:uppercase}
+  #hd .t small{display:block;font-size:1.5vh;letter-spacing:.14em;opacity:.7;font-weight:600;margin-top:.3vh}
+  #hd .money{text-align:right;font-weight:700;font-size:4.6vh;line-height:1;color:var(--gold)}
+  #hd .money small{display:block;font-size:1.4vh;letter-spacing:.16em;text-transform:uppercase;color:#fff;opacity:.75;margin-top:.6vh}
+  #body{display:grid;grid-template-columns:1fr 33vw;gap:2vw;padding:1.6vh 0;min-height:0}
+  .panel{background:var(--panel);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .ph{height:3.6vh;display:flex;align-items:center;padding:0 1.2vw;font-size:1.3vh;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+      color:var(--dim);border-bottom:1px solid var(--line);flex:none}
+  .ph b{color:#fff;margin-right:.8vw}
+  table{border-collapse:collapse;width:100%%;table-layout:fixed}
+  th,td{box-sizing:border-box}
+  th{font-size:1.15vh;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);text-align:left;padding:.5vh 1vw;border-bottom:1px solid var(--line)}
+  td{padding:0 1vw;font-size:1.75vh;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid rgba(255,255,255,.04)}
+  #cls td{height:3.3vh}
+  td.pos,#cons td.rk,td.num{padding:0 .4vw}
+  td.pos{font-weight:700;text-align:center;width:3vw;background:rgba(255,255,255,.05)}
+  tr.human td.pos{background:var(--red)}
+  tr.human td.nm{font-weight:700}
+  tr:not(.human) td{color:rgba(255,255,255,.72)}
+  td.bar{width:.4vw;padding:0}
+  td.bar i{display:block;width:.3vw;height:2.2vh;border-radius:2px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  td.prize{text-align:right;color:var(--gold);font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  td.prize small{display:block;color:var(--dim);font-weight:500;font-size:1.05vh;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  td.chr{color:rgba(255,255,255,.6);font-size:1.45vh}
+  #right{display:grid;grid-template-rows:auto auto 1fr;gap:1.6vh;min-height:0}
+  #cons td{height:3.3vh;font-size:1.6vh}
+  #cons td.num{text-align:center}
+  #cons td.chr{font-size:1.3vh;letter-spacing:.06em}
+  #cons td.rk{width:2.4vw;text-align:center;font-weight:700}
+  #cons tr.paid td.rk{background:var(--gold);color:#181c25}
+  #bon{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line)}
+  .b{background:var(--panel);padding:1.2vh 1vw}
+  .b .l{font-size:1.1vh;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .b .v{font-size:1.7vh;font-weight:700;margin-top:.5vh;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b .m{font-size:1.5vh;color:var(--gold);font-weight:700}
+  .b .m.un{color:var(--dim);font-weight:500}
+  #chr{display:flex;flex-direction:column}
+  #chr .row{display:flex;justify-content:space-between;align-items:center;padding:.55vh 1.2vw;border-bottom:1px solid rgba(255,255,255,.04);font-size:1.55vh}
+  #chr .row b{color:var(--gold);font-variant-numeric:tabular-nums}
+  #ft{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);font-size:1.4vh;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  #ft b{color:#fff}
+</style></head><body>
+<div id="full">
+  <div id="hd"><div class="t"><span id="title">Final results</span><small id="sub"></small></div><div class="money"><span id="total">$0</span><small>raised for charity tonight</small></div></div>
+  <div id="body">
+    <div class="panel"><div class="ph"><b>Classification</b> driver · team · charity · points · prize</div>
+      <table id="cls"><thead><tr><th style="width:3vw">P</th><th style="width:.5vw"></th><th>Driver</th><th style="width:12.5vw">Team</th><th style="width:13.5vw">Charity</th><th style="width:4vw;text-align:right">Pts</th><th style="width:11vw;text-align:right">Prize</th></tr></thead><tbody></tbody></table></div>
+    <div id="right">
+      <div class="panel"><div class="ph"><b>Constructors' Cup</b> both cars' points</div>
+        <table id="cons"><colgroup><col style="width:2.4vw"><col style="width:.5vw"><col><col style="width:5vw"><col style="width:3vw"><col style="width:4.5vw"></colgroup><tbody></tbody></table></div>
+      <div id="bon">
+        <div class="b"><div class="l">Pole position</div><div class="v" id="pole"></div><div class="m" id="polem"></div></div>
+        <div class="b"><div class="l">Fastest lap</div><div class="v" id="fl"></div><div class="m" id="flm"></div></div>
+        <div class="b"><div class="l">Podium bounty</div><div class="v" id="bty" style="font-size:1.3vh;font-weight:600;white-space:normal"></div></div>
+      </div>
+      <div class="panel"><div class="ph"><b>Money by charity</b></div><div id="chr"></div></div>
+    </div>
+  </div>
+  <div id="ft"><span id="donor"></span><span><b id="headline"></b></span></div>
+</div>
+<script>
+(function(){
+  const full=document.getElementById("full"); let seq=null; const $=id=>document.getElementById(id);
+  const money=x=>"$"+(Math.round(x*100)/100).toLocaleString("en-US",{maximumFractionDigits:2});
+  const esc=t=>String(t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  function render(d){
+    const P=d.settings.prizes||{}; document.documentElement.style.setProperty("--fade",(P.fade_ms||900)+"ms");
+    const c=d.commands&&d.commands.results; const on=d.settings.surfaces.results&&c;
+    if(!on){full.classList.remove("on");return;}
+    const R=d.results||{}; const ev=R.event||{};
+    $("title").textContent=P.title||"Final results";
+    $("sub").textContent=[P.subtitle, R.track, ev.date||ev.event_date, ev.status?("counts as "+ev.status):""].filter(Boolean).join(" · ");
+    $("total").textContent=money(R.total||0);
+    $("cls").querySelector("tbody").innerHTML=(R.drivers||[]).map(x=>`<tr class="${x.human?"human":""}"><td class="pos">${x.pos||"-"}</td><td class="bar"><i style="background:${esc(x.colour)}"></i></td><td class="nm">${esc(x.name)}${x.status&&["OUT","DSQ","NC"].includes(x.status)?' <small style="opacity:.6">'+esc(x.status)+'</small>':""}</td><td>${esc(x.team)}</td><td class="chr">${esc(x.charity)}</td><td class="num">${x.points||""}</td><td class="prize">${x.items.length?money(x.prize)+'<small>'+esc(x.items.map(i=>i.label).join(" + "))+'</small>':""}</td></tr>`).join("");
+    $("cons").querySelector("tbody").innerHTML=(R.constructors||[]).slice(0,6).map(t=>`<tr class="${t.prize?"paid":""}"><td class="rk">${t.rank}</td><td class="bar"><i style="background:${esc(t.colour)}"></i></td><td>${esc(t.team)}</td><td class="chr">${esc(t.charity_code||t.charity)}</td><td class="num">${t.points}</td><td class="prize">${t.prize?money(t.prize):""}</td></tr>`).join("");
+    const B=R.bonuses||{}; const po=B.pole||{}, fl=B.fastest_lap||{};
+    $("pole").textContent=po.name||"—"; $("polem").textContent=po.paid?money(po.amount)+" → "+(po.charity||""):(po.name?(po.human?"":"AI driver — unpaid"):"not recorded"); $("polem").className="m"+(po.paid?"":" un");
+    $("fl").textContent=fl.name||"—"; $("flm").textContent=fl.paid?money(fl.amount)+" → "+(fl.charity||""):(fl.name?(fl.human?"":"AI driver — unpaid"):"not set"); $("flm").className="m"+(fl.paid?"":" un");
+    $("bty").innerHTML=(B.bounty||[]).map(b=>`P${b.pos} ${money(b.amount)} — ${esc(b.name||"—")}${b.paid?"":' <span style="opacity:.5">(AI — unpaid)</span>'}`).join("<br>");
+    const CH=(R.charities||[]); $("chr").innerHTML=CH.slice(0,8).map(c=>`<div class="row"><span>${esc(c.charity)}</span><b>${money(c.total)}</b></div>`).join("")+(CH.length>8?`<div class="row"><span style="opacity:.5">+${CH.length-8} more</span></div>`:"")||'<div class="row"><span style="opacity:.5">no prizes yet</span></div>';
+    $("donor").textContent=P.donor||""; $("headline").textContent=P.headline||"";
+    full.classList.add("on");
+  }
+  async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); render(await r.json()); }catch(e){} }
+  tick(); setInterval(tick,500);
+})();
+</script></body></html>"""
+
 RADIO_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover radio</title>
 %(font)s<style>%(common)s
   #box{position:absolute;left:0;top:0;width:420px;height:90px;background:rgba(16,19,26,.92);border-left:6px solid var(--red);border-radius:8px;
@@ -918,6 +1271,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
+<tr><td>Final results</td><td><code>http://localhost:%(port)d/results</code></td><td>1920 × 1080</td><td>full canvas; fired from the dashboard after the podium</td></tr>
 <tr><td>Team radio</td><td><code>http://localhost:%(port)d/radio</code></td><td>420 × 90</td><td>top right</td></tr>
 </table>
 <p style="opacity:.7;font-size:13px">Settings: <code>%(settings)s</code> · Logos: <code>%(logos)s</code> · State: <a href="/state.json">/state.json</a></p>
@@ -998,6 +1352,10 @@ def make_handler(overlay, settings_path):
                 return self._send(200, page(FEATURE_PAGE), "text/html; charset=utf-8")
             if path == "/radio":
                 return self._send(200, page(RADIO_PAGE), "text/html; charset=utf-8")
+            if path == "/results":
+                return self._send(200, page(RESULTS_PAGE), "text/html; charset=utf-8")
+            if path == "/results.json":
+                return self._send(200, json.dumps(overlay.results_doc(), default=str).encode("utf-8"), "application/json")
             if path == "/state.json":
                 return self._send(200, json.dumps(overlay.state(), default=str).encode("utf-8"), "application/json")
             if path == "/settings.json":
