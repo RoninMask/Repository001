@@ -390,6 +390,24 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
   </div>
 
   <div class="card">
+    <div class="surf"><h3>Pre-show countdown</h3><div class="row"><span class="obs" id="obs_countdown"></span><label class="switch"><input type="checkbox" data-surface="countdown"><i></i></label></div></div>
+    <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="note">Broadcast starts</span><input type="text" id="cdstart" data-ov="countdown.start" style="width:110px;font-size:15px;font-weight:600" placeholder="21:00">
+      <button class="btn" data-slip="-5">−5 min</button><button class="btn" data-slip="5">+5 min</button>
+      <span class="tag" id="cdb"></span><span class="tag" id="cdq"></span><span class="tag" id="cdr"></span>
+      <a href="#" id="cdmore" class="note" style="margin-left:auto">schedule…</a>
+    </div>
+    <div class="fields" id="cdfields" style="display:none;margin-top:10px">
+      <div class="field"><label>Qualifying (min after the start)</label><input type="text" data-ov="countdown.quali_after_min" style="width:60px"></div>
+      <div class="field"><label>Race (min after the start)</label><input type="text" data-ov="countdown.race_after_min" style="width:60px"></div>
+      <div class="field"><label>Time zone label</label><input type="text" data-ov="countdown.tz" style="width:60px"></div>
+      <div class="field"><label>Fades out (min after the start)</label><input type="text" data-ov="countdown.hide_after_min" style="width:60px"></div>
+      <div class="field"><label>Top line (white, on the teal)</label><input type="text" data-ov="countdown.top_line"></div>
+      <div class="field"><label>Line above the clocks</label><input type="text" data-ov="countdown.sub_line"></div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="surf"><h3>Final results (full screen) — the charity payout sheet</h3><div class="row"><span class="obs" id="obs_results"></span><label class="switch"><input type="checkbox" data-surface="results"><i></i></label></div></div>
     <div class="fields">
       <div class="field"><label>Title</label><input type="text" data-ov="prizes.title"></div>
@@ -918,7 +936,7 @@ $("#btnredeal").onclick = async () => { if (!confirm("Clear the AI seat deal? Th
 
 // ---------- V1.1: overlays page
 let OV = null, OVSET = null;
-const OBS = {tower: ["/tower", "780 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], results: ["/results", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
+const OBS = {countdown: ["/countdown", "1920 × 1080"], tower: ["/tower", "780 × 900"], ticker: ["/ticker", "1920 × 44"], sponsor: ["/sponsor", "480 × 300"], feature: ["/feature", "1920 × 1080"], results: ["/results", "1920 × 1080"], radio: ["/radio", "420 × 90"]};
 const TOWERCOLS = [["position","Position"],["colour","Colour bar"],["name","Name"],["team","Team"],["charity","Charity"],["gap","Gap"],["interval","Interval (not gap to leader)"],["last_lap","Last lap"],["best_lap","Best lap"],["tyre","Tyre"],["tyre_age","Tyre age"],["pit_stops","Pit stops"],["pit_tag","PIT tag"],["penalties","Penalties"],["gained","Places gained/lost"],["camera","Camera marker"],["fastest","Fastest lap (purple)"]];
 function getPath(o, path){ return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
 function setPath(o, path, v){ const ks = path.split("."); let cur = o; ks.slice(0,-1).forEach((k, i) => { if (cur[k] == null || typeof cur[k] !== "object") cur[k] = /^\d+$/.test(ks[i+1]) ? [] : {}; cur = cur[k]; }); cur[ks[ks.length-1]] = v; }
@@ -932,6 +950,7 @@ async function loadOverlay(){
   if (!OVSET) { toast("No hoover_overlay_settings.json yet: start the overlays once and it is created."); return; }
   document.querySelectorAll("[data-surface]").forEach(c => c.checked = !!OVSET.surfaces[c.dataset.surface]);
   document.querySelectorAll("[data-ov]").forEach(inp => { const v = getPath(OVSET, inp.dataset.ov); if (inp.type === "checkbox") inp.checked = !!v; else inp.value = v ?? ""; });
+  setTimeout(cdChips, 0);
   $("#towercols").innerHTML = TOWERCOLS.map(([k, t]) => `<label><input type="checkbox" data-col="${k}" ${OVSET.tower.columns[k] ? "checked" : ""}> ${t}</label>`).join("");
   $("#slot4preview").textContent = st && st.ticker_slots && st.ticker_slots["4"] ? st.ticker_slots["4"].text : "(starts when the feed is up)";
   $("#sponsorfolder").textContent = OV.sponsor_folder;
@@ -992,6 +1011,25 @@ function renderResults(st){
     sel.innerHTML = `<option value="">auto</option>` + opts; sel.value = ov[key] || "";
   }
 }
+// pre-show countdown: start time, slip, and the three published times
+function cdParse(str){ const m = String(str || "").trim().toLowerCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/); if (!m) return null;
+  let h = +m[1], mi = +(m[2] || 0); if (m[3] === "pm" && h < 12) h += 12; if (m[3] === "am" && h === 12) h = 0; if (h > 23 || mi > 59) return null; return h * 60 + mi; }
+function cdFmt(min){ min = ((min % 1440) + 1440) % 1440; let h = Math.floor(min / 60), m = min % 60, ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + ":" + String(m).padStart(2, "0") + " " + ap; }
+function cdChips(){
+  const C = (OVSET && OVSET.countdown) || {}; const st = cdParse($("#cdstart").value); const tz = C.tz || "CST";
+  if (st === null) { $("#cdb").textContent = "start time? e.g. 21:00 or 9:00 PM"; $("#cdq").textContent = $("#cdr").textContent = ""; return; }
+  $("#cdb").textContent = "Broadcast " + cdFmt(st) + " " + tz;
+  $("#cdq").textContent = "Quali " + cdFmt(st + (+C.quali_after_min || 0)) + " " + tz;
+  $("#cdr").textContent = "Race " + cdFmt(st + (+C.race_after_min || 0)) + " " + tz;
+}
+$("#overlays").addEventListener("input", ev => { if (ev.target.closest && ev.target.closest("#cdfields") || ev.target.id === "cdstart") { readOverlay(); cdChips(); } });
+document.querySelectorAll("[data-slip]").forEach(b => b.onclick = () => {
+  const st = cdParse($("#cdstart").value); if (st === null) return;
+  const n = st + (+b.dataset.slip); const v = ((n % 1440) + 1440) % 1440;
+  $("#cdstart").value = String(Math.floor(v / 60)).padStart(2, "0") + ":" + String(v % 60).padStart(2, "0");
+  $("#cdstart").dispatchEvent(new Event("input", {bubbles: true}));
+});
+$("#cdmore").onclick = ev => { ev.preventDefault(); const f = $("#cdfields"); f.style.display = f.style.display === "none" ? "" : "none"; };
 $("#btnresults").onclick = async () => { const r = await api("/api/overlay/control", {action: "results"}); toast(r.ok ? "Results on screen" + (r.exported_to ? "; sheet written to " + esc(r.exported_to) : "") : esc(r.msg || r.error)); };
 $("#btnresultshide").onclick = async () => { await api("/api/overlay/control", {action: "results_hide"}); };
 $("#ovpole").onchange = async () => { await api("/api/overlay/control", {action: "override", pole: $("#ovpole").value}); };

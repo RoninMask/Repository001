@@ -64,7 +64,14 @@ DEFAULT_SETTINGS = {
     "_about": "Overlay settings. Edited by the dashboard's Overlays page; re-read live.",
     "web_port": 8780,
     "hoover_feed": "http://127.0.0.1:8781/snapshot",
-    "surfaces": {"tower": True, "ticker": True, "sponsor": True, "feature": False, "radio": False, "results": True},
+    "surfaces": {"tower": True, "ticker": True, "sponsor": True, "feature": False, "radio": False, "results": True,
+                 "countdown": True},
+    # V9.8: the pre-show countdown. Quali and race are minutes after the broadcast start, so
+    # changing the start moves all three; the published times stay tight -- viewers are never late.
+    "countdown": {"start": "21:00", "quali_after_min": 35, "race_after_min": 60, "tz": "CST",
+                  "labels": ["BROADCAST", "QUALIFYING", "RACE"], "top_line": "A CHARITY RACE",
+                  "sub_line": "Abu Dhabi · 21 October 2026 · Live on YouTube", "shortly": "STARTING SHORTLY",
+                  "hide_after_min": 3},
     "tower": {
         "width": 320, "row_height": 34, "max_rows": 22,
         "name_mode": "code",            # code | short | full
@@ -837,7 +844,7 @@ class Overlay(object):
             "moments": snap.get("moments") or {}, "camera_idx": snap.get("camera_idx"),
             "event": snap.get("event") or {},
             "rows": rows,
-            "settings": {k: cfg[k] for k in ("surfaces", "tower", "ticker", "sponsor", "feature", "radio", "prizes")},
+            "settings": {k: cfg[k] for k in ("surfaces", "tower", "ticker", "sponsor", "feature", "radio", "prizes", "countdown")},
             "ticker_slots": slots,
             "sponsors": self.sponsors(),
             "sponsor_hold": hold,
@@ -1134,6 +1141,104 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
 })();
 </script></body></html>"""
 
+COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover countdown</title>
+%(font)s<style>%(common)s
+  :root{--teal:#12A89A;--ink:#050608;--led:#ff2a1a}
+  #wrap{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}
+  #wrap.on{opacity:1}
+  svg#frame{position:absolute;inset:0;width:100vw;height:100vh}
+  #panel{position:absolute;right:5.2vw;top:50%%;transform:translateY(-42%%);width:44vw;background:rgba(5,6,8,.9);
+         border:2px solid rgba(255,42,26,.55);border-radius:12px;box-shadow:0 0 40px rgba(255,42,26,.28), inset 0 0 30px rgba(255,42,26,.08);
+         padding:2.4vh 2vw 1.6vh}
+  #sub{font-size:1.6vh;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:1.6vh}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:1.5vh 0;border-top:1px solid rgba(255,255,255,.08);
+       transition:opacity .6s}
+  .row.later{opacity:.55}
+  .row.done{opacity:.4}
+  .lt .l{font-size:1.8vh;font-weight:700;letter-spacing:.22em;color:#fff}
+  .lt .t{font-size:3.6vh;font-weight:600;color:#fff;margin-top:.4vh;font-variant-numeric:tabular-nums}
+  .lt .t small{font-size:1.6vh;font-weight:700;letter-spacing:.14em;color:rgba(255,255,255,.75);margin-left:.6vw}
+  .cd svg{display:block;filter:drop-shadow(0 0 6px rgba(255,42,26,.85)) drop-shadow(0 0 18px rgba(255,42,26,.45))}
+  .cd .sh{font-family:"Courier New",monospace;font-weight:700;font-size:3vh;letter-spacing:.12em;color:var(--led);
+          text-shadow:0 0 8px rgba(255,42,26,.9),0 0 22px rgba(255,42,26,.5)}
+</style></head><body>
+<div id="wrap">
+<svg id="frame" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+  <defs>
+    <mask id="mL" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
+      <rect x="0" y="0" width="1920" height="1080" fill="#fff"/>
+      <text id="tF" x="0" y="0" transform="translate(26,40) rotate(90)" font-family="Poppins,Arial Black,Arial,sans-serif"
+            font-weight="700" font-size="112" textLength="1000" lengthAdjust="spacing" fill="#000">FORMULA</text>
+    </mask>
+    <mask id="mT" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
+      <rect x="0" y="0" width="1920" height="1080" fill="#fff"/>
+      <text x="170" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="700" font-size="100"
+            letter-spacing="14" fill="#000">AWESOME</text>
+    </mask>
+  </defs>
+  <rect x="0" y="0" width="130" height="1080" fill="#050608" mask="url(#mL)"/>
+  <rect x="130" y="0" width="1790" height="120" fill="#12A89A" mask="url(#mT)"/>
+  <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="600"
+        font-size="40" letter-spacing="8" fill="#fff">A CHARITY RACE</text>
+</svg>
+<div id="panel"><div id="sub"></div><div id="rows"></div></div>
+</div>
+<script>
+(function(){
+  const SEG={"0":"abcdef","1":"bc","2":"abged","3":"abgcd","4":"fgbc","5":"afgcd","6":"afgedc","7":"abc","8":"abcdefg","9":"abcdfg"};
+  function segs(text,h){
+    // seven-segment digits with pointed segment ends and faint ghost segments, like an old LED clock
+    const W=h*0.58, T=h*0.11, G=h*0.018; let x=0, out="";
+    const hz=(x0,y0,L)=>`${x0},${y0+T/2} ${x0+T/2},${y0} ${x0+L-T/2},${y0} ${x0+L},${y0+T/2} ${x0+L-T/2},${y0+T} ${x0+T/2},${y0+T}`;
+    const vt=(x0,y0,L)=>`${x0+T/2},${y0} ${x0+T},${y0+T/2} ${x0+T},${y0+L-T/2} ${x0+T/2},${y0+L} ${x0},${y0+L-T/2} ${x0},${y0+T/2}`;
+    for(const ch of text){
+      if(ch===":"){ const d=T*1.1;
+        out+=`<rect x="${x+h*0.06}" y="${h*0.27}" width="${d}" height="${d}" fill="var(--led)"/><rect x="${x+h*0.06}" y="${h*0.64}" width="${d}" height="${d}" fill="var(--led)"/>`;
+        x+=h*0.06+d+h*0.12; continue; }
+      const on=SEG[ch]||""; const f=id=>on.includes(id)?"var(--led)":"rgba(255,42,26,.08)";
+      const L=W-T-2*G, V=(h-T)/2-2*G;
+      const P=(id,pts)=>`<polygon points="${pts}" fill="${f(id)}"/>`;
+      out+=P("a",hz(x+T/2+G,0,L))+P("g",hz(x+T/2+G,(h-T)/2,L))+P("d",hz(x+T/2+G,h-T,L))
+          +P("f",vt(x,T/2+G,V))+P("b",vt(x+W-T,T/2+G,V))+P("e",vt(x,h/2+G,V))+P("c",vt(x+W-T,h/2+G,V));
+      x+=W+h*0.16;
+    }
+    return `<svg width="${x}" height="${h}" viewBox="0 0 ${x} ${h}">${out}</svg>`;
+  }
+  function parseStart(str){
+    const m=String(str||"21:00").trim().toLowerCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+    if(!m) return null; let h=+m[1], mi=+(m[2]||0);
+    if(m[3]==="pm"&&h<12) h+=12; if(m[3]==="am"&&h===12) h=0;
+    const d=new Date(); d.setHours(h,mi,0,0); return d;
+  }
+  const two=n=>String(n).padStart(2,"0");
+  function clock(d){ let h=d.getHours(), ap=h>=12?"PM":"AM"; h=h-(h>12?12:0); if(h===0) h=12; return h+":"+two(d.getMinutes())+" "+ap; }
+  function left(ms){ let s=Math.max(0,Math.floor(ms/1000)); const h=Math.floor(s/3600); s-=h*3600; const m=Math.floor(s/60); s-=m*60;
+                     return h>0? h+":"+two(m)+":"+two(s) : two(m)+":"+two(s); }
+  let C=null, on=false;
+  function draw(){
+    const wrap=document.getElementById("wrap");
+    if(!C){ return; }
+    const start=parseStart(C.start); if(!start){ wrap.classList.remove("on"); return; }
+    const now=new Date();
+    if(!on || now-start > (C.hide_after_min||3)*60000){ wrap.classList.remove("on"); return; }
+    wrap.classList.add("on");
+    document.getElementById("sub").textContent=C.sub_line||"";
+    document.getElementById("topline").textContent=C.top_line||"";
+    const L=C.labels||["BROADCAST","QUALIFYING","RACE"];
+    const ts=[start, new Date(+start+(C.quali_after_min||0)*60000), new Date(+start+(C.race_after_min||0)*60000)];
+    let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
+    document.getElementById("rows").innerHTML=ts.map((t,i)=>{
+      const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"), h=i===nextIdx?86:58;
+      const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now),h);
+      return `<div class="row ${cls}"><div class="lt"><div class="l">${L[i]||""}</div><div class="t">${clock(t)}<small>${C.tz||"CST"}</small></div></div><div class="cd">${cd}</div></div>`;
+    }).join("");
+  }
+  async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); const d=await r.json();
+    C=d.settings.countdown; on=!!d.settings.surfaces.countdown; }catch(e){} }
+  tick(); setInterval(tick,2000); setInterval(draw,250);
+})();
+</script></body></html>"""
+
 RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover results</title>
 %(font)s<style>%(common)s
   :root{--fade:900ms;--panel:rgba(16,19,26,.92);--line:rgba(255,255,255,.08);--dim:rgba(255,255,255,.55)}
@@ -1272,6 +1377,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
+<tr><td>Pre-show countdown</td><td><code>http://localhost:%(port)d/countdown</code></td><td>1920 × 1080</td><td>over the pre-show video; fades out a few minutes after the broadcast start</td></tr>
 <tr><td>Final results</td><td><code>http://localhost:%(port)d/results</code></td><td>1920 × 1080</td><td>full canvas; fired from the dashboard after the podium</td></tr>
 <tr><td>Team radio</td><td><code>http://localhost:%(port)d/radio</code></td><td>420 × 90</td><td>top right</td></tr>
 </table>
@@ -1353,6 +1459,8 @@ def make_handler(overlay, settings_path):
                 return self._send(200, page(FEATURE_PAGE), "text/html; charset=utf-8")
             if path == "/radio":
                 return self._send(200, page(RADIO_PAGE), "text/html; charset=utf-8")
+            if path == "/countdown":
+                return self._send(200, page(COUNTDOWN_PAGE), "text/html; charset=utf-8")
             if path == "/results":
                 return self._send(200, page(RESULTS_PAGE), "text/html; charset=utf-8")
             if path == "/results.json":
