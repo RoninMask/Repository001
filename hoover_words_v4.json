@@ -2164,6 +2164,41 @@
         {
           "speaker": "LEAD",
           "when": {
+            "beat": "out",
+            "session": "RACE",
+            "human": true,
+            "has_interview": true
+          },
+          "present": "{a} is out, {cause}. That is the night over for {team}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "{interview} No points from that car tonight, and {charity} feels it."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "He said what he would do if this happened. {interview}"
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "session": "RACE",
+            "human": true
+          },
+          "present": "{a} is out, {cause}. That is the end of the night for {team}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "No points for {team}, and {charity} will feel that. He will be gutted."
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
             "beat": "out"
           },
           "present": "{a} is out, {cause}.",
