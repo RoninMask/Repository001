@@ -1,6 +1,6 @@
 # Baby Hoover — Run Card · 20 OCT test event and 21 OCT official race
 
-**Build:** `claude/interview-ingest` @ **`aa5607c`** (19 OCT freeze build; the dashboard's "This Hoover" shows the hash). Hand-back with the tune sheet: `docs/Hoover_Freeze_Day_Handback_V1_19OCT26.md`. **Machine:** the Oklahoma PC (i5-9400F, RTX 3070, 48 GB). **Both days at Abu Dhabi.** Blanks in `[ ]` are yours to fill.
+**Build:** `claude/interview-ingest` at the branch tip, **code frozen at `f32711c`** (19 OCT; the dashboard's "This Hoover" shows the hash). Hand-back with the tune sheet: `docs/Hoover_Freeze_Day_Handback_V1_19OCT26.md`. **Machine:** the Oklahoma PC (i5-9400F, RTX 3070, 48 GB). **Both days at Abu Dhabi.** Blanks in `[ ]` are yours to fill.
 
 **Code freeze: 19 OCT.** After that only the data files change (config, words, roster, dossier, lore) — no `.py`. Whatever passes the 20th is what races on the 21st.
 
