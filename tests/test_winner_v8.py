@@ -136,6 +136,33 @@ class Winner(unittest.TestCase):
         m.on_finalclass(131.0, _fc({0: 2, 1: 1, 2: 3, 3: 4}))
         self.assertEqual(len(claims), 2)
 
+    def test_a_later_sessions_classification_is_a_grid_not_a_correction(self):
+        # V9.9 (19 OCT): on 09 OCT the one-shot qualifying for Race 3 arrived
+        # inside Race 2's run while the Session packet still said RACE, and
+        # aired as "Correction: Mike Lababera is classified first". A second
+        # classification long after this race was classified belongs to the
+        # next session: no corrections, no official winner off it.
+        m, claims = _model(_world(gap2=2.0, leader_pen=0))
+        m._leader_finish(100.0, 0)
+        m.on_finalclass(130.0, _fc({0: 1, 1: 2, 2: 3, 3: 4}))
+        m.result_aired_pos = {0: 1, 1: 2}             # what the booth read at the flag
+        n = len(claims)
+        m.on_finalclass(131.0, _fc({0: 1, 1: 2, 2: 3, 3: 4}))   # the stride re-send: harmless
+        self.assertEqual(len(claims), n)
+        m.on_finalclass(130.0 + 400.0, _fc({0: 2, 1: 1, 2: 3, 3: 4}))   # the next quali's grid
+        self.assertEqual([c.kind for c in claims[n:]], [])
+        self.assertEqual(m.result_aired_pos, {})
+        self.assertEqual(m._fc_first_t, 130.0)
+        self.assertEqual(m.final_classification_t, 131.0)   # the re-send is this race's
+        # and a classification in a session that is not a race is ignored outright
+        m2, claims2 = _model(_world(gap2=2.0, leader_pen=0))
+        m2.w.session_kind = "QUALI"
+        m2.result_aired_pos = {0: 1}
+        m2.on_finalclass(50.0, _fc({0: 2, 1: 1, 2: 3, 3: 4}))
+        self.assertEqual([c.kind for c in claims2 if c.kind == "CORRECTION"], [])
+        self.assertEqual(m2.result_aired_pos, {})
+        self.assertEqual(m2.state, "classified")       # the quali programme reads the grid off it
+
     def test_classification_confirms_a_held_call(self):
         m, claims = _model(_world(gap2=0.0, leader_pen=5))
         m._leader_finish(100.0, 0)

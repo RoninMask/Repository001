@@ -325,6 +325,16 @@ class Decoders(unittest.TestCase):
         self.assertEqual(res["players"][1]["ready"], 0)
         self.assertEqual(res["players"][0]["car_number"], 7)
 
+    def test_lobby_name_with_no_break_space_is_the_plain_gamertag(self):
+        # V9.9 (19 OCT): the 09 OCT captures carry 'Faze\xa0Noob3146' in the
+        # second Lobby Info packet and 'Faze Noob3146' in the first and in
+        # Participants. One spelling on the wire, or the roster misses him.
+        res = v.decode_lobby_info_v5(pk_lobby([("Faze\xa0Noob3146", 0), ("PuRe\u2009R3Z", 0)]))
+        self.assertEqual(res["players"][0]["name"], "Faze Noob3146")
+        self.assertEqual(res["players"][1]["name"], "PuRe R3Z")
+        self.assertEqual(v.wire_name(b"Ronin0700VII\x00\x00junk"), "Ronin0700VII")
+        self.assertEqual(v.wire_name(b"  two  spaces \xc2\xa0here \x00"), "two spaces here")
+
     def test_tyre_sets(self):
         res = v.decode_tyre_sets_v5(pk_tyre_sets(4))
         self.assertEqual(res["car"], 4)

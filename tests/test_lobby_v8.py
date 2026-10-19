@@ -63,6 +63,7 @@ def _booth(players, logs):
     m.w.ext.lobby = {"num_players": len(players), "players": players}
     b = v.V3Booth(m, m.cfg, stories=True)
     b.log = logs.append
+    m.log = logs.append          # the Restricted warning goes to the model's log (74c2f96)
     b.blobctx = _Blob()
     b.words.select = b.words.select           # real words file
     return m, b
@@ -108,6 +109,33 @@ class Lobby(unittest.TestCase):
         # said once only
         b._session_colour(b.channel_busy_until + 30.0)
         self.assertEqual(len([l for l in logs if "Restricted" in l]), 1)
+
+    def test_no_break_space_gamertag_still_gets_his_real_name(self):
+        # V9.9 (19 OCT): the game's second lobby packet spells the gamertag
+        # with a NO-BREAK SPACE. The decoder now normalises it; this guards the
+        # path from the packet to the line in case anything upstream changes.
+        logs = []
+        raw = {"num_players": 2, "players": [
+            {"ai": 0, "team": 0, "nationality": 0, "platform": 4, "car_number": 7,
+             "telemetry_public": 1, "show_online_names": 1, "ready": 0, "name": nm}
+            for nm in ("Faze Noob3146", "PuRe R3Z")]}
+        m, b = _booth([_pl("Faze Noob3146"), _pl("PuRe R3Z")], logs)
+        self.assertTrue(b._session_colour(1000.0))
+        first = b.emitted[-1]["text"]
+        self.assertIn("Cade", first)
+        self.assertIn("Alex", first)
+        self.assertNotIn("Faze", first)
+        self.assertNotIn("PuRe", first)
+        # and the decoder itself, straight off a packet with the odd spelling
+        import struct as _st
+        pkt = bytearray(v.LOBBY_LEN)
+        pkt[v.HEADER_SIZE] = 1
+        base = v.HEADER_SIZE + 1
+        pkt[base:base + 4] = bytes([0, 3, 10, 4])
+        nm = "Faze\xa0Noob3146".encode("utf-8")
+        pkt[base + 4:base + 4 + len(nm)] = nm
+        got = v.decode_lobby_info_v5(bytes(pkt))
+        self.assertEqual(got["players"][0]["name"], "Faze Noob3146")
 
     def test_nothing_once_a_race_is_declared(self):
         logs = []

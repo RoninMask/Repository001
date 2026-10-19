@@ -607,6 +607,21 @@ class World:
 # SECTION 5 -- PARSING
 # =============================================================================
 
+def wire_name(raw):
+    """A driver name off the wire. V9.9 (19 OCT): the game writes the same
+    gamertag two ways -- 'Faze Noob3146' in Participants and in the first
+    Lobby Info packet, 'Faze\xa0Noob3146' (a NO-BREAK SPACE) in the lobby
+    packets that follow. The roster holds a plain space, so the second form
+    missed every lookup and the raw gamertag went to air. Every unicode
+    space becomes a plain space, runs collapse, ends are stripped."""
+    try:
+        txt = raw.split(b"\x00", 1)[0].decode("utf-8", "replace")
+    except AttributeError:
+        txt = str(raw or "")
+    txt = "".join(" " if ch.isspace() else ch for ch in txt)
+    return " ".join(txt.split())
+
+
 class Parser:
     def __init__(self, world, log):
         self.w = world
@@ -723,7 +738,7 @@ class Parser:
             v = struct.unpack_from(PART_FMT, d, off)
             (ai, drv, netid, team, myteam, racenum, nat,
              raw_name, ytel, showname, tech, plat, ncol, _livery) = v
-            name = raw_name.split(b"\x00", 1)[0].decode("utf-8", "replace").strip()
+            name = wire_name(raw_name)
             c = w.cars[i]
             # M4: latch identity on first real sighting and cache permanently.
             # The name field is not reliably re-readable. Presence-check the
@@ -4087,7 +4102,7 @@ def decode_lobby_info_v5(data):
         (ai, team, nat, plat, raw, carno, ytel, shown, tech, ready) = v
         players.append({
             "ai": ai, "team": team, "nationality": nat, "platform": plat,
-            "name": raw.split(b"\x00", 1)[0].decode("utf-8", "replace").strip(),
+            "name": wire_name(raw),
             "car_number": carno, "telemetry_public": ytel,
             "show_online_names": shown, "ready": ready})
     return {"num_players": n, "players": players}
@@ -5933,6 +5948,8 @@ class RaceModel:
         self.ended_without_finish_t = None
         self.final_classification = None
         self.final_classification_t = None
+        self._fc_first_t = None
+        self._fc_ignored_logged = False
         self.humans_result_done = set()
         self.chqf_seen = False
         self.result_aired_pos = {}    # idx -> position aired on the road
@@ -6021,6 +6038,8 @@ class RaceModel:
         self.ended_without_finish_t = None
         self.final_classification = None
         self.final_classification_t = None
+        self._fc_first_t = None
+        self._fc_ignored_logged = False
         self.humans_result_done = set()
         self.chqf_seen = False
         self.result_aired_pos = {}
@@ -6860,13 +6879,39 @@ class RaceModel:
                                     priority=40.0, max_age_key="result"))
 
     def on_finalclass(self, t, fc):
+        # V9.9 (19 OCT): a classification that is not THIS race's is a grid,
+        # and it must never be measured against the results the booth aired.
+        # On 09 OCT the one-shot qualifying for Race 3 arrived inside Race 2's
+        # run and aired as "Correction: Mike classified first" -- and the
+        # game's Session packet kept saying RACE right through that
+        # qualifying, so the session kind alone cannot tell. Time can: the
+        # game re-sends the same classification on a stride within seconds of
+        # the first; another session's comes minutes after this race was
+        # classified. Such a packet is ignored outright. A classification in a
+        # practice or qualifying session is still recorded (the qualifying
+        # programme turns "pole held" into the grid off it) but never
+        # corrects anything.
+        first_t = getattr(self, "_fc_first_t", None)
+        window = float(self.v3.get("classification_window_s", 90.0))
+        if self.state == "classified" and first_t is not None and (t - first_t) > window:
+            if not getattr(self, "_fc_ignored_logged", False):
+                self._fc_ignored_logged = True
+                self.log(">>> Final Classification %.0f s after this race was classified: "
+                         "the next session's grid, not a result -- no corrections" % (t - first_t))
+            self.result_aired_pos.clear()
+            return
         self.final_classification = fc
         self.final_classification_t = t
+        if first_t is None:
+            self._fc_first_t = t
         if self.state in ("finishing",):
             self._set_state(t, "classified", "Final Classification")
         elif self.state in ("green", "final_lap", "suspended"):
             self._set_state(t, "classified", "Final Classification")
         self._official_winner(t, fc)
+        if getattr(self.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
+            self.result_aired_pos.clear()          # a grid corrects nothing
+            return
         # A7.2 / A2-1: a subject classified away from the position already aired
         # gets a correction -- but at most one per (car, position), capped per
         # car, and (A2-5) only for the podium or a human. The game re-sends the
