@@ -42,7 +42,7 @@ class QuietIncidents(unittest.TestCase):
             m = _model(kind)
             self.assertTrue(m.allows(v.CLASS_ACTION, kind="S_INC_02", human=True), kind)
             self.assertTrue(m.allows(v.CLASS_ACTION, kind="S_INC_01", human=True), kind)
-            self.assertTrue(m.allows(v.CLASS_ACTION, kind="RETIREMENT", human=True), kind)
+            self.assertFalse(m.allows(v.CLASS_ACTION, kind="RETIREMENT", human=True), kind)   # a car in the garage is not news
             self.assertFalse(m.allows(v.CLASS_ACTION, kind="S_INC_02", human=False), kind)
             self.assertFalse(m.allows(v.CLASS_ACTION, kind="S_BAT_01", human=True), kind)   # a battle is not news in practice
 

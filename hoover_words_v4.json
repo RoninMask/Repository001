@@ -1258,6 +1258,21 @@
           },
           "present": "{a} comes out of that in front of {b}.",
           "past": "{a} came out of that in front of {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "third_swap"
+          },
+          "present": "That is three times they have traded it. {a} ahead again.",
+          "register": "humor",
+          "once": true,
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "They have traded that place three times. Somebody buy them a coin to toss."
+            }
+          ]
         }
       ]
     },
@@ -1608,6 +1623,23 @@
             "beat": "ledger"
           },
           "present": "The pit ledger: {count} cars have stopped so far."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "in",
+            "third_or_more": true,
+            "human": true
+          },
+          "present": "{a} is in the pits again, stop number {count}.",
+          "register": "humor",
+          "once": true,
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "Third visit. At this point the pit crew should be charging rent."
+            }
+          ]
         }
       ]
     },
@@ -1828,6 +1860,23 @@
           },
           "present": "{a} is off the road.",
           "fallback": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "off",
+            "big": false,
+            "human": true
+          },
+          "present": "{a} runs wide, two wheels off, and keeps it going.",
+          "register": "humor",
+          "once": true,
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "Took the scenic route through there, and kept it."
+            }
+          ]
         }
       ]
     },

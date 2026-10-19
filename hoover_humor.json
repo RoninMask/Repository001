@@ -1,0 +1,214 @@
+{
+ "format": "hoover_humor_v1",
+ "_about": "Approved humor lines (Hoover_Humor_Card_Review_V1_19OCT26, approved by Dustin 19 OCT). Lull cards: same shape as hoover_lore.json cards, hook 'lull', sessions they may air in. Each is read once a night by the analyst, within v3.humor caps (practice 8, quali 2, race 3), never near a human incident. Edit, strike or add here; a lore rebuild never touches this file. Event-triggered pairs live in hoover_words_v4.json as `then` reactions with register humor.",
+ "cards": [
+  {
+   "id": "H19",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Seven drivers, ten teams, and every one of them is convinced the other six are the problem.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H20",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "For the record, the AI drivers were not interviewed. They declined to comment, in the sense that they cannot.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H21",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Thirty minutes of practice. Thirty minutes to find out which setup change was a mistake.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H22",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "This is a charity race. The charities, we are told, would prefer the cars came back in one piece.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H23",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Damage is on tonight. Last time it was off, and some of these drivers may need reminding.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H24",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "One mandatory pit stop tonight. Several drivers have confirmed they know where the pit lane is.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H25",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Qualifying is eighteen minutes. That is roughly one good lap and seventeen minutes of excuses.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H26",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "The commentary tonight is artificial. The crashes, we are assured, will be genuine.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H27",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Yas Marina at night. The lights are on. Whether anyone is home, we find out shortly.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H28",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Every driver chose his own charity. None of them chose a driving school.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H29",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Ten teams, and only one of them is called Flying Pickles. We checked.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H30",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Call the Ball is run by a father and driven by his son. Family businesses are known for calm, measured discussion.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H31",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Three of tonight's drivers are named Canedy. We will be using first names, for everyone's sake.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H32",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Two drivers are named Evan. One of them is Evan. The other is Sholly. This is simpler than it sounds.",
+   "status": "ok",
+   "sessions": [
+    "PRACTICE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H33",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Quiet spell. Even the AI drivers seem to be saving themselves.",
+   "status": "ok",
+   "sessions": [
+    "RACE"
+   ],
+   "speaker": "ANALYST"
+  },
+  {
+   "id": "H34",
+   "track": null,
+   "hooks": [
+    "lull"
+   ],
+   "line": "Nothing happening at the front, which, for the drivers at the front, is the dream.",
+   "status": "ok",
+   "sessions": [
+    "RACE"
+   ],
+   "speaker": "ANALYST"
+  }
+ ]
+}

@@ -5041,6 +5041,7 @@ class Dossier:
 
 
 LORE_FILE_NAME = "hoover_lore.json"            # 09 OCT: F1 history / track lore
+HUMOR_FILE_NAME = "hoover_humor.json"          # V9.17: approved humor lines (lull cards)
 
 
 def _alias_norm(s):
@@ -5067,6 +5068,17 @@ class Material:
                 self.lore = [c for c in doc.get("cards", [])
                              if c.get("status") == "ok" and c.get("line")]
                 self.log("[lore] %d cards from %s" % (len(self.lore), os.path.basename(lore_path)))
+                # V9.17 (19 OCT): approved humor cards, kept apart from Mike's
+                # lore so a lore rebuild never loses them. Same card shape, each
+                # tagged register humor and once, with its sessions.
+                hpath = os.path.join(os.path.dirname(lore_path), HUMOR_FILE_NAME)
+                if os.path.exists(hpath):
+                    with open(hpath, encoding="utf-8") as f:
+                        hdoc = json.load(f)
+                    hcards = [dict(c, register="humor", once=True)
+                              for c in hdoc.get("cards", []) if c.get("status", "ok") == "ok" and c.get("line")]
+                    self.lore.extend(hcards)
+                    self.log("[humor] %d approved lines from %s" % (len(hcards), HUMOR_FILE_NAME))
             except Exception as e:
                 self.log("[lore] could not read %s: %s" % (lore_path, type(e).__name__))
         self.taken = []                    # (t, kind, key, text): what aired
@@ -5117,7 +5129,7 @@ class Material:
         return fresh[0]
 
     # ---- lore ----------------------------------------------------------------
-    def take_lore(self, track_id, hook, t=None, session=None):
+    def take_lore(self, track_id, hook, t=None, session=None, humor_ok=True, prefer=None):
         """The first unused card for this track (or a general card) that
         carries the hook. Track cards come before general ones. V9.12: a card
         may name the sessions it is for ("sessions": ["PRACTICE"]); it is
@@ -5131,13 +5143,17 @@ class Material:
             allowed = c.get("sessions")
             if allowed and session is not None and str(session).upper() not in [str(x).upper() for x in allowed]:
                 continue
+            if c.get("register") == "humor" and not humor_ok:
+                continue
             ct = c.get("track")
             if ct is not None and str(ct) != tid:
                 continue
             rank = 0 if ct is not None else 1
+            if prefer and c.get("register") == prefer:
+                rank = -1                 # V9.17: every other colour slot leads with a humor card
             if best is None or rank < best[0]:
                 best = (rank, c)
-                if rank == 0:
+                if rank == (-1 if prefer else 0):
                     break
         if best is None:
             return None
@@ -8060,6 +8076,8 @@ class V3Booth:
             return "drop:story_moved_on"
         gate_kind = "RETIREMENT" if f.get("story_type") in ("REL-02", "INC-05") \
             else claim.kind
+        if getattr(m.w, "session_kind", "RACE") in ("PRACTICE", "QUALI", "TIMETRIAL"):
+            gate_kind = claim.kind        # V9.14: in a quiet session only the listed incident kinds pass
         if not m.allows(claim.content_class, False, kind=gate_kind,
                         human=bool((f.get("view") or {}).get("human"))):
             return "drop:state:%s" % m.state
@@ -8630,12 +8648,15 @@ class V3Booth:
                 free += 1
         if free <= int(cfg.get("reserve_for_race", 12)):
             return False
-        card = mat.take_lore(w.track_id, "lull", t, session=kind)
+        self._colour_n = getattr(self, "_colour_n", 0) + 1
+        card = mat.take_lore(w.track_id, "lull", t, session=kind, humor_ok=self._humor_gate({}),
+                             prefer="humor" if self._colour_n % 2 == 0 else None)
         if card is None:
             return False
         claim = Claim("LULL_LORE", CLASS_FILLER, [], [], t,
                       facts={"line": card["line"], "source": "lore",
-                             "card": card.get("id"), "session_colour": kind},
+                             "card": card.get("id"), "session_colour": kind,
+                             "register": card.get("register")},
                       priority=9.0, speaker="ANALYST", demotable=True)
         self._colour_last = t
         self.counter_colour += 1
@@ -9539,8 +9560,9 @@ class V3Booth:
                 if used:
                     mat.commit(used, air_t)
         # V9.15: humor bookkeeping and the human-incident clock for the gate
-        if not cont and getattr(self.words, "_last_register", None) == "humor" \
-                and getattr(result, "writer", None) == "template":
+        if not cont and ((getattr(self.words, "_last_register", None) == "humor"
+                          and getattr(result, "writer", None) == "template")
+                         or f.get("register") == "humor"):
             kind_s = getattr(self.model.w, "session_kind", "RACE") or "RACE"
             self._humor_count[kind_s] = self._humor_count.get(kind_s, 0) + 1
             self._humor_last_t = air_t
@@ -14837,11 +14859,14 @@ class StoryEngine:
         mat = self.material()
         if mat is None:
             return None
-        card = mat.take_lore(self.w.track_id, "lull", t, session="RACE")
+        booth = getattr(self, "booth", None)
+        gate = booth._humor_gate({}) if booth is not None and hasattr(booth, "_humor_gate") else True
+        card = mat.take_lore(self.w.track_id, "lull", t, session="RACE", humor_ok=gate)
         if card is None:
             return None
         return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
-                     facts={"line": card["line"], "source": "lore", "card": card.get("id")},
+                     facts={"line": card["line"], "source": "lore", "card": card.get("id"),
+                            "register": card.get("register")},
                      priority=9.0, speaker="ANALYST", demotable=True)
 
     def _armed_line(self, idx, condition):
@@ -15993,7 +16018,8 @@ class P_STR_01(StoryProcessor):
                                   ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position),
                                        "count": _ordinal(c.num_pit_stops + 1)},
                                   view={"under_sc": rec.fields["under_sc"],
-                                       "human": eng.is_human(c.idx)},
+                                       "human": eng.is_human(c.idx),
+                                       "third_or_more": c.num_pit_stops + 1 >= 3},
                                   speaker="ANALYST", must=eng.is_human(c.idx))
                         self._ledger(t)
                 continue
@@ -17886,6 +17912,7 @@ class BabyHooverV3:
             self.stories = StoryEngine(self.model, self.world, self.config,
                                        StoriesConfig(spath), self._log)
             self.booth.stories = self.stories
+            self.stories.booth = self.booth       # V9.17: the humor gate for lull cards
             self.model.emit_lights_on = True      # V8.3: the lights-on line
             # V5 decode (08 OCT): the extended read rides with the story layer,
             # so --stories off never builds it and stays V3 byte-for-byte.

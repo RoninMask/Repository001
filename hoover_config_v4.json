@@ -771,8 +771,7 @@
         "S_INC_01",
         "S_INC_02",
         "S_INC_05",
-        "S_INC_06",
-        "RETIREMENT"
+        "S_INC_06"
       ],
       "_about_allow_in_quiet": "V9.14 (19 OCT): story kinds that pass the quiet gate in practice and qualifying when a human is in them -- contact, off, crash, first-lap pile-up. AI-only incidents stay silent. The words file phrases them by session (view.session: PRACTICE / QUALI / RACE)."
     },
