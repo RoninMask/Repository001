@@ -274,7 +274,9 @@
   },
   "SF-04": {
    "first_racing_lap": 2,
-   "max_named": 2
+   "max_named": 2,
+   "max_age_s": 45.0,
+   "_about_max_age": "V9.20 (19 OCT): the lap-one ledger ('After the opening lap, X is down N places') aired four minutes late on 09 OCT; a net-places line older than 45 s is stale and is dropped."
   },
   "SF-05": {
    "fractions": [
