@@ -3865,6 +3865,71 @@
           "present": "None of this happens without the givers. Tonight that was {a}. Thank you."
         }
       ]
+    },
+    "S_PREDICT": {
+      "_about": "V9.10 (19 OCT): the prediction thrown out and answered. beat 'ask' is the LEAD's question (the line); beat 'answer' is the ANALYST's reply, aired as the next clip. {a} chaser, {b} target, {lap} the projected lap, {laps} laps until then, {gap}, {pos}. The payoff lives on the story's own kind (beat 'payoff').",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "ask",
+            "has_gap": true
+          },
+          "present": "{a} is closing on {b}, {gap} back and the gap keeps falling. Does he get there?"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "ask",
+            "has_pos": true
+          },
+          "present": "{a} has {b} in his sights for {pos}. Is this one coming off?"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "ask"
+          },
+          "present": "{a} is reeling in {b}. Put a lap on it for me."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "ask",
+            "soon": true
+          },
+          "present": "{a} is right there on {b}. This happens in the next lap or two, surely?"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "answer",
+            "soon": true
+          },
+          "present": "If the gap keeps falling like that, he is on him by lap {lap}. I will say lap {lap}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "answer"
+          },
+          "present": "At this rate, lap {lap}. {laps} of work, and then {b} has a fight on his hands."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "answer"
+          },
+          "present": "I will put it on lap {lap}. That is if {b} does not find something, and he has been finding things all day."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "answer"
+          },
+          "present": "Lap {lap}. Hold me to that."
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."

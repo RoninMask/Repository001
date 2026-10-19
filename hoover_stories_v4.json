@@ -132,7 +132,16 @@
   "prediction_min_feasibility": 0.8,
   "projection_min_laps": 2,
   "order_hold_s": 1.5,
-  "gap_unknown_s": 60.0
+  "gap_unknown_s": 60.0,
+  "predictions": {
+   "_about": "V9.10 (19 OCT): the prediction beat (S_PREDICT). A freshly planted prediction on a story with a human in it is thrown out once -- LEAD asks, ANALYST answers with the projected lap -- and the payoff beat on the story's close pays it off right or wrong. enabled turns it off entirely; every_s is the gap between two predictions; max_laps_ahead skips calls too far out to mean anything; max_age_s is how long the question may wait in the queue before it is stale.",
+   "enabled": true,
+   "humans_only": true,
+   "every_s": 150.0,
+   "max_laps_ahead": 6,
+   "max_age_s": 25.0,
+   "priority_bonus": 4.0
+  }
  },
  "params": {
   "BAT-01": {

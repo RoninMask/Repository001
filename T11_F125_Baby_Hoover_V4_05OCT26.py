@@ -8569,6 +8569,8 @@ class V3Booth:
         return _join_words(parts) if len(parts) > 1 else (parts[0] if parts else None)
 
     def _givers_roll(self, t, where):
+        if "GIVERS_ROLL" not in (getattr(self.words, "kinds", None) or {}):
+            return False                 # V9.10: the V3 words set has no roll (identity gate)
         text = self._givers_text()
         if not text:
             return False
@@ -9803,8 +9805,24 @@ class TemplateWriter(Writer):
         speaker, text = self.booth._text(
             request.claim, request.past,
             avoid_templates=request.avoid_templates)
+        passage = None
+        if request.claim.kind == STORY_PREDICT_KIND:
+            # V9.10: the LEAD's question is the line; the ANALYST's answer is
+            # the rest of the passage, aired as the next clip (one clip per
+            # sentence, like a model passage). Both off the words file.
+            ask_tmpl = self.booth._last_template
+            shadow = Claim(request.claim.kind, request.claim.content_class,
+                           request.claim.subjects, request.claim.names,
+                           request.claim.t_create,
+                           facts=dict(request.claim.facts,
+                                      view=dict(request.claim.facts.get("view") or {}, beat="answer")),
+                           priority=request.claim.priority, speaker="ANALYST")
+            sp2, answer = self.booth._text(shadow, request.past,
+                                           avoid_templates=request.avoid_templates)
+            passage = [(sp2 or "ANALYST", answer)]
+            self.booth._last_template = ask_tmpl
         return LineResult(text=text, speaker=speaker, writer="template",
-                          template_id=self.booth._last_template)
+                          template_id=self.booth._last_template, passage=passage)
 
 
 V3_PROMPTS_NAME = "hoover_prompts_v3.json"
@@ -10457,6 +10475,7 @@ class HybridWriter(Writer):
         hy = config.get("v3", "hybrid", default={}) or {}
         self.model_kinds = set(hy.get("model_kinds", []) or [])
         self.template_kinds = set(hy.get("template_kinds", ["S_LULL_SPONSOR"]) or [])
+        self.template_kinds.add(STORY_PREDICT_KIND)   # V9.10: predictions are read as projected
         self.model_story_kinds = hy.get("model_story_kinds", True)
         self.fall_back = hy.get("fall_back_to_template", True)
         # V8 lanes: which writer takes the blob's FAST lane and which the SLOW
@@ -13054,6 +13073,7 @@ STORIES_FILE_NAME = "hoover_stories_v4.json"
 V4_WORDS_NAME = "hoover_words_v4.json"
 STORY_KIND_PREFIX = "S_"
 STORY_RELATE_KIND = "S_RELATE"
+STORY_PREDICT_KIND = "S_PREDICT"   # V9.10: the prediction thrown out and answered
 
 # V3 claim kinds the story layer supersedes when it is on. Everything else the
 # RaceModel emits passes through untouched.
@@ -14221,9 +14241,11 @@ class StoryEngine:
                       numbers=numbers, cap=self.scfg.e("chapters_max", 24))
         if rec.projection and len(rec.participants) >= 2:
             tgt, chs = rec.participants[0], rec.participants[-1]
-            self.predictions.plant(t, self.lap_now(), rec, rec.projection, chs, tgt,
-                                   self.name(chs), self.name(tgt),
-                                   min_feas=self.scfg.e("prediction_min_feasibility", 1.0))
+            item = self.predictions.plant(t, self.lap_now(), rec, rec.projection, chs, tgt,
+                                          self.name(chs), self.name(tgt),
+                                          min_feas=self.scfg.e("prediction_min_feasibility", 1.0))
+            if item is not None and name != "predict":
+                self._maybe_predict(t, rec, item, chs, tgt)
         row = rec.row
         subjects = list(subjects) if subjects is not None else list(rec.participants)
         names = [self.name(i) for i in subjects]
@@ -14251,6 +14273,76 @@ class StoryEngine:
         rec.last_spoken = rec.snapshot()
         rec.last_spoken_t = t
         for i in rec.participants:
+            self.note_mention(i, t)
+
+    def _maybe_predict(self, t, rec, item, chaser, target):
+        """V9.10 (19 OCT): the prediction, on air. The ledger planted 32 on
+        14 OCT and the booth spoke none: in template mode nothing ever said
+        one, and in model mode a prediction only counted if the model happened
+        to use certain words. Now a freshly planted prediction on a story with
+        a human in it is thrown out once, as its own beat -- the LEAD asks
+        whether he gets there, the ANALYST answers from the projection -- and
+        is marked spoken on the ledger at once, so the payoff beat already in
+        the close path ("he said lap four; it took him six") owes it a line.
+        Template-written, so the number said is the number projected. Gated
+        by engine.predictions.enabled, rate-limited, never while the start
+        programme or the last lap owns the channel, and never when the
+        projected lap is already here."""
+        pcfg = self.scfg.e("predictions", {}) or {}
+        if not pcfg.get("enabled", True):
+            return
+        if item.get("announced") or item.get("status") != "open":
+            return
+        if pcfg.get("humans_only", True) and not rec.humans:
+            return
+        lap = self.lap_now()
+        deadline = item.get("deadline_lap")
+        if deadline is None or lap is None or deadline <= lap:
+            return
+        if deadline - lap > int(pcfg.get("max_laps_ahead", 6)):
+            return                           # too far out to be a call
+        every = float(pcfg.get("every_s", 150.0))
+        last = getattr(self, "_last_predict_t", None)
+        if last is not None and (t - last) < every:
+            return
+        state = getattr(self.model, "state", "green")
+        if state not in ("green",):
+            return
+        item["announced"] = True
+        self._last_predict_t = t
+        self.predictions.mark_spoken(rec.id)
+        laps_left = deadline - lap
+        ctx = {"a": self.name(chaser), "b": self.name(target),
+               "lap": _num_word(deadline),
+               "laps": "one lap" if laps_left == 1 else "%s laps" % _num_word(laps_left),
+               "gap": _fmt_gap(rec.fields.get("gap")) if rec.fields.get("gap") is not None else None,
+               "pos": _ordinal(self.pos(target)) if self.pos(target) else None}
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        view = {"beat": "ask", "soon": laps_left <= 2, "human": bool(rec.humans),
+                "story": rec.row_id, "has_gap": "gap" in ctx, "has_pos": "pos" in ctx}
+        numbers = {"deadline_lap": deadline, "laps_left": laps_left}
+        self.store.beat(t, rec, "predict", "ask", {"ctx": ctx, "view": view})
+        story_chapter(rec, t, lap, "predict", "ask", display=ctx, numbers=numbers,
+                      cap=self.scfg.e("chapters_max", 24))
+        subjects = [chaser, target]
+        facts = {"story_id": rec.id, "story_type": rec.row_id,
+                 "beat": "predict", "beat_kind": "predict", "phase": rec.phase,
+                 "display": ctx, "view": view, "prediction_id": item.get("id"),
+                 "anchor_human": (rec.anchor or {}).get("human"),
+                 "energy": rec.energy, "valence": rec.valence,
+                 "register": "analysis", "cause": None}
+        facts.update(numbers)
+        pri = min(self.prio_cap, self.prio_floor + rec.score / self.prio_div
+                  + float(pcfg.get("priority_bonus", 4.0)))
+        claim = Claim(STORY_PREDICT_KIND, CLASS_ACTION, subjects,
+                      [self.name(i) for i in subjects], t, facts=facts,
+                      priority=pri, speaker="LEAD",
+                      max_age_key="story", demotable=True)
+        claim.story = rec
+        claim.max_age_override = float(pcfg.get("max_age_s", 25.0))
+        self.claims_out.append(claim)
+        self.predict_count = getattr(self, "predict_count", 0) + 1
+        for i in subjects:
             self.note_mention(i, t)
 
     def emit_relate(self, t, rec, why):
