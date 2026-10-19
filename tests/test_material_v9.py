@@ -181,5 +181,49 @@ class AfterTheFlag(unittest.TestCase):
         self.assertTrue(got[("rival", "Valor")][2]["ahead"])
 
 
+class CharityCard(unittest.TestCase):
+    """V9.13 (19 OCT): the charity card from the season file."""
+
+    def test_season_charity_cards_and_racing_info_url(self):
+        import importlib.util as _iu
+        spec = _iu.spec_from_file_location("hoover_season_t", os.path.join(ROOT, "hoover_season.py"))
+        sm = _iu.module_from_spec(spec)
+        spec.loader.exec_module(sm)
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "hoover_season_x_2026.json")
+        doc = {"schema": "hoover_season_v1", "league": {"id": "x", "name": "X", "season": "2026"}, "grid_mode": "standard",
+               "people": [{"id": "p1", "first": "Dustin", "last": "Canedy", "spoken": "Dustin Kannedy",
+                           "spoken_first": "Dustin", "gamertag": "Ronin0700VII", "roles": ["driver"]}],
+               "charities": [{"id": "c1", "name": "AutismSpeaks", "code": "AUS", "spoken": "Autism Speaks",
+                              "about": "Autism Speaks works for autistic people and their families.",
+                              "url": "https://autismspeaks.org/"},
+                             {"id": "c2", "name": "NoSentence", "code": "NOS"}],
+               "teams": [{"id": "t1", "name": "DC-RACING-TEAM", "code": "DRT", "charity": [{"id": "c1", "from": "2026-01-01"}],
+                          "game_team": 7, "seats": [{"driver": "p1"}, {"driver": None}]},
+                         {"id": "t2", "name": "LJC-RACING", "code": "LJC", "charity": [{"id": "c2", "from": "2026-01-01"}],
+                          "game_team": 4, "seats": [{"driver": None}, {"driver": None}]}]}
+        json.dump(doc, open(p, "w"))
+        season = sm.Season(p)
+        cards = season.charity_cards()
+        self.assertEqual(len(cards), 1)                       # c2 has no sentence: skipped
+        c = cards[0]
+        self.assertEqual(c["team"], "DC Racing Team")
+        self.assertEqual(c["charity"], "Autism Speaks")
+        self.assertTrue(c["human"])
+        self.assertIn("autistic", c["about"])
+        info = season.racing_info_items()
+        self.assertTrue(any("autismspeaks.org" in x for x in info), info)
+        self.assertFalse(any("https://" in x for x in info))
+
+    def test_charity_words(self):
+        w = v4.WordsFile(os.path.join(ROOT, "hoover_words_v4.json"))
+        r = w.select("S_CHARITY_CARD", {"a": "Flying Pickles", "b": "Oklahoma's Littlest Heroes", "about": "They help."},
+                     {"beat": "charity", "human": True}, past=False)
+        self.assertIsNotNone(r)
+        self.assertIn("Flying Pickles", r[1])
+        self.assertIn("They help.", r[1])
+
+
+
 if __name__ == "__main__":
     unittest.main()

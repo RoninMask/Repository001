@@ -657,6 +657,19 @@ class Overlay(object):
                               fastest_override=ov.get("fastest_lap"), pole_override=ov.get("pole"))
         doc["event"] = (snap or {}).get("event") or {}
         doc["track"] = (snap or {}).get("track") or ""
+        # V9.13 (19 OCT): the charity's URL from the season file, for the screen
+        urls = {}
+        try:
+            for c in (self.season.doc.get("charities") or []) if self.season is not None else []:
+                if c.get("url"):
+                    u = str(c["url"]).replace("https://", "").replace("http://", "").rstrip("/")
+                    for key in (c.get("name"), c.get("spoken")):
+                        if key:
+                            urls[key] = u
+        except Exception:
+            urls = {}
+        for c in doc.get("charities", []):
+            c["url"] = urls.get(c.get("charity"))
         return doc
 
     def export_results(self, doc):
@@ -1333,7 +1346,7 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
     $("pole").textContent=po.name||"—"; $("polem").textContent=po.paid?money(po.amount)+" → "+(po.charity||""):(po.name?(po.human?"":"AI driver — unpaid"):"not recorded"); $("polem").className="m"+(po.paid?"":" un");
     $("fl").textContent=fl.name||"—"; $("flm").textContent=fl.paid?money(fl.amount)+" → "+(fl.charity||""):(fl.name?(fl.human?"":"AI driver — unpaid"):"not set"); $("flm").className="m"+(fl.paid?"":" un");
     $("bty").innerHTML=(B.bounty||[]).map(b=>`P${b.pos} ${money(b.amount)} — ${esc(b.name||"—")}${b.paid?"":' <span style="opacity:.5">(AI — unpaid)</span>'}`).join("<br>");
-    const CH=(R.charities||[]); $("chr").innerHTML=CH.slice(0,8).map(c=>`<div class="row"><span>${esc(c.charity)}</span><b>${money(c.total)}</b></div>`).join("")+(CH.length>8?`<div class="row"><span style="opacity:.5">+${CH.length-8} more</span></div>`:"")||'<div class="row"><span style="opacity:.5">no prizes yet</span></div>';
+    const CH=(R.charities||[]); $("chr").innerHTML=CH.slice(0,8).map(c=>`<div class="row"><span>${esc(c.charity)}${c.url?`<span style="display:block;font-size:.62em;opacity:.55;letter-spacing:.04em">${esc(c.url)}</span>`:""}</span><b>${money(c.total)}</b></div>`).join("")+(CH.length>8?`<div class="row"><span style="opacity:.5">+${CH.length-8} more</span></div>`:"")||'<div class="row"><span style="opacity:.5">no prizes yet</span></div>';
     $("donor").textContent=P.donor||""; $("headline").textContent=P.headline||"";
     full.classList.add("on");
   }

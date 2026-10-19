@@ -68,6 +68,22 @@ EVENT_STATUSES = ("friendly", "practice", "official", "championship")
 # helpers
 # ---------------------------------------------------------------------------
 
+def _spoken_team(name):
+    """'AVIATION-ON-WHEELS' -> 'Aviation On Wheels' for the voice when the
+    team has no spoken form of its own."""
+    words = [w for w in re.split(r"[-_\s]+", str(name or "")) if w]
+    small = {"on", "of", "the", "and", "for", "de"}
+    out = []
+    for k, w in enumerate(words):
+        if w.lower() in small and k > 0:
+            out.append(w.lower())
+        elif w.isupper() and len(w) <= 3:
+            out.append(w)                     # DC, LJC, GP stay as said
+        else:
+            out.append(w.capitalize() if w.isupper() or w.islower() else w)
+    return " ".join(out)
+
+
 def _code_from(name, n=3):
     """First n letters of a name, upper-case, accents stripped, letters only."""
     if not name:
@@ -407,6 +423,22 @@ class Season(object):
                 "drivers": drivers}
 
     # -- ticker and export ---------------------------------------------------
+    def charity_cards(self, on=None):
+        """V9.13 (19 OCT): one card per team whose charity carries an `about`
+        sentence (the Season page's About box): what the booth may say about
+        it. url is never spoken; it goes to the ticker and the results screen."""
+        out = []
+        for t in self.doc.get("teams", []):
+            ch = self.charity_for(t, on)
+            about = (ch or {}).get("about")
+            if not ch or not about or not str(about).strip():
+                continue
+            human = any(self.people.get(seat.get("driver") or "") for seat in (t.get("seats") or []))
+            out.append({"team_id": t.get("id"), "team": t.get("spoken") or _spoken_team(t.get("name")),
+                        "charity_id": ch.get("id"), "charity": ch.get("spoken") or ch.get("name"),
+                        "about": str(about).strip(), "url": ch.get("url"), "human": bool(human)})
+        return out
+
     def racing_info_items(self, on=None):
         """One string per team for the Racing Info ticker slot, from the file
         alone (no telemetry): 'Dustin Canedy (CAN) – KoenigSport Racing (KSR)
@@ -421,6 +453,8 @@ class Season(object):
                     bits.append("%s (%s)" % (self.person_written(p), self.person_code(p)))
             team_s = "%s (%s)" % (t.get("name"), (t.get("code") or _code_from(t.get("name"))).upper())
             ch_s = "%s (%s)" % (ch.get("name"), (ch.get("code") or "").upper()) if ch else None
+            if ch and ch.get("url"):
+                ch_s += " – %s" % str(ch["url"]).replace("https://", "").replace("http://", "").rstrip("/")
             parts = bits + [team_s] + ([ch_s] if ch_s else [])
             out.append(" – ".join(parts))
         return out

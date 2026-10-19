@@ -81,6 +81,7 @@
     "revisit",
     "interview",
     "human_race",
+    "charity",
     "lore",
     "stats",
     "sponsor"
@@ -97,7 +98,8 @@
      "QUALI": 180.0,
      "PRACTICE": 120.0,
      "UNKNOWN": 150.0
-    }
+    },
+    "charity": 200.0
    },
    "revisit_quiet_s": 30.0,
    "revisit_rows": [
@@ -125,6 +127,19 @@
     "bookends": true,
     "givers_in_lobby": true,
     "givers_after_s": 45.0
+   },
+   "charity": {
+    "_about": "V9.13 (19 OCT): the charity card -- '{team} race tonight for {charity}. {about}' -- once per team per night, humans' teams first, from the Season page's About box (teams whose charity has no sentence are skipped). per_session caps how many air in each session; in practice and qualifying they come in the colour slot at every_s after first_after_s; in the race the lull rotation item 'charity' airs them.",
+    "enabled": true,
+    "per_session": {
+     "PRACTICE": 5,
+     "QUALI": 2,
+     "RACE": 3,
+     "UNKNOWN": 0
+    },
+    "first_after_s": 90.0,
+    "every_s": 240.0,
+    "priority": 10.0
    }
   },
   "gap_jump_max_s": 15.0,

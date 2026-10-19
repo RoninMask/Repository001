@@ -8523,6 +8523,8 @@ class V3Booth:
             self._colour_open_t = t
         if self._quiet_sponsor(t, kind):   # V9.3: paid-sponsor reads and the givers roll
             return True
+        if self._quiet_charity(t, kind):   # V9.13: the charity card, once per team per night
+            return True
         interval = float(cfg.get("interval_s", 120.0))
         pi = (cfg.get("practice_interview") or {}) if kind == "PRACTICE" else {}
         if pi.get("enabled", True) and pi.get("interval_s") is not None and kind == "PRACTICE":
@@ -8615,6 +8617,29 @@ class V3Booth:
             return False
         group = int((sp.get("group") or {}).get(kind, 1) or 1)
         claim = eng.sponsor_claim(t, group, sp)
+        if claim is None:
+            return False
+        st["last"] = t
+        return self._quiet_air(claim, t)
+
+    def _quiet_charity(self, t, kind):
+        """V9.13: in practice and qualifying, a charity card at its own cadence
+        (lull.charity.every_s), within the session budget. Template only."""
+        eng = self.stories
+        if eng is None:
+            return False
+        cfg = (eng.scfg.e("lull", {}) or {}).get("charity", {}) or {}
+        if not cfg.get("enabled", True):
+            return False
+        st = getattr(self, "_quiet_ch", None)
+        if st is None or st.get("kind") != kind:
+            st = self._quiet_ch = {"kind": kind, "open_t": t, "last": None}
+        first = float(cfg.get("first_after_s", 90.0))
+        every = float(cfg.get("every_s", 240.0))
+        due = (t - st["open_t"]) >= first if st["last"] is None else (t - st["last"]) >= every
+        if not due:
+            return False
+        claim = eng.charity_claim(t, kind, cfg)
         if claim is None:
             return False
         st["last"] = t
@@ -10568,6 +10593,7 @@ class HybridWriter(Writer):
         self.model_kinds = set(hy.get("model_kinds", []) or [])
         self.template_kinds = set(hy.get("template_kinds", ["S_LULL_SPONSOR"]) or [])
         self.template_kinds.add(STORY_PREDICT_KIND)   # V9.10: predictions are read as projected
+        self.template_kinds.add("S_CHARITY_CARD")       # V9.13: the charity's own words, as written
         self.model_story_kinds = hy.get("model_story_kinds", True)
         self.fall_back = hy.get("fall_back_to_template", True)
         # V8 lanes: which writer takes the blob's FAST lane and which the SLOW
@@ -13185,7 +13211,8 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "pos", "n", "lap", "remaining", "count", "swaps", "speed",
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
-                      "seconds", "guess", "thread", "hook", "said"}
+                      "seconds", "guess", "thread", "hook", "said",
+                      "about", "team", "charity"}      # V9.13: the charity card
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -14707,6 +14734,55 @@ class StoryEngine:
         return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
                      facts={"line": card["line"], "source": "lore", "card": card.get("id")},
                      priority=9.0, speaker="ANALYST", demotable=True)
+
+    # ---- V9.13 (19 OCT): the charity card --------------------------------------
+    def _charity_cards(self):
+        """One card per team whose charity has an `about` sentence in the season
+        file (the Season page's About box): team spoken name, charity spoken
+        name, the sentence, and whether a human drives for it. Empty when
+        there is no season or no sentence."""
+        sb = getattr(getattr(self.blobctx, "tool", None), "season", None) if self.blobctx is not None else None
+        season = getattr(sb, "season", None)
+        if season is None or not hasattr(season, "charity_cards"):
+            return []
+        try:
+            return season.charity_cards()
+        except Exception:
+            return []
+
+    def charity_claim(self, t, kind, cfg=None):
+        """The next charity card for this session, least recently read team
+        first, within lull.charity.per_session[kind]; None when none is due."""
+        cfg = cfg or (self.scfg.e("lull", {}) or {}).get("charity", {}) or {}
+        if not cfg.get("enabled", True):
+            return None
+        cards = self._charity_cards()
+        if not cards:
+            return None
+        if not hasattr(self, "_charity_read"):
+            self._charity_read = {}          # team_id -> t
+            self._charity_count = {}         # kind -> n
+        budget = (cfg.get("per_session") or {}).get(kind, 0)
+        if self._charity_count.get(kind, 0) >= int(budget):
+            return None
+        # every team once a night before any team twice; humans' teams first
+        unread = [c for c in cards if c["team_id"] not in self._charity_read]
+        pool = unread or cards
+        pool.sort(key=lambda c: (not c.get("human"), self._charity_read.get(c["team_id"], -1e9)))
+        card = pool[0]
+        self._charity_read[card["team_id"]] = t
+        self._charity_count[kind] = self._charity_count.get(kind, 0) + 1
+        display = {"a": card["team"], "b": card["charity"], "about": card["about"]}
+        view = {"beat": "charity", "human": bool(card.get("human"))}
+        claim = self._lull_claim("S_CHARITY_CARD", [], t, display, view, speaker="LEAD",
+                                 priority=float(cfg.get("priority", 10.0)))
+        claim.facts["team_id"] = card["team_id"]
+        claim.facts["charity_id"] = card.get("charity_id")
+        return claim
+
+    def _lull_charity(self, t, cfg, forced):
+        """Race lull item 'charity' (engine.lull.rotation)."""
+        return self.charity_claim(t, "RACE")
 
     # ---- V9 (16 OCT): the paid-sponsor read -------------------------------------
     _sponsor_cache = (0.0, None, [])

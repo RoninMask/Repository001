@@ -887,8 +887,8 @@ function renderSeasonTables(coll){
       <td style="text-align:center"><input type="checkbox" data-k="adult" ${p.adult!==false?"checked":""}></td>
       <td><button class="btn" data-del="people">×</button></td></tr>`).join("");
   const chars = SEASON.charities || [];
-  $("#charities").innerHTML = `<tr><th>Name</th><th>Code (≤5)</th><th>Spoken (if different)</th><th></th></tr>` +
-    chars.map((c,i) => `<tr data-i="${i}"><td><input data-k="name" value="${esc(c.name||"")}"></td><td><input class="code" data-k="code" value="${esc(c.code||"")}" maxlength="5" style="width:70px"></td><td><input data-k="spoken" value="${esc(c.spoken||"")}"></td><td><button class="btn" data-del="charities">×</button></td></tr>`).join("");
+  $("#charities").innerHTML = `<tr><th>Name</th><th>Code (≤5)</th><th>Spoken (if different)</th><th>About (one spoken sentence — the booth reads it once per team)</th><th>URL (ticker + results, never spoken)</th><th></th></tr>` +
+    chars.map((c,i) => `<tr data-i="${i}"><td><input data-k="name" value="${esc(c.name||"")}"></td><td><input class="code" data-k="code" value="${esc(c.code||"")}" maxlength="5" style="width:70px"></td><td><input data-k="spoken" value="${esc(c.spoken||"")}"></td><td><input data-k="about" value="${esc(c.about||"")}" style="min-width:360px"></td><td><input data-k="url" value="${esc(c.url||"")}" style="width:170px"></td><td><button class="btn" data-del="charities">×</button></td></tr>`).join("");
   const popts = people.map(p => [p.id, (p.first||"") + " " + (p.last||"")]);
   const copts = chars.map(c => [c.id, c.name]);
   const gopts = Object.entries(GAME_TEAMS).map(([k,v]) => [k, v]);
@@ -917,7 +917,7 @@ function readSeasonTables(){
       if (k === "_code") { SEASON.code_overrides = SEASON.code_overrides || {}; const derived = (() => { const o = SEASON.code_overrides[row.id]; delete SEASON.code_overrides[row.id]; const c = codeOf(row); if (o) SEASON.code_overrides[row.id] = o; return c; })(); if (v && v.toUpperCase() !== derived) SEASON.code_overrides[row.id] = v.toUpperCase().slice(0,3); else delete SEASON.code_overrides[row.id]; return; }
       if (k === "_charity") { row.charity = v ? [{id: v, from: (Array.isArray(row.charity) && row.charity.length && row.charity[row.charity.length-1].id === v) ? row.charity[row.charity.length-1].from : today()}] : []; return; }
       if (k === "_seat0" || k === "_seat1") { row.seats = row.seats || [{}, {}]; row.seats[k === "_seat0" ? 0 : 1] = {driver: v || null}; return; }
-      if (k === "spoken" || k === "spoken_first" || k === "colour") v = v || null;
+      if (k === "spoken" || k === "spoken_first" || k === "colour" || k === "about" || k === "url") v = v || null;
       row[k] = v;
     });
     const roles = [...tr.querySelectorAll("[data-role]")].filter(c => c.checked).map(c => c.dataset.role);
@@ -932,7 +932,7 @@ $("#btnseasonreload").onclick = loadSeason;
 $("#seasonfile").onchange = e => { EV.league = e.target.value.replace(/^hoover_season_/, "").replace(/_\d{4}\.json$/, ""); evSave(); loadSeason(); };
 const newId = (pre) => pre + "_" + Math.random().toString(36).slice(2, 7);
 $("#btnaddperson").onclick = () => { readSeasonTables(); SEASON.people.push({id: newId("p"), first: "", last: "", spoken: null, spoken_first: null, roles: ["driver"], gamertag: "", race_number: null, adult: true}); renderSeasonTables({}); };
-$("#btnaddcharity").onclick = () => { readSeasonTables(); SEASON.charities.push({id: newId("c"), name: "", code: "", spoken: null}); renderSeasonTables({}); };
+$("#btnaddcharity").onclick = () => { readSeasonTables(); SEASON.charities.push({id: newId("c"), name: "", code: "", spoken: null, about: null, url: null}); renderSeasonTables({}); };
 $("#btnaddteam").onclick = () => { readSeasonTables(); SEASON.teams.push({id: newId("t"), name: "", code: "", spoken: null, owner: "p_dustin", manager: "p_dustin", charity: [], game_team: null, colour: null, seats: [{driver: null}, {driver: null}]}); renderSeasonTables({}); };
 $("#btnredeal").onclick = async () => { if (!confirm("Clear the AI seat deal? The next session deals the open seats again.")) return; const r = await api("/api/season/redeal", {file: SEASONFILE}); toast(r.ok ? "Deal cleared." : esc(r.msg)); };
 

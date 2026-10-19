@@ -3930,6 +3930,41 @@
           "present": "Lap {lap}. Hold me to that."
         }
       ]
+    },
+    "S_CHARITY_CARD": {
+      "_about": "V9.13 (19 OCT): the charity card, once per team per night. {a} team (spoken), {b} charity (spoken), {about} the charity's own sentence from the Season page. Read as written; the URL is never spoken.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "charity",
+            "human": true
+          },
+          "present": "{a} race tonight for {b}. {about}"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "charity",
+            "human": true
+          },
+          "present": "A word on who {a} are racing for: {b}. {about}"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "charity"
+          },
+          "present": "{a} carry the colours of {b} tonight. {about}"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "charity"
+          },
+          "present": "{a} are racing for {b}. {about}"
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."
