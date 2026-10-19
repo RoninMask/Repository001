@@ -5101,11 +5101,15 @@ class Material:
             kind, key = self._origin.get(text, ("?", None))
             self.taken.append((t, kind, key, text))
 
-    def fresh_facts(self, key, t=None):
-        return [f for f in self._entry(key).get("facts", []) if self._free(f, t)]
+    def fresh_facts(self, key, t=None, skip=0):
+        """The driver's unused facts. V9.12 (19 OCT): skip leaves the first
+        `skip` facts of his card alone -- the headline (strongest first, from
+        the ingest) is reserved for the grid introduction before the lights."""
+        facts = self._entry(key).get("facts", [])
+        return [f for f in facts[int(skip):] if self._free(f, t)]
 
-    def take_fact(self, key, t=None):
-        fresh = self.fresh_facts(key, t)
+    def take_fact(self, key, t=None, skip=0):
+        fresh = self.fresh_facts(key, t, skip=skip)
         if not fresh:
             return None
         self.pending[fresh[0]] = t
@@ -5113,13 +5117,19 @@ class Material:
         return fresh[0]
 
     # ---- lore ----------------------------------------------------------------
-    def take_lore(self, track_id, hook, t=None):
+    def take_lore(self, track_id, hook, t=None, session=None):
         """The first unused card for this track (or a general card) that
-        carries the hook. Track cards come before general ones."""
+        carries the hook. Track cards come before general ones. V9.12: a card
+        may name the sessions it is for ("sessions": ["PRACTICE"]); it is
+        never dealt outside them, so a practice joke cannot land in a race
+        lull. No sessions key means any session."""
         tid = None if track_id is None else str(track_id)
         best = None
         for c in self.lore:
             if not self._free(c["line"], t) or hook not in (c.get("hooks") or []):
+                continue
+            allowed = c.get("sessions")
+            if allowed and session is not None and str(session).upper() not in [str(x).upper() for x in allowed]:
                 continue
             ct = c.get("track")
             if ct is not None and str(ct) != tid:
@@ -8442,6 +8452,46 @@ class V3Booth:
                 continue
             continue
 
+    def _practice_interview(self, t, mat, pi, kind):
+        """V9.12: one interview line in a practice colour slot, or False."""
+        eng = self.stories
+        per = int(pi.get("per_driver", 2))
+        extra = int(pi.get("extra", 2))
+        skip = int(pi.get("reserve_headline", 1))
+        spent = getattr(self, "_practice_iv_spent", None)
+        if spent is None:
+            spent = self._practice_iv_spent = {}
+            self._practice_iv_extra = 0
+            self._practice_iv_t = {}
+        hs = [h for h in eng.humans() if eng.w.cars[h].name_resolved]
+        hs.sort(key=lambda h: self._practice_iv_t.get(h, -1e9))
+        # first everyone's quota, then the extras
+        for allow_extra in (False, True):
+            for h in hs:
+                key = eng.dossier_key(h)
+                n = spent.get(key, 0)
+                if not allow_extra and n >= per:
+                    continue
+                if allow_extra and (n < per or self._practice_iv_extra >= extra):
+                    continue
+                line = mat.take_fact(key, t, skip=skip)
+                if not line:
+                    continue
+                spent[key] = n + 1
+                if allow_extra:
+                    self._practice_iv_extra += 1
+                self._practice_iv_t[h] = t
+                claim = Claim("LULL_INTERVIEW", CLASS_FILLER, [h], [eng.name(h)], t,
+                              facts={"line": line, "source": "interview",
+                                     "session_colour": kind, "timed_session": True},
+                              priority=11.0, speaker="ANALYST", demotable=True)
+                self._colour_last = t
+                self.counter_colour += 1
+                self.queue.append(claim)
+                self._air(claim, t)
+                return True
+        return False
+
     def _session_colour(self, t):
         """V8.17 (14 OCT): practice and qualifying on a stream. The session
         gate (V8.7) keeps the booth silent outside a race, which is right for
@@ -8474,6 +8524,9 @@ class V3Booth:
         if self._quiet_sponsor(t, kind):   # V9.3: paid-sponsor reads and the givers roll
             return True
         interval = float(cfg.get("interval_s", 120.0))
+        pi = (cfg.get("practice_interview") or {}) if kind == "PRACTICE" else {}
+        if pi.get("enabled", True) and pi.get("interval_s") is not None and kind == "PRACTICE":
+            interval = float(pi["interval_s"])
         first_after = float(cfg.get("first_after_s", 30.0))
         last = self._colour_last
         due = (t - self._colour_open_t) >= first_after if last is None \
@@ -8483,6 +8536,17 @@ class V3Booth:
         mat = getattr(self.blobctx, "material", None) if self.blobctx is not None else None
         if mat is None:
             return False
+        # V9.12 (19 OCT): in practice, interview facts alternate with lore --
+        # two per driver (facts 2 and 3 of his card; the headline is kept for
+        # the grid intro), then up to `extra` more from whoever has spare,
+        # least recently featured driver first. The race keeps the rest.
+        if kind == "PRACTICE" and pi.get("enabled", True) and self.stories is not None \
+                and getattr(self, "_colour_alt", "interview") == "interview":
+            self._colour_alt = "lore"
+            if self._practice_interview(t, mat, pi, kind):
+                return True
+        else:
+            self._colour_alt = "interview"
         tid = None if w.track_id is None else str(w.track_id)
         free = 0
         for c in mat.lore:
@@ -8492,7 +8556,7 @@ class V3Booth:
                 free += 1
         if free <= int(cfg.get("reserve_for_race", 12)):
             return False
-        card = mat.take_lore(w.track_id, "lull", t)
+        card = mat.take_lore(w.track_id, "lull", t, session=kind)
         if card is None:
             return False
         claim = Claim("LULL_LORE", CLASS_FILLER, [], [], t,
@@ -14637,7 +14701,7 @@ class StoryEngine:
         mat = self.material()
         if mat is None:
             return None
-        card = mat.take_lore(self.w.track_id, "lull", t)
+        card = mat.take_lore(self.w.track_id, "lull", t, session="RACE")
         if card is None:
             return None
         return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
@@ -16347,7 +16411,7 @@ class P_SF_02(StoryProcessor):
                         notes.append("%s named %s as the driver he most wants to beat"
                                      % (eng.name(h), eng.name(ri)))
                 mat = eng.material()
-                card = mat.take_lore(eng.w.track_id, "pre_race", t) if mat is not None else None
+                card = mat.take_lore(eng.w.track_id, "pre_race", t, session="RACE") if mat is not None else None
                 if card:
                     notes.append("history here: " + card["line"])
                     mat.commit(card["line"], t)

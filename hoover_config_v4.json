@@ -788,6 +788,14 @@
           "RoninMrkVII"
         ],
         "_about_ignore_names": "V9.11: lobby accounts that are not drivers (the spectator PC's own game account), left out of arrivals, the waiting list and the ready count."
+      },
+      "practice_interview": {
+        "_about": "V9.12 (19 OCT): in practice the colour slot alternates one interview line and one lore card. per_driver lines per driver from his Sienna card (facts 2 and 3; reserve_headline keeps fact 1 for the grid intro before the lights), then up to extra more from whoever has spare, least recently featured first. interval_s replaces session_colour.interval_s in practice. The race keeps everything not spent here.",
+        "enabled": true,
+        "per_driver": 2,
+        "extra": 2,
+        "reserve_headline": 1,
+        "interval_s": 75.0
       }
     },
     "timed_session": {

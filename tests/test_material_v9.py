@@ -35,6 +35,8 @@ LORE = {"cards": [
     {"id": "T1", "track": "14", "hooks": ["lull", "pre_race"], "line": "Abu Dhabi line.", "status": "ok"},
     {"id": "G1", "track": None, "hooks": ["lull"], "line": "General line.", "status": "ok"},
     {"id": "H1", "track": None, "hooks": ["lull"], "line": "Held line.", "status": "held"},
+    {"id": "J1", "track": None, "hooks": ["lull"], "line": "Practice joke.", "status": "ok",
+     "sessions": ["PRACTICE"]},
 ]}
 
 
@@ -83,9 +85,29 @@ class Ledger(unittest.TestCase):
         c2 = m.take_lore(14, "lull", t=2.0)
         self.assertEqual(c2["id"], "G1")
         m.commit(c2["line"], 3.0)
-        self.assertIsNone(m.take_lore(14, "lull", t=4.0))        # H1 is held
+        self.assertIsNone(m.take_lore(14, "lull", t=4.0, session="RACE"))   # H1 is held; J1 is practice-only
         m2, _d2 = material()
         self.assertEqual(m2.take_lore(17, "lull", t=0.0)["id"], "G1")  # other track
+
+
+class V912(unittest.TestCase):
+    def test_headline_reserved_with_skip(self):
+        m, _d = material()
+        # skip=1 never hands out the first fact of the card
+        self.assertEqual(m.take_fact("d_ronin", t=0.0, skip=1), "Ronin is an airline pilot.")
+        m.commit("Ronin is an airline pilot.", 1.0)
+        self.assertIsNone(m.take_fact("d_ronin", t=2.0, skip=1))
+        # the headline is still there for the grid intro
+        self.assertEqual(m.take_fact("d_ronin", t=3.0), "Ronin says second is the target.")
+
+    def test_lore_sessions_key(self):
+        m, _d = material()
+        for _ in range(2):                       # spend T1 and G1
+            c = m.take_lore(14, "lull", t=0.0, session="RACE"); m.commit(c["line"], 1.0)
+        self.assertIsNone(m.take_lore(14, "lull", t=2.0, session="RACE"))      # J1 is practice-only
+        self.assertEqual(m.take_lore(14, "lull", t=2.0, session="PRACTICE")["id"], "J1")
+        m2, _ = material()
+        self.assertEqual(m2.take_lore(14, "lull", t=0.0)["id"], "T1")          # no session: anything
 
 
 class Words(unittest.TestCase):
