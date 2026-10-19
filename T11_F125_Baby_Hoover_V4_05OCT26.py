@@ -14498,12 +14498,18 @@ class StoryEngine:
                 ctx.setdefault("team", tc[0])
                 if tc[1]:
                     ctx.setdefault("charity", tc[1])
+        damaged = False
+        if rec.row_id != "REL-01":
+            rel = next((p for p in self.processors if getattr(p, "ID", None) == "REL-01"), None)
+            if rel is not None:
+                damaged = any(rel.damaged(i) for i in rec.participants[:2])
         facts = {"story_id": rec.id, "story_type": rec.row_id, "beat": name,
                  "beat_kind": kind, "phase": rec.phase,
                  "display": dict(ctx),
                  "view": dict(view, beat=name, phase=rec.phase,
                               human=bool(rec.humans),
-                              session=getattr(self.w, "session_kind", "RACE") or "RACE"),
+                              session=getattr(self.w, "session_kind", "RACE") or "RACE",
+                              damaged=damaged),
                  "anchor_human": (rec.anchor or {}).get("human"),
                  "energy": rec.energy, "valence": rec.valence,
                  "register": row.get("register", "fact"),
@@ -14892,6 +14898,10 @@ class StoryEngine:
         if sb is None:
             return None
         try:
+            if sb.ident(idx) is None:
+                # the publisher refreshes identities on every snapshot; with
+                # --no-publish (replays) nothing else does, so do it here
+                sb.refresh(self.w, getattr(self.w, "ext", None))
             ident = sb.ident(idx)
         except Exception:
             return None
@@ -16321,6 +16331,106 @@ class P_INC_06(StoryProcessor):
                     rec.participants.append(i)
                     if eng.is_human(i):
                         rec.humans.append(i)
+
+
+@story_processor
+class P_REL_01(StoryProcessor):
+    """REL-01 Damage carried (V9.19, 19 OCT). Front wing damage on a human's
+    car -- serious only (serious_pct of the wing gone), said in human words,
+    never a percentage: 'That is a pit stop, or slow laps, or both.' Then the
+    consequence it can see: lap times falling off against his own best from
+    before the damage (slow_s), the stop for a new nose, and 'on the new wing'
+    afterwards. Within a session only: the game hands out a fresh car each
+    session. Damage is private telemetry, blank for a Restricted driver.
+    Nothing here goes to a model."""
+    ID = "REL-01"
+
+    def __init__(self, engine):
+        super().__init__(engine)
+        self._wing = {}                 # idx -> last wing damage seen (max of the two)
+        self._done = {}                 # idx -> number of damage stories this session
+        self._best = {}                 # idx -> his best lap so far this session (ms)
+
+    def wing(self, idx):
+        ext = getattr(self.eng.w, "ext", None)
+        if ext is None:
+            return None
+        dmg = ext.car_field("damage", idx)
+        if not dmg:
+            return None
+        try:
+            return max(float(dmg.get("fl_wing") or 0), float(dmg.get("fr_wing") or 0))
+        except (TypeError, ValueError):
+            return None
+
+    def observe(self, t):
+        eng = self.eng
+        serious = float(self.p("serious_pct", 30.0))
+        slow_s = float(self.p("slow_s", 0.8))
+        humans_only = bool(self.p("humans_only", True))
+        for c in eng.w.cars:
+            if not c.seen or c.position <= 0:
+                continue
+            if humans_only and not c.is_human:
+                continue
+            if c.last_lap_ms and (c.idx not in self._best or c.last_lap_ms < self._best[c.idx]):
+                self._best[c.idx] = c.last_lap_ms
+            wing = self.wing(c.idx)
+            if wing is None:
+                continue
+            prev = self._wing.get(c.idx)
+            self._wing[c.idx] = wing
+            rec = next((r for r in self.live() if c.idx in r.participants), None)
+            if rec is None:
+                if prev is not None and wing >= serious and prev < serious \
+                        and not eng.model.is_retired(c.idx) \
+                        and self._done.get(c.idx, 0) < int(self.p("max_per_car", 2)):
+                    self._done[c.idx] = self._done.get(c.idx, 0) + 1
+                    rec = self.open(t, [c.idx], fields={"wing_at_open": wing, "lap_at_open": c.lap,
+                                                         "best_before_ms": self._best.get(c.idx, 0),
+                                                         "pos_at_open": _pos_map(eng, [c.idx]),
+                                                         "slow_said": False, "stopped": False},
+                                    phase="damaged")
+                    heavy = wing >= float(self.p("heavy_pct", 60.0))
+                    self.beat(t, rec, "transition", "damaged",
+                              ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position)},
+                              view={"human": c.is_human, "heavy": heavy},
+                              numbers={"wing_pct": round(wing)}, must=c.is_human)
+                continue
+            # the open story: consequences
+            if eng.model.is_retired(c.idx):
+                self.close(t, rec, "out")
+                continue
+            if rec.phase == "damaged" and c.pit_status in (1, 2) and not rec.fields.get("stopped"):
+                rec.fields["stopped"] = True
+                rec.phase = "in_for_nose"
+                self.beat(t, rec, "transition", "in_for_nose",
+                          ctx={"a": eng.name(c.idx)}, view={"human": c.is_human}, must=c.is_human)
+                continue
+            if rec.phase == "in_for_nose" and not c.pit_status and wing < serious * 0.5:
+                rec.fields["repaired_lap"] = c.lap
+                rec.phase = "new_nose"
+                self.beat(t, rec, "transition", "new_nose",
+                          ctx={"a": eng.name(c.idx)}, view={"human": c.is_human}, must=False)
+                self.close(t, rec, "repaired")
+                continue
+            if rec.phase == "damaged" and not rec.fields.get("slow_said"):
+                best = rec.fields.get("best_before_ms") or 0
+                last = c.last_lap_ms or 0
+                if best and last and c.lap > rec.fields.get("lap_at_open", 0) \
+                        and (last - best) / 1000.0 >= slow_s:
+                    rec.fields["slow_said"] = True
+                    delta = (last - best) / 1000.0
+                    self.beat(t, rec, "threshold", "slow",
+                              ctx={"a": eng.name(c.idx), "delta": _fmt_gap(delta)},
+                              view={"human": c.is_human}, numbers={"delta_s": round(delta, 1)},
+                              must=False)
+            if rec.phase == "damaged" and (t - rec.opened_t) > float(self.p("carry_close_s", 600.0)):
+                self.close(t, rec, "carried")
+
+    def damaged(self, idx):
+        """True while a damage story is open on this car (the battle lines ask)."""
+        return any(idx in r.participants and r.phase in ("damaged", "in_for_nose") for r in self.live())
 
 
 @story_processor

@@ -1021,6 +1021,22 @@
     "S_BAT_01": {
       "variants": [
         {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "attack_range",
+            "damaged": true
+          },
+          "present": "{a} is on the back of {b} for {pos}, and he is doing it with a damaged front wing."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "open",
+            "damaged": true
+          },
+          "present": "{a} is closing on {b}, {gap} back, and he is carrying front wing damage while he does it."
+        },
+        {
           "speaker": "LEAD",
           "when": {
             "beat": "open"
@@ -4378,6 +4394,96 @@
             "beat": "charity"
           },
           "present": "{a} are racing for {b}. {about}"
+        }
+      ]
+    },
+    "S_REL_01": {
+      "_about": "V9.19 (19 OCT): REL-01 damage carried. Human words only, never a percentage. Beats: damaged (heavy = most of the wing), slow ({delta} a lap off his own best), in_for_nose, new_nose. Other story lines may carry view.damaged (see S_BAT_01).",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "damaged",
+            "heavy": true
+          },
+          "present": "{a} has lost most of the front wing. That is a pit stop, or slow laps, or both.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "He has a decision to make, and neither answer is free: come in and lose the track position, or stay out and lose the time."
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "damaged",
+            "heavy": false
+          },
+          "present": "Front wing damage for {a}, and it is a proper chunk. That is a pit stop, or slow laps, or both.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "The car will understeer everywhere now. He can live with it for a while, but the tyres will pay for it."
+            }
+          ]
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "damaged"
+          },
+          "present": "{a} is carrying front wing damage, and plenty of it. Watch his lap times from here."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "slow"
+          },
+          "present": "And it is costing {a}: {delta} a lap slower than he was before the damage."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "slow"
+          },
+          "present": "The damage is showing now. {a} is {delta} a lap off his own pace."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "in_for_nose"
+          },
+          "present": "{a} is in for a new front wing."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "in_for_nose"
+          },
+          "present": "{a} comes in. New nose, fresh tyres, and a lot of track position to win back."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "new_nose"
+          },
+          "present": "{a} is back out on a new front wing."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "new_nose",
+            "session": "PRACTICE"
+          },
+          "present": "{a} is out again on the new nose. Practice is for finding out, and he has found out."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "new_nose"
+          },
+          "present": "{a} on the new wing now. The car should feel like a different thing."
         }
       ]
     }

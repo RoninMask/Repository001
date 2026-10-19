@@ -300,6 +300,16 @@
   },
   "RC-07": {
    "drs_range_s": 1.0
+  },
+  "REL-01": {
+   "serious_pct": 30.0,
+   "heavy_pct": 60.0,
+   "slow_s": 0.8,
+   "humans_only": true,
+   "max_per_car": 2,
+   "carry_close_s": 600.0,
+   "max_age_s": 20.0,
+   "_about": "serious_pct: how much of the front wing must be gone before the booth says anything (never a percentage on air). heavy_pct: 'most of the front wing' wording. slow_s: lap time off his own pre-damage best before 'and it is costing him'. humans_only: AI damage is never called. max_per_car per session."
   }
  },
  "rows": {
@@ -2558,7 +2568,7 @@
   "REL-01": {
    "anchor": "relate",
    "base": 40,
-   "build": "V4",
+   "build": "V3-P1",
    "camera": "optional",
    "cause_required": "yes",
    "cluster": false,
@@ -2580,7 +2590,8 @@
    "story": "Damage carried",
    "valence": "down",
    "voice": "analyst",
-   "voice_default": "ANALYST"
+   "voice_default": "ANALYST",
+   "_about_v9_19": "19 OCT: built. Front wing damage on a human's car, serious only, human words; then slow laps, the stop for a new nose, 'on the new wing'. Within a session. Params below."
   },
   "REL-02": {
    "anchor": "relate",
