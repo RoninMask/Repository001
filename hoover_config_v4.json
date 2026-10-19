@@ -783,7 +783,11 @@
         "enabled": true,
         "arrivals_every_s": 25.0,
         "ready_every_s": 40.0,
-        "max_lines": 24
+        "max_lines": 24,
+        "ignore_names": [
+          "RoninMrkVII"
+        ],
+        "_about_ignore_names": "V9.11: lobby accounts that are not drivers (the spectator PC's own game account), left out of arrivals, the waiting list and the ready count."
       }
     },
     "timed_session": {
@@ -797,7 +801,12 @@
       "flyer_every_s": 25.0
     },
     "penalty_reason_from_infringement": true,
-    "_about_penalty_reason": "V8.20 (14 OCT): every penalty line carries the game's own reason (the PENA event's infringement type, spoken via INFRINGEMENT_WORDS) when no contact story names a cause. Absent from the V3 config so the identity gate holds."
+    "_about_penalty_reason": "V8.20 (14 OCT): every penalty line carries the game's own reason (the PENA event's infringement type, spoken via INFRINGEMENT_WORDS) when no contact story names a cause. Absent from the V3 config so the identity gate holds.",
+    "udp": {
+      "_about": "V9.11 (19 OCT): one telemetry source. auto = lock to the loopback sender (the spectator game on this PC) the moment it speaks, else the first sender after lock_grace_s; any = feed every packet (the behaviour before 19 OCT); or an IP address to lock to. Other senders are counted in the manifest and ignored. On 09 OCT two local drivers' games were broadcasting onto the LAN and 28% of the packets Hoover modelled were theirs.",
+      "source": "auto",
+      "lock_grace_s": 2.0
+    }
   },
   "_about_v4": "V4 config (07 OCT 26): hoover_config_v3.json frozen at Pass 4 for the V3 tool and the identity gate; this file is what the V4 tool reads by default. Same shape as v3 plus v3.restart and the 07 OCT lull/camera values."
 }

@@ -99,9 +99,20 @@ class Lobby(unittest.TestCase):
         self.assertIn("One still to ready up", b.emitted[-1]["text"])
 
     def test_restricted_telemetry_warns_the_operator_not_the_air(self):
+        # V9.11 (19 OCT): the warning comes from Participants, never from the
+        # lobby packet's telemetry byte (which reads 0 for everyone in the lobby)
         logs = []
         m, b = _booth([_pl("Ronin0700VII"), _pl("Shockin05", public=0)], logs)
         b._session_colour(1000.0)
+        self.assertEqual([l for l in logs if "Restricted" in l], [])   # lobby byte: ignored
+        c = m.w.cars[3]
+        c.seen = True
+        c.ai = 0
+        c.name = "Shockin05"
+        c.spoken_short = "Sholly"
+        c.name_resolved = True
+        c.telemetry_public = 0                                        # Participants: the truth
+        b._session_colour(b.channel_busy_until + 30.0)
         warn = [l for l in logs if "Restricted" in l]
         self.assertEqual(len(warn), 1)
         self.assertIn("Sholly", warn[0])
@@ -109,6 +120,16 @@ class Lobby(unittest.TestCase):
         # said once only
         b._session_colour(b.channel_busy_until + 30.0)
         self.assertEqual(len([l for l in logs if "Restricted" in l]), 1)
+
+    def test_the_spectator_account_is_not_an_arrival(self):
+        # V9.11: RoninMrkVII is the spectator PC's own game account
+        logs = []
+        m, b = _booth([_pl("RoninMrkVII"), _pl("Ronin0700VII"), _pl("VaLoR")], logs)
+        self.assertTrue(b._session_colour(1000.0))
+        first = b.emitted[-1]["text"]
+        self.assertIn("Dustin", first)
+        self.assertNotIn("RoninMrkVII", first)
+        self.assertIn("Mike", first)
 
     def test_no_break_space_gamertag_still_gets_his_real_name(self):
         # V9.9 (19 OCT): the game's second lobby packet spells the gamertag

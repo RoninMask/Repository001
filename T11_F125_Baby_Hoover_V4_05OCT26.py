@@ -622,6 +622,11 @@ def wire_name(raw):
     return " ".join(txt.split())
 
 
+def _norm_name(s):
+    """Case- and space-insensitive key for a gamertag or lobby name."""
+    return "".join(str(s or "").split()).lower()
+
+
 class Parser:
     def __init__(self, world, log):
         self.w = world
@@ -8894,7 +8899,12 @@ class V3Booth:
             sp = (e or {}).get("spoken") or {}
             return sp.get("short") or nm
 
-        humans = [pl for pl in players if not pl.get("ai")]
+        # V9.11 (19 OCT): the spectator PC's own game account sits in the lobby
+        # as a "human" (RoninMrkVII on 09 OCT, announced as an arrival); the
+        # names in lobby.ignore_names are left out of every count and line.
+        ignore = {_norm_name(x) for x in (lc.get("ignore_names") or [])}
+        humans = [pl for pl in players if not pl.get("ai")
+                  and _norm_name(pl.get("name") or "") not in ignore]
         here = [on_air(pl.get("name") or "") for pl in humans if (pl.get("name") or "").strip()]
         # the roster's humans who have not appeared
         in_lobby = {(pl.get("name") or "").strip() for pl in humans}
@@ -8907,14 +8917,21 @@ class V3Booth:
                 missing.append(((e.get("spoken") or {}).get("short") or h))
         ready = sum(1 for pl in humans if pl.get("ready") == 2)
         waiting = max(0, len(humans) - ready)
-        # the operator warning, once per driver
-        for pl in humans:
-            nm = (pl.get("name") or "").strip()
-            if nm and pl.get("telemetry_public") == 0 and nm not in self._lobby_restricted:
+        # The Restricted warning: V9.11 (19 OCT) -- NOT from the lobby packet.
+        # Its telemetry byte reads 0 for everyone in the lobby (the 09 OCT
+        # captures: all 0 in Lobby Info, all 1 in Participants for the same
+        # seven drivers), so it warned about public drivers. The warning now
+        # comes from Participants, the packet the private-data gate trusts,
+        # once per driver, the first time his car is seen with the flag at 0.
+        for c in self.model.w.cars:
+            if not (c.seen and c.is_human and c.telemetry_public == 0):
+                continue
+            nm = (c.name or "").strip()
+            if nm and nm not in self._lobby_restricted:
                 self._lobby_restricted.add(nm)
                 _log = getattr(self.model, "log", None) or (lambda m: print("[v3] " + m, flush=True))
-                _log("*** LOBBY: %s has telemetry set to Restricted -- no tyres, no damage, no "
-                     "setup for him all night. Ask him to set it to Public now. ***" % on_air(nm))
+                _log("*** TELEMETRY: %s has his telemetry set to Restricted (Participants) -- no tyres, "
+                     "no damage, no setup for him this session. Ask him to set it to Public. ***" % on_air(nm))
 
         def air(kind, ctx, view, pri=10.0, speaker="LEAD"):
             claim = Claim(kind, CLASS_FILLER, [], [], t,
@@ -17805,8 +17822,23 @@ class BabyHooverV3:
         # player car index is counted for the manifest, and a second source
         # is logged the moment it appears.
         self.udp_guard = {"sources": {}, "session_uids": {}, "player_cars": {},
-                          "duplicates_dropped": 0, "fed": 0}
+                          "duplicates_dropped": 0, "fed": 0,
+                          "ignored_by_source": {}, "locked_source": None}
         seen = {}
+        # V9.11 (19 OCT): ONE source. The 09 OCT captures held three games'
+        # telemetry at once -- the spectator's (player car 255, 72%) and two
+        # local drivers' games broadcasting onto the LAN (their own car index
+        # in the header, 28%), plus 7-10% exact duplicates -- and Hoover fed
+        # every packet into one race model. Now the feed locks to one sender
+        # address: the loopback (the spectator game on this PC) when it
+        # appears, else the first sender; every other address is counted and
+        # ignored, and logged once. v3.udp.source: "auto" (default), "any"
+        # (the old behaviour), or an IP to lock to.
+        udp_cfg = self.config.get("v3", "udp", default={}) or {}
+        source_mode = str(udp_cfg.get("source", "auto") or "auto")
+        lock_ip = None if source_mode in ("auto", "any") else source_mode
+        lock_t0 = None
+        lock_grace = float(udp_cfg.get("lock_grace_s", 2.0))
         try:
             while True:
                 try:
@@ -17825,12 +17857,40 @@ class BabyHooverV3:
                 writer.write(t, data)
                 g = self.udp_guard
                 src = "%s:%s" % (_addr[0], _addr[1]) if _addr else "?"
+                ip = _addr[0] if _addr else "?"
                 if src not in g["sources"]:
                     g["sources"][src] = 0
                     if len(g["sources"]) > 1:
                         self._log("*** UDP: a second telemetry source appeared: %s (now %s) ***"
                                   % (src, ", ".join(g["sources"])))
                 g["sources"][src] += 1
+                if source_mode != "any":
+                    if lock_ip is None:
+                        # auto: take the loopback the moment it speaks; otherwise
+                        # the first sender once the grace period has passed
+                        if ip in ("127.0.0.1", "::1"):
+                            lock_ip = ip
+                        elif lock_t0 is None:
+                            lock_t0 = t
+                        elif t - lock_t0 >= lock_grace:
+                            lock_ip = ip
+                        if lock_ip is not None:
+                            g["locked_source"] = lock_ip
+                            self._log("[udp] locked to source %s (v3.udp.source=%s)" % (lock_ip, source_mode))
+                    elif ip in ("127.0.0.1", "::1") and lock_ip not in ("127.0.0.1", "::1") \
+                            and source_mode == "auto":
+                        self._log("[udp] the local game appeared at %s -- re-locking from %s" % (ip, lock_ip))
+                        lock_ip = ip
+                        g["locked_source"] = lock_ip
+                    if lock_ip is not None and ip != lock_ip:
+                        n = g["ignored_by_source"].get(ip, 0) + 1
+                        g["ignored_by_source"][ip] = n
+                        if n in (1, 1000, 10000):
+                            self._log("*** UDP: ignoring telemetry from %s (%d packets so far) -- another game "
+                                      "is sending to this PC; ask that driver to turn UDP Broadcast Mode "
+                                      "off. Hoover is locked to %s. ***" % (ip, n, lock_ip))
+                        last_t = t
+                        continue
                 dup = False
                 if len(data) >= 29:
                     try:
@@ -17889,7 +17949,27 @@ class BabyHooverV3:
         last_t = None
         prev_arrival = None
         wall0 = time.time()
+        # V9.11: a capture made before the source lock may hold other games'
+        # packets (their own car index in the header). --replay-source
+        # spectator (default) keeps the spectator's perspective: player car
+        # 255, the pre-join packets with index 0 before 255 is first seen, and
+        # Lobby Info from anyone (identical content, never joined to a car).
+        # "all" replays every packet as before.
+        rs_mode = getattr(self.args, "replay_source", "spectator") or "spectator"
+        rs_seen255 = False
+        rs_dropped = {}
         for t, payload in reader.records():
+            if rs_mode == "spectator" and len(payload) >= HEADER_SIZE:
+                pcar = payload[27]
+                pid = payload[6]
+                if pcar == 255:
+                    rs_seen255 = True
+                elif pid != PID_LOBBYINFO and not (pcar == 0 and not rs_seen255):
+                    rs_dropped[pcar] = rs_dropped.get(pcar, 0) + 1
+                    if rs_dropped[pcar] == 1:
+                        self._log("[replay] another game's packets in this capture (player car %d) "
+                                  "-- not fed (--replay-source all to include them)" % pcar)
+                    continue
             if self.rec_start is None:
                 self.rec_start = t
                 self.model.rec_start = t
@@ -17916,6 +17996,10 @@ class BabyHooverV3:
             self._feed(t, payload)
             prev_arrival = t
             last_t = t
+        if rs_dropped:
+            self.udp_guard = {"replay_source": rs_mode,
+                              "dropped_by_player_car": {str(k): v for k, v in rs_dropped.items()}}
+            self._log("[replay] packets from other games left out: %s" % self.udp_guard["dropped_by_player_car"])
         self._close(last_t if last_t is not None else (self.rec_start or 0.0))
         return 0
 
@@ -18699,6 +18783,8 @@ def main():
     ap.add_argument("--season", default=None,
                     help="season file (hoover_season_<league>_2026.json) or 'off'; "
                          "default: the one season file beside the tool")
+    ap.add_argument("--replay-source", choices=["spectator", "all"], default="spectator",
+                    help="replay: feed only the spectator game's packets (default) or every packet in the capture")
     ap.add_argument("--season-names", choices=["on", "off"], default="off",
                     help="on: the booth names from the season file; off (default for the 21st): "
                          "the roster's Real/Gamertag switch names the booth, the season file dresses the screen")
