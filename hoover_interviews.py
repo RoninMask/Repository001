@@ -41,7 +41,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-TOOL_VERSION = "interviews_v1_1_14OCT26"
+TOOL_VERSION = "interviews_v1_2_19OCT26"
 AGENT_ID = "agent_3701m4h2w4dpeva9j4hszehzq3zp"
 EL_BASE = "https://api.elevenlabs.io"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -49,6 +49,8 @@ DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 FALLBACK_MODEL = "claude-haiku-4-5-20251001"     # the model Hoover already uses
 ARMED_KEYS = ("on_podium", "on_lead", "on_win", "on_retire")
 MAX_FACT_WORDS = 30
+MAX_FACTS = 5            # V1.2 (19 OCT): five per driver, strongest first (practice spends two)
+MAX_MANAGER_FACTS = 2    # V1.2: a team manager's call adds up to two to the driver's card
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -223,8 +225,8 @@ SYSTEM = """You prepare pre-race interview material for the two commentators of 
 You get one driver's interview transcript with the reporter Sienna, the fields her system extracted, and the league roster.
 Return ONLY a JSON object, no prose, with these keys:
 
-"facts": up to 3 strings. Each is one short sentence (max 25 words) the commentators could say on air during the race, in third person, using the driver's ON-AIR name. Pick the strongest material: predictions, rivalries, stakes, colour. Example: "Before the race Ronin told us he'd settle for second, and he's named Valor as the man he most wants to beat."
-"armed": an object with any of on_podium, on_lead, on_win, on_retire. Each value is one sentence that only makes sense if that happens (e.g. on_podium: "He told Sienna second was the realistic target, and here he is."). Omit keys you have nothing for.
+"facts": up to 5 strings, STRONGEST FIRST (the first one opens his grid introduction; the next two are read during practice; the rest fill quiet moments in the race). Each is one short sentence (max 25 words) the commentators could say on air, in third person, using the driver's ON-AIR name. Pick predictions, rivalries, stakes, the charity he races for and why, colour. Example: "Before the race Dustin told us he'd settle for second, and he's named Mike as the man he most wants to beat."
+"armed": an object with any of on_podium, on_lead, on_win, on_retire. Each value is one sentence that only makes sense if that happens (on_podium: "He told Sienna second was the realistic target, and here he is." on_retire: what he said he would do if his race ended early, who he would pull for, e.g. "He told Sienna if it went wrong early he'd pull up the stream and cheer for Mike." on_win: "He told Sienna he was coming for the win, and he meant it."). Omit keys you have nothing for.
 "predicted_finish": integer or null.
 "rival": the rival's ON-AIR name, or null.
 "rival_reason": short string or null.
@@ -243,16 +245,23 @@ Return ONLY a JSON object, no prose, with these keys:
 Rules:
 - Use ONLY what the driver actually said. Sienna's own remarks are not facts (she has no track or league knowledge; ignore her guesses).
 - The speech-to-text mishears names. Match mentions to the roster by on-air name, gamertag or real first name, allowing for mishearing. If a first name matches two drivers, or you are unsure, do not guess: put it in unresolved_names and leave it out of facts.
-- NEVER put a real first name in facts, armed or rival fields. Only on-air names. Real names are private.
+- Use each driver's ON-AIR name exactly as the roster's "on air" column gives it (since 14 October that IS his real first name; "Sholly" is the exception). Never a gamertag, never a surname on its own, never a name that is not in the roster.
 - Leave out anything the driver said was off the record, and anything personal they did not volunteer.
 - No digits in facts or armed lines: write numbers as words ("second", "five laps").
 - Be accurate over colourful. If an answer was thin, say less."""
 
 
-def model_pass(key, model, roster, did, conv, fields, log):
+def model_pass(key, model, roster, did, conv, fields, log, speaker=None):
     d = roster.by_id[did]
-    user = ("ROSTER\n%s\n\nTHIS DRIVER: on air %s, gamertag %s\n\nEXTRACTED FIELDS\n%s\n\nTRANSCRIPT\n%s"
-            % (roster.name_table(), d["spoken"]["short"], d["match"]["handle"],
+    who = ""
+    if speaker:
+        who = ("\n\nSPEAKER: this call is NOT the driver. It is %s, the team manager of %s's team. "
+               "Write every fact and armed line about the DRIVER (%s) in third person, attributing the "
+               "words to the manager by first name, e.g. \"%s's team manager %s told Sienna ...\". "
+               "At most %d facts." % (speaker, d["spoken"]["short"], d["spoken"]["short"],
+                                      d["spoken"]["short"], speaker, MAX_MANAGER_FACTS))
+    user = ("ROSTER\n%s\n\nTHIS DRIVER: on air %s, gamertag %s%s\n\nEXTRACTED FIELDS\n%s\n\nTRANSCRIPT\n%s"
+            % (roster.name_table(), d["spoken"]["short"], d["match"]["handle"], who,
                json.dumps(fields, ensure_ascii=False, indent=1), transcript_text(conv)))
     body = {"model": model, "max_tokens": 1500, "temperature": 0.2,
             "system": SYSTEM, "messages": [{"role": "user", "content": user}]}
@@ -264,7 +273,7 @@ def model_pass(key, model, roster, did, conv, fields, log):
     except urllib.error.HTTPError as e:
         if e.code == 404 and model != FALLBACK_MODEL:
             log("  model %s not available, retrying with %s" % (model, FALLBACK_MODEL))
-            return model_pass(key, FALLBACK_MODEL, roster, did, conv, fields, log)
+            return model_pass(key, FALLBACK_MODEL, roster, did, conv, fields, log, speaker=speaker)
         log("  Claude pass failed (HTTP %d); using rules only" % e.code)
         return None, model
     except (urllib.error.URLError, TimeoutError) as e:
@@ -357,6 +366,8 @@ def latest_per_driver(raw_dir, roster, log, since=None):
     before it, so only race-week interviews count and an old call never airs
     as if it were fresh. The roll call then shows who still owes one."""
     best, orphans = {}, []
+    managers = {}            # V1.2: driver_id -> the team manager's call (role = team_manager)
+    latest_per_driver.managers = managers
     if not os.path.isdir(raw_dir):
         return best, orphans
     skipped_old = 0
@@ -378,6 +389,14 @@ def latest_per_driver(raw_dir, roster, log, since=None):
         if driver_words(conv) < 15:
             log("  %s: call %s is too short to use (%d words from the driver)"
                 % (d["spoken"]["short"], conv.get("conversation_id", fn), driver_words(conv)))
+            continue
+        # V1.2 (19 OCT): a team manager's call (the link's role variable) shares
+        # the driver's gamertag -- Alan manages Call the Ball, Zac drives it --
+        # and must never overwrite the driver's own call. It is kept apart and
+        # adds to the driver's card.
+        if str(call_vars(conv).get("role") or "").strip().lower() in ("team_manager", "manager"):
+            if did not in managers or call_start(conv) > call_start(managers[did]):
+                managers[did] = conv
             continue
         if did not in best or call_start(conv) > call_start(best[did]):
             best[did] = conv
@@ -418,6 +437,26 @@ def build(args, roster, paths, log):
         if card is None:
             card, used = rules_pass(roster, did, fields), "rules"
         facts, dropped = check_lines(card.get("facts") or [], roster, did)
+        facts = facts[:MAX_FACTS]
+        # V1.2: the team manager's call, if any, adds to the driver's card
+        mconv = (getattr(latest_per_driver, "managers", {}) or {}).get(did)
+        manager_out = None
+        if mconv is not None:
+            mname = (call_vars(mconv).get("driver_name") or call_vars(mconv).get("name")
+                     or "the team manager").strip()
+            mfields = call_fields(mconv)
+            mcard, mused = None, "rules"
+            if akey:
+                mcard, mused = model_pass(akey, args.model, roster, did, mconv, mfields, log, speaker=mname)
+            mfacts, mdropped = check_lines((mcard or {}).get("facts") or [], roster, did)
+            mfacts = [f for f in mfacts if mname.split()[0].lower() in f.lower()][:MAX_MANAGER_FACTS] \
+                if mfacts else []
+            dropped += mdropped
+            manager_out = {"name": mname, "conversation_id": mconv.get("conversation_id"),
+                           "facts": mfacts, "quotes": (mcard or {}).get("quotes") or [],
+                           "pass": mused}
+            facts = facts + [f for f in mfacts if f not in facts]
+            log("  %s: team manager %s's call added %d line(s)" % (on, mname, len(mfacts)))
         armed = {}
         for k in ARMED_KEYS:
             v = (card.get("armed") or {}).get(k)
@@ -450,7 +489,8 @@ def build(args, roster, paths, log):
                        "race_day": call_vars(conv).get("race_day"),
                        "track": call_vars(conv).get("track")},
             "built_by": {"tool": TOOL_VERSION, "pass": used},
-            "facts": facts[:3],
+            "facts": facts[:MAX_FACTS + MAX_MANAGER_FACTS],
+            "manager": manager_out,
             "armed": armed,
             "interview": {"predicted_finish": pf if pf and 1 <= pf <= 22 else None,
                           "rival_id": rid,
