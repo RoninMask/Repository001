@@ -766,7 +766,15 @@
         "PRACTICE",
         "QUALI",
         "TIMETRIAL"
-      ]
+      ],
+      "allow_in_quiet": [
+        "S_INC_01",
+        "S_INC_02",
+        "S_INC_05",
+        "S_INC_06",
+        "RETIREMENT"
+      ],
+      "_about_allow_in_quiet": "V9.14 (19 OCT): story kinds that pass the quiet gate in practice and qualifying when a human is in them -- contact, off, crash, first-lap pile-up. AI-only incidents stay silent. The words file phrases them by session (view.session: PRACTICE / QUALI / RACE)."
     },
     "session_colour": {
       "_about": "V8.17 (14 OCT), extended V8.24: colour and the lobby. Outside a race session the booth airs one lore card (hook 'lull') every interval_s, template-written, reading nothing off the race state; UNKNOWN covers the lobby and the gaps between sessions. While Lobby Info is on the wire the lobby segment also airs arrivals, who is still missing and the ready countdown, from that packet alone (never joined to car index: its ordering differs). All of it stops the moment a start-lights or lights-out event declares a race, and never takes the last reserve_for_race 'lull' cards, which the race lulls need. enabled: false turns the colour off; lobby.enabled: false just the lobby lines.",

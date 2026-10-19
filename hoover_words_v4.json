@@ -1609,6 +1609,22 @@
             "beat": "consequence"
           },
           "present": "The cost of that is {places} for {a}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "contact",
+            "session": "QUALI"
+          },
+          "present": "Contact in qualifying! {a} and {b}, and with damage on that is the last thing either of them needs."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "contact",
+            "session": "PRACTICE"
+          },
+          "present": "Contact between {a} and {b} in practice. Nobody is racing anybody, which makes that one hard to explain."
         }
       ]
     },
@@ -1618,7 +1634,8 @@
           "speaker": "LEAD",
           "when": {
             "beat": "off",
-            "big": true
+            "big": true,
+            "session": "RACE"
           },
           "present": "{a} is off! That is a big one, he has lost the car.",
           "past": "{a} had a big off."
@@ -1627,7 +1644,8 @@
           "speaker": "LEAD",
           "when": {
             "beat": "off",
-            "big": true
+            "big": true,
+            "session": "RACE"
           },
           "present": "Oh no, {a} has gone off in a big way, and {b} is right there behind him.",
           "past": "{a} went off in a big way."
@@ -1636,7 +1654,8 @@
           "speaker": "ANALYST",
           "when": {
             "beat": "off",
-            "big": true
+            "big": true,
+            "session": "RACE"
           },
           "present": "That is a proper off for {a}, from {pos}. He has to gather it up and get back on, and every second out there is a place gone."
         },
@@ -1682,6 +1701,50 @@
             "lost": false
           },
           "present": "{a} is back on, and got away with it, still {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "off",
+            "big": true,
+            "session": "QUALI"
+          },
+          "present": "{a} is off, and it is a big one! In qualifying, with damage on, that could be his session right there."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "off",
+            "big": true,
+            "session": "QUALI"
+          },
+          "present": "Oh, that hurts. {a} has lost it, and every second in the gravel is a second off a lap that has to count."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "off",
+            "big": true,
+            "session": "PRACTICE"
+          },
+          "present": "{a} is off in a big way. It is practice, so the lap does not matter, but the car does."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "off",
+            "big": false,
+            "session": "QUALI"
+          },
+          "present": "{a} runs wide. That lap will not count, and the clock does not care."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "off"
+          },
+          "present": "{a} is off the road.",
+          "fallback": true
         }
       ]
     },
@@ -1690,7 +1753,8 @@
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "out"
+            "beat": "out",
+            "session": "RACE"
           },
           "present": "{a} is out of the race, {cause}. We will come back to that.",
           "past": "{a} was out of the race, {cause}."
@@ -1698,9 +1762,50 @@
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "out"
+            "beat": "out",
+            "session": "RACE"
           },
           "present": "That is the end of the race for {a}, {cause}, and he was running {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "session": "QUALI"
+          },
+          "present": "{a} is in the wall, {cause}. With damage on, that is his qualifying over, and he starts from the back."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "out",
+            "session": "QUALI"
+          },
+          "present": "That is {a}'s session finished, {cause}. Back of the grid for him tonight, and that changes his whole race."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "session": "PRACTICE"
+          },
+          "present": "{a} has had a big one in practice, {cause}. No harm to the session, but that is a car to put back together."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "out",
+            "session": "PRACTICE"
+          },
+          "present": "{a} is out of practice, {cause}. The good news is that it is practice."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out"
+          },
+          "present": "{a} is out, {cause}.",
+          "fallback": true
         }
       ]
     },

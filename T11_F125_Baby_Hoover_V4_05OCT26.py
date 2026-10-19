@@ -6158,7 +6158,7 @@ class RaceModel:
     def top3(self):
         return [c.idx for c in self.w.cars if c.seen and 0 < c.position <= 3]
 
-    def allows(self, content_class, final_crossing=False, kind=None):
+    def allows(self, content_class, final_crossing=False, kind=None, human=False):
         s = self.state
         # V8.7 (league night: 21 minutes of practice called as a race's final
         # lap): outside a race session the booth says nothing. Config-gated
@@ -6169,6 +6169,14 @@ class RaceModel:
         quiet = (self.v3.get("session_gate", {}) or {}).get("quiet_kinds")
         if quiet and getattr(self.w, "session_kind", "RACE") in quiet \
                 and not self.saw_stlg and not self.saw_lgot:
+            # V9.14 (19 OCT): a human's incident is news in any session. The
+            # rows in session_gate.allow_in_quiet (contact, off, crash,
+            # pile-up) pass when a human is in them; the race-state logic
+            # below is meaningless in practice, so they pass outright. The
+            # words file carries session-aware phrasings (view.session).
+            allow = (self.v3.get("session_gate", {}) or {}).get("allow_in_quiet") or []
+            if human and kind in allow:
+                return True
             if not getattr(self, "_quiet_logged", False):
                 self._quiet_logged = True
                 self.log(">>> %s session: the booth is quiet until a race starts"
@@ -8013,7 +8021,8 @@ class V3Booth:
             return "drop:story_moved_on"
         gate_kind = "RETIREMENT" if f.get("story_type") in ("REL-02", "INC-05") \
             else claim.kind
-        if not m.allows(claim.content_class, False, kind=gate_kind):
+        if not m.allows(claim.content_class, False, kind=gate_kind,
+                        human=bool((f.get("view") or {}).get("human"))):
             return "drop:state:%s" % m.state
         if (t - claim.t_create) > self._max_age_for(claim):
             return "drop:expired"
@@ -14372,7 +14381,8 @@ class StoryEngine:
                  "beat_kind": kind, "phase": rec.phase,
                  "display": dict(ctx),
                  "view": dict(view, beat=name, phase=rec.phase,
-                              human=bool(rec.humans)),
+                              human=bool(rec.humans),
+                              session=getattr(self.w, "session_kind", "RACE") or "RACE"),
                  "anchor_human": (rec.anchor or {}).get("human"),
                  "energy": rec.energy, "valence": rec.valence,
                  "register": row.get("register", "fact"),
