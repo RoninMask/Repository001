@@ -92,8 +92,11 @@ class Predict(unittest.TestCase):
         self.assertEqual(c.subjects, [1, 0])
         # the ledger knows it was said, so the payoff is owed when the story closes
         item = eng.predictions.by_story[rec.id]
-        self.assertTrue(item["spoken"])
         self.assertTrue(item["announced"])
+        self.assertFalse(item["spoken"])              # not until the clip airs
+        eng.predictions.mark_aired(rec.id)
+        self.assertTrue(item["spoken"] and item["aired"])
+        self.assertIsNone(eng.predictions.payoff_owed(rec.id))   # still open
         # the same story does not throw it out twice
         eng.claims_out = []
         eng.emit_beat(1030.0, rec, "threshold", "status",
@@ -156,9 +159,31 @@ class Predict(unittest.TestCase):
             eng, model = _engine(w, stories_path=path)
             rec = _chase(eng, 1000.0)
             self.assertNotIn(v.STORY_PREDICT_KIND, [c.kind for c in eng.claims_out])
-            self.assertFalse(eng.predictions.by_story[rec.id]["spoken"])
+            self.assertFalse(eng.predictions.by_story[rec.id].get("announced"))
         finally:
             os.unlink(path)
+
+    def test_payoff_only_for_a_prediction_that_went_to_air(self):
+        # the keyword path (an ordinary line gesturing at the catch) marks
+        # spoken but never earns a payoff with a lap in it
+        w = _world(humans=(1,), lap=5)
+        eng, model = _engine(w)
+        rec = _chase(eng, 1000.0)
+        pl = eng.predictions
+        pl.mark_spoken(rec.id)
+        rec.outcome = "failed"
+        it = pl.resolve_story(rec, 9)
+        self.assertEqual(it["status"], "missed")
+        self.assertIsNone(pl.payoff_owed(rec.id))
+        # the aired beat does
+        w2 = _world(humans=(1,), lap=5)
+        eng2, _ = _engine(w2)
+        rec2 = _chase(eng2, 1000.0)
+        eng2.predictions.mark_aired(rec2.id)
+        rec2.outcome = "passed"
+        it2 = eng2.predictions.resolve_story(rec2, 8)
+        self.assertEqual(it2["status"], "confirmed")
+        self.assertIsNotNone(eng2.predictions.payoff_owed(rec2.id))
 
     def test_hybrid_keeps_the_prediction_on_the_template_lane(self):
         w = _world(humans=(1,), lap=5)

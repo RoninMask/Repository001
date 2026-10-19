@@ -170,10 +170,14 @@ class Ledgers(unittest.TestCase):
         self.assertEqual(len(P.items), 1)
         self.assertEqual(it["deadline_lap"], 6)
         self.assertIsNone(P.payoff_owed(rec.id))       # never spoken: nothing owed
-        P.mark_spoken(rec.id)
+        P.mark_spoken(rec.id)                           # a line gestured at it ...
         rec.outcome = "passed"
         P.resolve_story(rec, 5)
         self.assertEqual(it["status"], "confirmed")
+        self.assertIsNone(P.payoff_owed(rec.id))       # ... but no lap was said (V9.10)
+        it["status"] = "open"
+        P.mark_aired(rec.id)                            # the prediction beat went to air
+        it["status"] = "confirmed"
         self.assertIs(P.payoff_owed(rec.id), it)
         P.mark_paid(rec.id)
         self.assertIsNone(P.payoff_owed(rec.id))

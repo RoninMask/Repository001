@@ -4740,7 +4740,7 @@ class PredictionLedger:
     def payoff_owed(self, sid):
         it = self.by_story.get(sid)
         if it and it["status"] in ("confirmed", "missed", "late") and not it["paid"] \
-                and it["spoken"]:
+                and it.get("aired"):
             return it
         return None
 
@@ -4748,6 +4748,15 @@ class PredictionLedger:
         it = self.by_story.get(sid)
         if it and it["status"] == "open":
             it["spoken"] = True
+
+    def mark_aired(self, sid):
+        """V9.10: the prediction beat itself went to air -- a lap was said, so
+        the payoff may name it. The keyword mark above only says a line
+        gestured at the prediction; that never earns a payoff with a lap."""
+        it = self.by_story.get(sid)
+        if it and it["status"] == "open":
+            it["spoken"] = True
+            it["aired"] = True
 
     def mark_paid(self, sid):
         it = self.by_story.get(sid)
@@ -9291,6 +9300,8 @@ class V3Booth:
                 self.blobctx.last_interjection_t = air_t
             if self.blobctx is not None and self.blobctx.predictions is not None and story_id:
                 pl = self.blobctx.predictions
+                if claim.kind == STORY_PREDICT_KIND and not cont:
+                    pl.mark_aired(story_id)           # V9.10: the lap was said
                 po = (blob.get("memory") or {}).get("prediction_open")
                 if po and (angle == "next" or any(
                         k in text.lower() for k in ("lap", "catch", "on him", "gets there",
@@ -13280,7 +13291,7 @@ class StoryStore:
             # V8.5 (OK run 12:43: 7 predictions confirmed, 0 paid): a
             # prediction the booth said out loud is paid off with its own
             # line when the story closes, right or wrong.
-            if it and it.get("spoken") and not it.get("paid") \
+            if it and it.get("aired") and not it.get("paid") \
                     and it.get("status") in ("confirmed", "missed", "late") \
                     and rec.row.get("speak_after_close", False) is not None:
                 say = it.get("say") or {}
@@ -14310,7 +14321,6 @@ class StoryEngine:
             return
         item["announced"] = True
         self._last_predict_t = t
-        self.predictions.mark_spoken(rec.id)
         laps_left = deadline - lap
         ctx = {"a": self.name(chaser), "b": self.name(target),
                "lap": _num_word(deadline),
@@ -15466,14 +15476,14 @@ class P_POS_03(StoryProcessor):
             except Exception:
                 corner = None
         where = (" at %s" % corner) if corner else ""
+        # V9.10: the corner is where the car IS when the loss registers, not
+        # where the mistake was, so it is said only with the slow-down it can
+        # vouch for; the caller supplies the full stop.
         if sp is not None and sp < 60.0:
             return ("He has slowed right down%s, so that looks like damage or a spin, "
-                    "no contact that we saw." % where)
-        if corner:
-            return ("No contact that we saw, so most likely a mistake of his own%s, "
-                    "a lock up or a trip across the gravel." % where)
+                    "no contact that we saw" % where)
         return ("No contact that we saw, so most likely a mistake of his own, "
-                "a lock up or a moment off line.")
+                "a lock up or a moment off line")
 
     def _cause(self, t, idx):
         eng = self.eng
