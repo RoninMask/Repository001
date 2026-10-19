@@ -1,6 +1,6 @@
 # Hoover — Freeze-Day Hand-back V1 (19 OCT 26)
 
-Branch `claude/interview-ingest`, `99f195f` → **`008bc33`**, 16 commits, pushed. Everything replay-tested in the cloud against the 09 OCT captures; **nothing has yet run on the Oklahoma PC.** The 20 OCT setup test is the gate; `Update Hoover.bat` brings it down. All 23 test suites green (five new).
+Branch `claude/interview-ingest`, `99f195f` → **`f32711c`**, 17 commits, pushed. Everything replay-tested in the cloud against the 09 OCT captures; **nothing has yet run on the Oklahoma PC.** The 20 OCT setup test is the gate; `Update Hoover.bat` brings it down. All 23 test files green (five new).
 
 ## Live files (copy, paste, go)
 
@@ -44,7 +44,7 @@ Lobby: *"Good evening, and welcome along. Mike, Dustin, Cade, Evan, Alex, Alan a
 Not heard on this capture, so the 20th is their first look: a race-lull humor line (none of the three event pairs fired — nobody stopped three times or swapped three times), the grid-intro team line (the capture has no grid wait), any model-written line (no keys in the cloud).
 
 ## For the 20th (Oklahoma PC) — additions to the run card
-1. `Update Hoover.bat` → `@ 008bc33`. Dashboard "This Hoover" shows it.
+1. `Update Hoover.bat` → `@ f32711c`. Dashboard "This Hoover" shows it.
 2. **Season page:** paste the approved charity sentences into About and the URLs (card: `Hoover_Charity_Card_Review_V1_19OCT26`); the two open ones (Flying Pickles' charity; Anthropic-Racing's) when you have them. Check the four charity codes saved. Spellings in the written charity names ("Heroes", "Lababera") — the booth reads them as typed.
 3. **Names on air card:** Raider968Raider → Zac / Zac Meadows.
 4. **Overlays page:** clear the GIVERS slot text (no givers thanks tonight); fix the RELIEF slot; remove Symphony card 10. Countdown: `auto_idle` and `ads_alternate` are on by default.
