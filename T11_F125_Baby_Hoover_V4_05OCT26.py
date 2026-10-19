@@ -14741,7 +14741,8 @@ class StoryEngine:
         file (the Season page's About box): team spoken name, charity spoken
         name, the sentence, and whether a human drives for it. Empty when
         there is no season or no sentence."""
-        sb = getattr(getattr(self.blobctx, "tool", None), "season", None) if self.blobctx is not None else None
+        bc = getattr(self, "blobctx", None)
+        sb = getattr(getattr(bc, "tool", None), "season", None) if bc is not None else None
         season = getattr(sb, "season", None)
         if season is None or not hasattr(season, "charity_cards"):
             return []
