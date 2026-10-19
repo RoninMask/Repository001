@@ -386,7 +386,7 @@ class Season(object):
             ident.team_id = team["id"]
             ident.team_name = team.get("name")
             ident.team_code = (team.get("code") or _code_from(team.get("name")))[:3].upper()
-            ident.team_spoken = team.get("spoken") or team.get("name")
+            ident.team_spoken = team.get("spoken") or _spoken_team(team.get("name"))   # V9.15: "Aviation on Wheels", not AVIATION-ON-WHEELS
             if team.get("colour"):
                 ident.colour = team["colour"]
             ch = self.charity_for(team, on)

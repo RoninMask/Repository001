@@ -71,7 +71,12 @@ DEFAULT_SETTINGS = {
     "countdown": {"start": "21:00", "quali_after_min": 35, "race_after_min": 60, "tz": "CST",
                   "labels": ["BROADCAST", "QUALIFYING", "RACE"], "top_line": "A CHARITY RACE",
                   "sub_line": "Abu Dhabi · 21 October 2026 · Live on YouTube", "shortly": "STARTING SHORTLY",
-                  "hide_after_min": 3, "frame": True, "accent": "#1DE9D6"},
+                  "hide_after_min": 3, "frame": True, "accent": "#1DE9D6",
+                 # V9.16 (19 OCT): between sessions. Each row leaves row_hide_after_min after its own
+                 # time (BROADCAST goes, QUALIFYING and RACE stay until they start); the surface shows
+                 # itself whenever Hoover's feed is idle (auto_idle) and hides while a session is live;
+                 # ads_alternate swaps the clocks with a full-bleed sponsor card every ads_every_s.
+                 "row_hide_after_min": 3, "auto_idle": True, "ads_alternate": True, "ads_every_s": 10},
     "tower": {
         "width": 320, "row_height": 34, "max_rows": 22,
         "name_mode": "code",            # code | short | full
@@ -1159,6 +1164,9 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   :root{--led:#ff2a1a;--accent:#1DE9D6}
   #wrap{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}
   #wrap.on{opacity:1}
+  #ad{position:absolute;inset:0;background:#000;opacity:0;transition:opacity .9s ease;display:flex;align-items:center;justify-content:center}
+  #ad.on{opacity:1}
+  #ad img{max-width:100%%;max-height:100%%;object-fit:contain}
   #frame{position:absolute;inset:0;transition:opacity .8s}
   #frame.off{opacity:0}
   svg#fr{position:absolute;inset:0;width:100vw;height:100vh}
@@ -1201,6 +1209,7 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
 </div>
 <div id="clocks"></div>
 </div>
+<div id="ad"><img id="adimg" alt=""></div>
 <script>
 (function(){
   const SEG={"0":"abcdef","1":"bc","2":"abged","3":"abgcd","4":"fgbc","5":"afgcd","6":"afgedc","7":"abc","8":"abcdefg","9":"abcdfg"};
@@ -1232,20 +1241,33 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   function hm(d){ let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%%12||12; return [h+":"+two(d.getMinutes()), ap]; }
   function left(ms){ let s=Math.max(0,Math.floor(ms/1000)); const h=Math.floor(s/3600); s-=h*3600; const m=Math.floor(s/60); s-=m*60;
                      return h>0? h+":"+two(m)+":"+two(s) : two(m)+":"+two(s); }
-  let C=null, on=false;
+  let C=null, on=false, live=false, SP=[], adAt=0, adIdx=-1, adOn=false;
   function draw(){
-    const wrap=document.getElementById("wrap"); if(!C) return;
-    const start=parseStart(C.start); if(!start){ wrap.classList.remove("on"); return; }
+    const wrap=document.getElementById("wrap"), ad=document.getElementById("ad"); if(!C) return;
+    const start=parseStart(C.start); if(!start){ wrap.classList.remove("on"); ad.classList.remove("on"); return; }
     const now=new Date();
-    if(!on || now-start > (C.hide_after_min||3)*60000){ wrap.classList.remove("on"); return; }
-    wrap.classList.add("on");
-    document.getElementById("frame").classList.toggle("off", C.frame===false);
-    const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", C.accent||"#1DE9D6");
+    const rowHide=(C.row_hide_after_min!=null?C.row_hide_after_min:(C.hide_after_min||3))*60000;
     const L=C.labels||["BROADCAST","QUALIFYING","RACE"];
     const ts=[start, new Date(+start+(C.quali_after_min||0)*60000), new Date(+start+(C.race_after_min||0)*60000)];
+    const alive=ts.map(t=>(now-t)<rowHide);
+    const anyAlive=alive.some(x=>x);
+    // V9.16: shown when switched on, something is still to come, and (auto_idle) Hoover's feed is not live
+    const show=on && anyAlive && !(C.auto_idle!==false && live);
+    if(!show){ wrap.classList.remove("on"); ad.classList.remove("on"); adOn=false; return; }
+    // the ad alternation: clocks for ads_every_s, then a sponsor card for ads_every_s
+    const every=(C.ads_every_s||10)*1000;
+    if(C.ads_alternate!==false && SP.length){
+      if(now-adAt>=every){ adAt=+now; adOn=!adOn; if(adOn){ adIdx=(adIdx+1)%%SP.length; const img=document.getElementById("adimg"); img.src="/sponsors/"+encodeURIComponent(SP[adIdx].file); } }
+    } else adOn=false;
+    ad.classList.toggle("on", adOn);
+    wrap.classList.toggle("on", !adOn);
+    if(adOn) return;
+    document.getElementById("frame").classList.toggle("off", C.frame===false);
+    const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", C.accent||"#1DE9D6");
     let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
     const H=Math.round(window.innerHeight*0.05);
     document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
+      if(!alive[i]) return "";
       const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"); const [tm,ap]=hm(t);
       const cd=past?`<div class="sh">${C.shortly||"STARTING SHORTLY"}</div>`:segs(left(t-now),H);
       return `<div class="r ${cls}"><div class="ttl">${L[i]||""}</div>`+
@@ -1254,7 +1276,7 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     }).join("");
   }
   async function tick(){ try{ const r=await fetch("/state.json",{cache:"no-store"}); const d=await r.json();
-    C=d.settings.countdown; on=!!d.settings.surfaces.countdown; }catch(e){} }
+    C=d.settings.countdown; on=!!d.settings.surfaces.countdown; live=!!d.live; SP=(d.sponsors||[]).filter(x=>x&&x.file); }catch(e){} }
   tick(); setInterval(tick,1500); setInterval(draw,250);
 })();
 </script></body></html>"""
@@ -1397,7 +1419,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
-<tr><td>Pre-show countdown</td><td><code>http://localhost:%(port)d/countdown</code></td><td>1920 × 1080</td><td>over the pre-show video; fades out a few minutes after the broadcast start</td></tr>
+<tr><td>Pre-show countdown</td><td><code>http://localhost:%(port)d/countdown</code></td><td>1920 × 1080</td><td>pre-show and between sessions: shows whenever Hoover's feed is idle, each clock leaves after its own start, alternates with a sponsor card every 10 s</td></tr>
 <tr><td>Final results</td><td><code>http://localhost:%(port)d/results</code></td><td>1920 × 1080</td><td>full canvas; fired from the dashboard after the podium</td></tr>
 <tr><td>Team radio</td><td><code>http://localhost:%(port)d/radio</code></td><td>420 × 90</td><td>top right</td></tr>
 </table>

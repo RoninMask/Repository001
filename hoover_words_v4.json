@@ -77,6 +77,14 @@
         {
           "speaker": "LEAD",
           "present": "Green flag, and we go again."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "And we are going again."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Restart. Nobody wants to be the one who gets this wrong."
         }
       ]
     },
@@ -89,6 +97,14 @@
         {
           "speaker": "LEAD",
           "present": "Safety car, and the field bunches up."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Safety car. The field bunches up, and every gap we have been talking about is gone."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Safety car out, and that is a free pit stop for anyone who wants one."
         }
       ]
     },
@@ -113,6 +129,14 @@
         {
           "speaker": "LEAD",
           "present": "The red flag is out, and this race is halted."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Red flag. The session is stopped."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Red flag, and everybody waits. That is a long pause coming."
         }
       ]
     },
@@ -592,6 +616,15 @@
         {
           "speaker": "LEAD",
           "present": "The revised classification puts {a} {pos}."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "A correction from the classification: {a} is {pos}.",
+          "fallback": true
+        },
+        {
+          "speaker": "LEAD",
+          "present": "The stewards have had their say: {a} is classified {pos}."
         }
       ]
     },
@@ -605,6 +638,14 @@
           "speaker": "LEAD",
           "present": "The session has ended.",
           "fallback": true
+        },
+        {
+          "speaker": "LEAD",
+          "present": "And that is the race. Done."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The flag is out. That is how it finishes."
         }
       ]
     },
@@ -1638,7 +1679,21 @@
             "session": "RACE"
           },
           "present": "{a} is off! That is a big one, he has lost the car.",
-          "past": "{a} had a big off."
+          "past": "{a} had a big off.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "Can he get it going again? Everything depends on the next ten seconds."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Is he still in this? If the car moves, he is. If it does not, that is his night."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Come on. Get it back on the road."
+            }
+          ]
         },
         {
           "speaker": "LEAD",
@@ -1648,7 +1703,21 @@
             "session": "RACE"
           },
           "present": "Oh no, {a} has gone off in a big way, and {b} is right there behind him.",
-          "past": "{a} went off in a big way."
+          "past": "{a} went off in a big way.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "Can he get it going again? Everything depends on the next ten seconds."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Is he still in this? If the car moves, he is. If it does not, that is his night."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Come on. Get it back on the road."
+            }
+          ]
         },
         {
           "speaker": "ANALYST",
@@ -1657,7 +1726,21 @@
             "big": true,
             "session": "RACE"
           },
-          "present": "That is a proper off for {a}, from {pos}. He has to gather it up and get back on, and every second out there is a place gone."
+          "present": "That is a proper off for {a}, from {pos}. He has to gather it up and get back on, and every second out there is a place gone.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "Can he get it going again? Everything depends on the next ten seconds."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Is he still in this? If the car moves, he is. If it does not, that is his night."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "Come on. Get it back on the road."
+            }
+          ]
         },
         {
           "speaker": "LEAD",
@@ -1754,10 +1837,56 @@
           "speaker": "LEAD",
           "when": {
             "beat": "out",
+            "session": "RACE",
+            "human": true,
+            "has_interview": true
+          },
+          "present": "Oh no. {a} is out, {cause}. That is the night over for {team}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "{interview} No points from that car tonight, and {charity} feels it."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "He had a plan for this. {interview}"
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "session": "QUALI",
+            "human": true,
+            "has_interview": true
+          },
+          "present": "{a} is in the wall, {cause}. With damage on, that is his qualifying over, and he starts from the back.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "{interview} He will need all of that from the back of the grid."
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
             "session": "RACE"
           },
           "present": "{a} is out of the race, {cause}. We will come back to that.",
-          "past": "{a} was out of the race, {cause}."
+          "past": "{a} was out of the race, {cause}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "That is the night over for {team}. No points tonight, and {charity} feels that too. He will be gutted."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "And that hurts {team} and {charity} as much as it hurts him. No points from that car tonight."
+            }
+          ]
         },
         {
           "speaker": "ANALYST",
@@ -1765,7 +1894,17 @@
             "beat": "out",
             "session": "RACE"
           },
-          "present": "That is the end of the race for {a}, {cause}, and he was running {pos}."
+          "present": "That is the end of the race for {a}, {cause}, and he was running {pos}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "That is the night over for {team}. No points tonight, and {charity} feels that too. He will be gutted."
+            },
+            {
+              "speaker": "ANALYST",
+              "text": "And that hurts {team} and {charity} as much as it hurts him. No points from that car tonight."
+            }
+          ]
         },
         {
           "speaker": "LEAD",
@@ -1806,6 +1945,21 @@
           },
           "present": "{a} is out, {cause}.",
           "fallback": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "session": "RACE",
+            "human": true
+          },
+          "present": "Oh no. {a} is out, {cause}. That is the end of the night for {team}.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "No points from that car, and {charity} will feel it. He must be sick about that."
+            }
+          ]
         }
       ]
     },
@@ -2939,6 +3093,14 @@
         {
           "speaker": "LEAD",
           "present": "{line}"
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "From the interviews: {line}"
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{line}"
         }
       ]
     },
@@ -2947,6 +3109,14 @@
         {
           "speaker": "ANALYST",
           "present": "{line}"
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{line}"
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "A little history for you. {line}"
         }
       ]
     },

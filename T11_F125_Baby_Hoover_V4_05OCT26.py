@@ -5682,6 +5682,12 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                     conds.append("on_podium")
                 if c.position == 1:
                     conds.append("on_lead")
+                # V9.15 (19 OCT): the armed lines that never fired -- the card
+                # had them, the blob never asked for them
+                if model.is_retired(i):
+                    conds.append("on_retire")
+                if c.position == 1 and model.state in ("finishing", "classified", "closed"):
+                    conds.append("on_win")
                 df = ctx.dossier.facts(ctx.dossier.key_for(c), conds)
                 if df:
                     stakes.setdefault("dossier", {})[subj_say.get(i) or c.spoken] = df
@@ -7439,6 +7445,10 @@ class WordsFile:
         if not entry:
             return None
         avoid = avoid_templates or set()
+        spent = getattr(self, "_spent", None)
+        if spent is None:
+            spent = self._spent = set()
+        gate = getattr(self, "humor_gate", None)
         sat, sat_fb = [], []
         for v in entry["variants"]:
             when = v.get("when")
@@ -7446,6 +7456,16 @@ class WordsFile:
                 continue
             if any(ctx.get(ph) is None
                    for ph in _PLACEHOLDER_RE.findall(v["present"])):
+                continue
+            # V9.15 (19 OCT): a line marked once is said once a night; a
+            # humor line asks the booth's gate (caps per session, spacing)
+            if v.get("once") and v["present"] in spent:
+                continue
+            if v.get("register") == "humor" and gate is not None and not gate(facts_view):
+                continue
+            th = v.get("then")
+            if th and any(ctx.get(ph) is None for ph in _PLACEHOLDER_RE.findall(
+                    th.get("text", "") if isinstance(th, dict) else " ".join(x.get("text", "") for x in th))):
                 continue
             (sat_fb if v.get("fallback") else sat).append(v)
         # F2: a fallback variant is a last resort. Use it only when no
@@ -7471,6 +7491,22 @@ class WordsFile:
         fill = {k: ("" if val is None else val) for k, val in ctx.items()}
         text = chosen[form].format(**fill)
         text = text[:1].upper() + text[1:]
+        if chosen.get("once"):
+            spent.add(chosen["present"])
+        self._last_register = chosen.get("register")
+        # V9.15: the other voice's reaction, if the variant carries one. A
+        # list of alternatives rotates like the variants do.
+        th = chosen.get("then")
+        self._last_then = None
+        if th:
+            if isinstance(th, list):
+                k = self._rot.get(kind + "#then", 0)
+                th = th[k % len(th)]
+                self._rot[kind + "#then"] = k + 1
+            tt = th.get("text", "").format(**fill)
+            if tt:
+                self._last_then = (th.get("speaker") or ("ANALYST" if chosen["speaker"] == "LEAD" else "LEAD"),
+                                   tt[:1].upper() + tt[1:])
         return chosen["speaker"], text, chosen["present"]
 
 
@@ -7491,6 +7527,9 @@ class V3Booth:
         self.cfg = config
         self.stories = None          # V4: set to the StoryEngine when on
         self.words = WordsFile(_find_words_file(config, stories=stories))
+        self.words.humor_gate = self._humor_gate     # V9.15
+        self._humor_count = {}
+        self._humor_last_t = None
         self.queue = []
         self.emitted = []
         self.claim_records = []
@@ -8386,6 +8425,7 @@ class V3Booth:
     def tick(self, t):
         # drain claims that are ready and valid, one per free channel slot,
         # spread by the pacing governor (Part C).
+        self._tick_t = t
         self._new_race_check(t)
         self._lights(t)
         # V9.3: the givers roll once more after the race is classified and the
@@ -8460,6 +8500,29 @@ class V3Booth:
                 self._air(best, t)
                 continue
             continue
+
+    def _humor_gate(self, view):
+        """V9.15 (19 OCT): may a humor-register line be chosen now? Caps per
+        session (v3.humor.max_per_session), spacing, never in the start
+        sequence or the final lap, never within incident_gap_s of a human
+        incident. The clock is the booth's model clock (last tick)."""
+        hcfg = self.cfg.get("v3", "humor", default={}) or {}
+        if not hcfg.get("enabled", True):
+            return False
+        kind = getattr(self.model.w, "session_kind", "RACE") or "RACE"
+        cap = (hcfg.get("max_per_session") or {}).get(kind, 0)
+        if self._humor_count.get(kind, 0) >= int(cap):
+            return False
+        if self.model.state in ("start_sequence", "final_lap", "finishing"):
+            return False
+        t = getattr(self, "_tick_t", None)
+        if t is not None:
+            if self._humor_last_t is not None and (t - self._humor_last_t) < float(hcfg.get("spacing_s", 90.0)):
+                return False
+            li = getattr(self, "_last_human_incident_t", None)
+            if li is not None and (t - li) < float(hcfg.get("incident_gap_s", 20.0)):
+                return False
+        return True
 
     def _practice_interview(self, t, mat, pi, kind):
         """V9.12: one interview line in a practice colour slot, or False."""
@@ -9471,9 +9534,20 @@ class V3Booth:
         # it is offered -- a line that expires in the queue comes round again
         mat = getattr(self.blobctx, "material", None) if self.blobctx is not None else None
         if mat is not None and not cont:
-            for used in (f.get("line"), (f.get("display") or {}).get("hook")):
+            for used in (f.get("line"), (f.get("display") or {}).get("hook"),
+                         (f.get("display") or {}).get("interview")):
                 if used:
                     mat.commit(used, air_t)
+        # V9.15: humor bookkeeping and the human-incident clock for the gate
+        if not cont and getattr(self.words, "_last_register", None) == "humor" \
+                and getattr(result, "writer", None) == "template":
+            kind_s = getattr(self.model.w, "session_kind", "RACE") or "RACE"
+            self._humor_count[kind_s] = self._humor_count.get(kind_s, 0) + 1
+            self._humor_last_t = air_t
+            rec["register"] = "humor"
+        if claim.kind in ("S_INC_01", "S_INC_02", "S_INC_05", "S_INC_06", "RETIREMENT") \
+                and (f.get("view") or {}).get("human"):
+            self._last_human_incident_t = air_t
         self.emitted.append(rec)
         self.claim_records.append(claim.record())
         self.queue.remove(claim)
@@ -9932,6 +10006,17 @@ class TemplateWriter(Writer):
             request.claim, request.past,
             avoid_templates=request.avoid_templates)
         passage = None
+        th = getattr(getattr(self.booth, "words", None), "_last_then", None)
+        if th and request.claim.kind != STORY_PREDICT_KIND:
+            # V9.15: an exchange pair, at most one every exchange.every_s
+            cfg_ = getattr(self.booth, "cfg", None)
+            ex = (cfg_.get("v3", "exchange", default={}) if cfg_ is not None else {}) or {}
+            every = float(ex.get("every_s", 45.0))
+            last = getattr(self.booth, "_last_then_t", None)
+            t = getattr(request, "t", None)
+            if ex.get("enabled", True) and (last is None or t is None or (t - last) >= every):
+                passage = [th]
+                self.booth._last_then_t = t
         if request.claim.kind == STORY_PREDICT_KIND:
             # V9.10: the LEAD's question is the line; the ANALYST's answer is
             # the rest of the passage, aired as the next clip (one clip per
@@ -13221,7 +13306,7 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
                       "seconds", "guess", "thread", "hook", "said",
-                      "about", "team", "charity"}      # V9.13: the charity card
+                      "about", "team", "charity", "interview", "line"}   # V9.13 / V9.15
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -14377,6 +14462,20 @@ class StoryEngine:
         row = rec.row
         subjects = list(subjects) if subjects is not None else list(rec.participants)
         names = [self.name(i) for i in subjects]
+        # V9.15: the first human's team and charity, for lines that name them
+        ctx = dict(ctx)
+        view = dict(view)
+        if rec.row_id in ("INC-05", "REL-02") and name == "out" and rec.humans:
+            line = self._armed_line(rec.humans[0], "on_retire")
+            if line:
+                ctx["interview"] = line
+                view["has_interview"] = True
+        if rec.humans and ("team" not in ctx or "charity" not in ctx):
+            tc = self.team_charity_of(rec.humans[0])
+            if tc:
+                ctx.setdefault("team", tc[0])
+                if tc[1]:
+                    ctx.setdefault("charity", tc[1])
         facts = {"story_id": rec.id, "story_type": rec.row_id, "beat": name,
                  "beat_kind": kind, "phase": rec.phase,
                  "display": dict(ctx),
@@ -14744,6 +14843,38 @@ class StoryEngine:
         return Claim("LULL_LORE", CLASS_FILLER, [], [], t,
                      facts={"line": card["line"], "source": "lore", "card": card.get("id")},
                      priority=9.0, speaker="ANALYST", demotable=True)
+
+    def _armed_line(self, idx, condition):
+        """V9.15: the driver's armed interview line for a condition (on_retire,
+        on_win...), unused so far, or None."""
+        mat = self.material()
+        if mat is None or mat.dossier is None:
+            return None
+        key = self.dossier_key(idx)
+        d = mat.dossier.drivers.get(key) or {}
+        line = (d.get("armed") or {}).get(condition)
+        if line and mat._free(line, None):
+            mat.pending[line] = None
+            mat._origin[line] = ("interview", key)
+            return line
+        return None
+
+    def team_charity_of(self, idx):
+        """V9.15: (team spoken, charity spoken or None) for a car from the
+        season bridge, or None when there is no season."""
+        bc = getattr(self, "blobctx", None)
+        sb = getattr(getattr(bc, "tool", None), "season", None) if bc is not None else None
+        if sb is None:
+            return None
+        try:
+            ident = sb.ident(idx)
+        except Exception:
+            return None
+        if ident is None or not ident.team_name:
+            return None
+        team = ident.team_spoken or ident.team_name
+        charity = ident.charity_spoken or ident.charity_name
+        return (team, charity)
 
     # ---- V9.13 (19 OCT): the charity card --------------------------------------
     def _charity_cards(self):
