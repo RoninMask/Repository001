@@ -108,8 +108,15 @@ class Damage(unittest.TestCase):
         rel.observe(1001.0)
         c1 = w.cars[1]
         c1.lap = 6
-        c1.last_lap_ms = 91100                            # 1.1 s off his best
+        c1.last_lap_ms = 106800                           # the crash lap: 16.8 s, not pace
         rel.observe(1002.0)
+        self.assertEqual(_kinds(eng)[-1], ("S_REL_01", "damaged"))
+        c1.lap = 7
+        c1.last_lap_ms = 100400                           # 10.4 s: a crash or a pit, not said
+        rel.observe(1002.5)
+        self.assertEqual(_kinds(eng)[-1], ("S_REL_01", "damaged"))
+        c1.last_lap_ms = 91100                            # the clean lap: 1.1 s off his best
+        rel.observe(1002.8)
         self.assertEqual(_kinds(eng)[-1], ("S_REL_01", "slow"))
         self.assertEqual(eng.claims_out[-1].facts["display"]["delta"], "1.1 seconds")
         c1.pit_status = 1

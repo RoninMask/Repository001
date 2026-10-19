@@ -16415,12 +16415,17 @@ class P_REL_01(StoryProcessor):
                 self.close(t, rec, "repaired")
                 continue
             if rec.phase == "damaged" and not rec.fields.get("slow_said"):
+                # V9.19.1 (19 OCT replay): the first lap completed after the
+                # damage is the crash lap itself -- it includes the spin, the
+                # gravel, the rejoin -- and read "16.8 seconds a lap slower".
+                # The cost of carrying damage is the next clean lap, and a
+                # delta beyond slow_max_s is a crash or a pit, not pace.
                 best = rec.fields.get("best_before_ms") or 0
                 last = c.last_lap_ms or 0
-                if best and last and c.lap > rec.fields.get("lap_at_open", 0) \
-                        and (last - best) / 1000.0 >= slow_s:
+                delta = (last - best) / 1000.0 if (best and last) else 0.0
+                if best and last and c.lap >= rec.fields.get("lap_at_open", 0) + 2 \
+                        and slow_s <= delta <= float(self.p("slow_max_s", 4.0)):
                     rec.fields["slow_said"] = True
-                    delta = (last - best) / 1000.0
                     self.beat(t, rec, "threshold", "slow",
                               ctx={"a": eng.name(c.idx), "delta": _fmt_gap(delta)},
                               view={"human": c.is_human}, numbers={"delta_s": round(delta, 1)},

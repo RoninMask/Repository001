@@ -307,11 +307,12 @@
    "serious_pct": 30.0,
    "heavy_pct": 60.0,
    "slow_s": 0.8,
+   "slow_max_s": 4.0,
    "humans_only": true,
    "max_per_car": 2,
    "carry_close_s": 600.0,
    "max_age_s": 20.0,
-   "_about": "serious_pct: how much of the front wing must be gone before the booth says anything (never a percentage on air). heavy_pct: 'most of the front wing' wording. slow_s: lap time off his own pre-damage best before 'and it is costing him'. humans_only: AI damage is never called. max_per_car per session."
+   "_about": "serious_pct: how much of the front wing must be gone before the booth says anything (never a percentage on air). heavy_pct: 'most of the front wing' wording. slow_s: lap time off his own pre-damage best before 'and it is costing him', measured on the second lap after the damage (the first is the crash lap). slow_max_s: a bigger delta is a crash or a pit, not pace, and is not said. humans_only: AI damage is never called. max_per_car per session."
   }
  },
  "rows": {
