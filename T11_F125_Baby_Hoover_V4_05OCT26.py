@@ -16937,9 +16937,15 @@ class P_SF_07(StoryProcessor):
         rec = self.open(t, subjects, fields={"podium": subjects,
                                              "humans_on": len(humans_on)},
                         phase="podium")
+        ctx = {"a": eng.name(top[1]), "b": eng.name(top[2]), "c": eng.name(top[3])}
+        tc = eng.team_charity_of(top[1])          # V9.18: the winner's team and charity
+        if tc:
+            ctx["team"] = tc[0]
+            if tc[1]:
+                ctx["charity"] = tc[1]
         self.beat(t, rec, "transition", "podium",
-                  ctx={"a": eng.name(top[1]), "b": eng.name(top[2]), "c": eng.name(top[3])},
-                  view={"human_on": bool(humans_on)}, must=True,
+                  ctx=ctx,
+                  view={"human_on": bool(humans_on), "winner_human": eng.is_human(top[1])}, must=True,
                   subjects=subjects)
         self.close(t, rec, "podium")
 

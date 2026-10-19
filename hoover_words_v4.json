@@ -2228,6 +2228,38 @@
           "speaker": "LEAD",
           "when": {
             "beat": "on_grid",
+            "hook": true
+          },
+          "present": "{a}, {team}, racing for {charity}, starts from {grid}. {hook}"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "on_grid",
+            "hook": true
+          },
+          "present": "{a} lines up {grid} for {team} and {charity}. {hook}"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "on_grid",
+            "hook": false
+          },
+          "present": "{a}, {team}, racing for {charity}, starts from {grid}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "on_grid",
+            "hook": false
+          },
+          "present": "{a} lines up {grid} on the grid, for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "on_grid",
             "hook": false
           },
           "present": "{a} starts from {grid}."
@@ -2433,6 +2465,30 @@
     },
     "S_SF_07": {
       "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "podium",
+            "winner_human": true
+          },
+          "present": "Your podium: {a} wins it for {team} and {charity}, {b} second, {c} third."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "podium",
+            "winner_human": true
+          },
+          "present": "{a} takes the win, and that is points and prize money for {team} and {charity}. {b} second, {c} third."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "podium",
+            "winner_human": false
+          },
+          "present": "Your podium: {a} wins it for {team}, {b} second, {c} third."
+        },
         {
           "speaker": "LEAD",
           "when": {
