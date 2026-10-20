@@ -1171,8 +1171,8 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   #frame.off{opacity:0}
   svg#fr{position:absolute;inset:0;width:100vw;height:100vh}
   #clocks{position:absolute;left:50%%;top:50%%;transform:translate(-50%%,-50%%);display:grid;
-          grid-template-columns:auto auto auto;column-gap:1.4vw;row-gap:1.6vh;align-items:stretch}
-  .box{display:flex;align-items:center;justify-content:center;gap:.7vw;padding:1vh 1.1vw;border:2px solid rgba(255,42,26,.9);
+          grid-template-columns:auto auto auto;column-gap:1.8vw;row-gap:2.2vh;align-items:stretch}
+  .box{display:flex;align-items:center;justify-content:center;gap:.9vw;padding:1.25vh 1.4vw;border:3px solid rgba(255,42,26,.9);
        border-radius:6px;box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 10px rgba(255,42,26,.55),inset 0 0 10px rgba(255,42,26,.25)}
   .ttl{align-self:center}
   .r{display:contents}
@@ -1180,13 +1180,13 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   .r.later > *{opacity:.78}
   .r.done > *{opacity:.55}
 
-  .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.7vh;letter-spacing:.28em;color:var(--led);
+  .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:5vh;letter-spacing:.12em;line-height:1;color:var(--led);
        text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);text-align:right}
   .line{display:flex;align-items:flex-end;gap:.7vw}
-  .ampm{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:1.35vh;letter-spacing:.14em;color:var(--led);
+  .ampm{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:2.4vh;letter-spacing:.1em;color:var(--led);
         text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8);padding-bottom:.2vh;line-height:1.25}
   .r svg{display:block;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.95)) drop-shadow(0 0 3px rgba(0,0,0,.8)) drop-shadow(0 0 6px rgba(255,42,26,.8)) drop-shadow(0 0 14px rgba(255,42,26,.4))}
-  .sh{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:2.2vh;letter-spacing:.16em;color:var(--led);
+  .sh{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:3.6vh;letter-spacing:.12em;color:var(--led);
       text-shadow:0 0 8px rgba(255,42,26,.9),0 0 20px rgba(255,42,26,.5)}
 </style></head><body>
 <div id="wrap">
@@ -1265,7 +1265,7 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     document.getElementById("frame").classList.toggle("off", C.frame===false);
     const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", C.accent||"#1DE9D6");
     let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
-    const H=Math.round(window.innerHeight*0.05);
+    const H=Math.round(window.innerHeight*0.0625);
     document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
       if(!alive[i]) return "";
       const past=t<=now, cls=past?"done":(i===nextIdx?"":"later"); const [tm,ap]=hm(t);
