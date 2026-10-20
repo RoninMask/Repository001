@@ -12517,6 +12517,10 @@ class V3Gallery:
         self.lead_battle_merge_s = cam.get("lead_battle_merge_s", 8.0)       # J2
         self.share_hysteresis = cam.get("share_hysteresis_s", 20.0)         # G5
         self._prot = None
+        # V9.19 (20 OCT, Dustin): the finish cycle and the podium shots
+        self._fc = None                # the finish-cycle shot in progress
+        self._fc_visit = {}            # human idx -> t the camera last left him
+        self._podium = None            # podium plan, fixed at the leader's finish
         self._leader_seen_t = None
         self._first_seen_t = None
         self._checkin_until = 0.0
@@ -12810,7 +12814,7 @@ class V3Gallery:
             cands = [d for d in cands if d["reason"] in ("start", "start_window", "red_flag",
                                                           "safety_car", "winner")
                      or d["car"] in top3]
-        if m.leader_finish_t is not None:
+        if m.leader_finish_t is not None and not (pc.get("podium", {}) or {}).get("enabled", False):
             add("winner", m.leader_finish_t, m.road_winner, 95, 5.0)
         if m.state in ("safety_car", "vsc") and m.state_since is not None:
             add("safety_car", m.state_since, m.leader_idx, 90, 6.0)
@@ -12860,6 +12864,10 @@ class V3Gallery:
         for (pt_t, car, human) in m.penalty_events:
             if human:
                 add("penalty_human", pt_t, car, 70, 4.0)
+        # V9.19: the podium -- P1, P2 and P3 each shown onto the line
+        podcfg = pc.get("podium", {}) or {}
+        if podcfg.get("enabled", False):
+            cands.extend(self._podium_shots(t, podcfg))
         # V4: story moments (Interrupt / Priority rows with a camera request)
         st = getattr(self, "stories", None)
         if st is not None:
@@ -12898,29 +12906,35 @@ class V3Gallery:
                                   "car": car, "reason": "booth_focus",
                                   "hold": fcfg.get("hold_s", 8.0),
                                   "hold_max": fcfg.get("hold_max_s", booth.dwell_s)})
-            # V8.6 (Dustin, 09 OCT): the last laps belong to our drivers. From
-            # final_laps_lock laps to go, the camera locks to the human in the
-            # closest fight (or the best-placed human); only the winner moment,
-            # a red flag or a safety car outrank it.
-            lcfg = pc.get("human_finish", {})
-            rem = st.laps_remaining() if hasattr(st, "laps_remaining") else None
-            if rem is not None and rem <= int(lcfg.get("laps", 2)) \
-                    and m.state in ("green", "final_lap"):
-                best_h, best_key = None, None
-                for h in st.humans():
-                    c = m.w.cars[h]
-                    ga = c.delta_front if c.position > 1 else None
-                    b = m.w.car_at_position(c.position + 1)
-                    gb = b.delta_front if b is not None else None
-                    close = min(x for x in (ga, gb) if x is not None) if (ga is not None or gb is not None) else 99.0
-                    key = (-(min(close, 5.0)), -(c.position or 99))
-                    if best_key is None or key > best_key:
-                        best_h, best_key = h, key
-                if best_h is not None:
-                    hold = float(lcfg.get("hold_s", 8.0))
-                    cands.append({"until": t + hold, "priority": lcfg.get("priority", 90),
-                                  "car": best_h, "reason": "human_finish", "hold": hold,
-                                  "hold_max": float(lcfg.get("hold_max_s", 600.0))})
+            fccfg = pc.get("finish_cycle", {}) or {}
+            if fccfg.get("enabled", False):
+                fc = self._finish_cycle(t, st, fccfg)
+                if fc is not None:
+                    cands.append(fc)
+            else:
+                # V8.6 (Dustin, 09 OCT): the last laps belong to our drivers. From
+                # final_laps_lock laps to go, the camera locks to the human in the
+                # closest fight (or the best-placed human); only the winner moment,
+                # a red flag or a safety car outrank it.
+                lcfg = pc.get("human_finish", {})
+                rem = st.laps_remaining() if hasattr(st, "laps_remaining") else None
+                if rem is not None and rem <= int(lcfg.get("laps", 2)) \
+                        and m.state in ("green", "final_lap"):
+                    best_h, best_key = None, None
+                    for h in st.humans():
+                        c = m.w.cars[h]
+                        ga = c.delta_front if c.position > 1 else None
+                        b = m.w.car_at_position(c.position + 1)
+                        gb = b.delta_front if b is not None else None
+                        close = min(x for x in (ga, gb) if x is not None) if (ga is not None or gb is not None) else 99.0
+                        key = (-(min(close, 5.0)), -(c.position or 99))
+                        if best_key is None or key > best_key:
+                            best_h, best_key = h, key
+                    if best_h is not None:
+                        hold = float(lcfg.get("hold_s", 8.0))
+                        cands.append({"until": t + hold, "priority": lcfg.get("priority", 90),
+                                      "car": best_h, "reason": "human_finish", "hold": hold,
+                                      "hold_max": float(lcfg.get("hold_max_s", 600.0))})
             if m.start_window(t):
                 top3 = set(m.top3())
                 extra = [d for d in extra if d.get("car") in top3]
@@ -12929,6 +12943,215 @@ class V3Gallery:
             return None
         cands.sort(key=lambda d: (d["priority"], d["until"]), reverse=True)
         return cands[0]
+
+    # ---- V9.19 (20 OCT, Dustin): finish cycle and podium shots -------------
+    # The last laps used to lock to the human in the closest fight for up to
+    # ten minutes (logs, 20 OCT: 60 s and 48 s on P16). Now the camera visits
+    # the humans in turn, longer for the front-runners and for a close fight,
+    # and a fight between two of our drivers holds until a pass or a gap.
+
+    def _pair_gap(self, a, b):
+        """Gap in seconds between two cars if they are adjacent, else None."""
+        m = self.model
+        ca, cb = m.w.cars[a], m.w.cars[b]
+        if not (ca.position and cb.position) or abs(ca.position - cb.position) != 1:
+            return None
+        rear = ca if ca.position > cb.position else cb
+        return rear.delta_front if rear.delta_front else None
+
+    def _fc_fight(self, h):
+        """(opponent idx, gap) for human h: the closer of the car ahead and the
+        car behind -- attacking or defending, a close gap is a fight."""
+        m = self.model
+        c = m.w.cars[h]
+        best = (None, 99.0)
+        if c.position and c.position > 1:
+            a = m.w.car_at_position(c.position - 1)
+            if a is not None and c.delta_front and c.delta_front < best[1]:
+                best = (a.idx, c.delta_front)
+        b = m.w.car_at_position(c.position + 1) if c.position else None
+        if b is not None and b.delta_front and b.delta_front < best[1] \
+                and not m.is_retired(b.idx):
+            best = (b.idx, b.delta_front)
+        return best
+
+    def _finish_cycle(self, t, st, cfg):
+        m = self.model
+        rem = st.laps_remaining() if (st is not None and hasattr(st, "laps_remaining")) else None
+        if rem is None or rem > int(cfg.get("laps", 2)) or m.state not in ("green", "final_lap"):
+            self._fc = None
+            return None
+        prio = cfg.get("priority", 79)
+        fc = self._fc
+        if fc is not None:
+            done = False
+            gap = self._pair_gap(fc["a"], fc["opp"]) if fc["opp"] is not None else None
+            if fc["opp"] is not None and fc.get("pass_t") is None:
+                ahead_now = (m.w.cars[fc["a"]].position or 99) < (m.w.cars[fc["opp"]].position or 99)
+                if ahead_now != fc["a_ahead"]:
+                    fc["swap_since"] = fc.get("swap_since") or t
+                    if t - fc["swap_since"] >= float(cfg.get("pass_confirm_s", 2.0)):
+                        fc["pass_t"] = t
+                        fc["until"] = t + float(cfg.get("after_pass_s", 4.0))
+                        fc["sticky"] = False
+                else:
+                    fc["swap_since"] = None
+            if fc["sticky"]:
+                rel = float(cfg.get("hh_release_gap_s", 1.5)) if fc["hh"] else float(cfg.get("hva_release_gap_s", 0.5))
+                cap = float(cfg.get("hh_max_s", 60.0)) if fc["hh"] else float(cfg.get("hva_max_s", 30.0))
+                if gap is None or gap > rel:
+                    fc["sep_since"] = fc.get("sep_since") or t
+                else:
+                    fc["sep_since"] = None
+                apart = fc.get("sep_since") is not None and t - fc["sep_since"] >= float(cfg.get("separate_confirm_s", 2.0))
+                if apart or (t - fc["start"]) >= cap:
+                    fc["sticky"] = False
+                    fc["until"] = max(t, fc["start"] + fc["base"])
+                else:
+                    fc["until"] = max(fc["until"], t + 1.0)
+            if m.is_retired(fc["car"]) or t >= fc["until"]:
+                done = True
+            if not done:
+                return {"until": fc["until"], "priority": fc["prio"], "car": fc["car"],
+                        "reason": "finish_cycle", "hold": max(0.5, fc["until"] - t),
+                        "hold_max": fc["hold_max"], "extendable": True}
+            for h in fc["humans"]:
+                self._fc_visit[h] = t
+            self._fc = None
+        humans = list(st.humans()) if st is not None else []
+        if not humans:
+            return None
+        cool = float(cfg.get("cooldown_s", 20.0))
+        best, best_key = None, None
+        for h in humans:
+            c = m.w.cars[h]
+            pos = c.position or 99
+            opp, gap = self._fc_fight(h)
+            hh = opp is not None and m.w.cars[opp].is_human and gap < float(cfg.get("hh_gap_s", 1.5))
+            hva = opp is not None and not hh and gap < float(cfg.get("hva_gap_s", 1.0))
+            podium_fight = hh and min(pos, m.w.cars[opp].position or 99) <= 3
+            score = 30 if pos <= 3 else (20 if pos <= 10 else 10)
+            if hh:
+                score += 60 if podium_fight else 40
+            elif hva:
+                score += 20
+            cooling = (t - self._fc_visit.get(h, -1e9)) < cool and not hh
+            if cooling:
+                score -= 100
+            key = (score, -pos)
+            if best_key is None or key > best_key:
+                best_key, best = key, (h, pos, opp, gap, hh, hva)
+        h, pos, opp, gap, hh, hva = best
+        base = float(cfg.get("base_front_s", 14.0)) if pos <= 3 else (
+            float(cfg.get("base_mid_s", 10.0)) if pos <= 10 else float(cfg.get("base_back_s", 6.0)))
+        bonus = float(cfg.get("hh_bonus_s", 12.0)) if hh else (float(cfg.get("hva_bonus_s", 8.0)) if hva else 0.0)
+        car = h
+        if hh:
+            # the car behind, so both are in frame
+            car = h if (m.w.cars[h].position or 0) > (m.w.cars[opp].position or 0) else opp
+        sticky = hh or (hva and gap < float(cfg.get("hva_release_gap_s", 0.5)))
+        hold = base + bonus
+        hold_max = float(cfg.get("hh_max_s", 60.0)) if hh else (float(cfg.get("hva_max_s", 30.0)) if sticky else hold)
+        self._fc = {"a": h, "opp": opp if (hh or hva) else None, "car": car, "hh": hh,
+                    "humans": [x for x in (h, opp) if x is not None and m.w.cars[x].is_human],
+                    "a_ahead": (m.w.cars[h].position or 99) < (m.w.cars[opp].position or 99) if opp is not None else True,
+                    "start": t, "base": hold, "until": t + hold, "sticky": sticky,
+                    "hold_max": hold_max, "prio": prio}
+        return {"until": t + hold, "priority": prio, "car": car, "reason": "finish_cycle",
+                "hold": hold, "hold_max": hold_max, "extendable": True}
+
+    def _eta_to_line(self, c):
+        """Seconds until car c reaches the line, from its lap distance and its
+        last lap time; None when either is unknown."""
+        m = self.model
+        tl = 0
+        ext = getattr(m.w, "ext", None)
+        if ext is not None and getattr(ext, "session", None):
+            tl = (ext.session or {}).get("track_length_m") or 0
+        lap_s = (c.last_lap_ms or 0) / 1000.0
+        if tl <= 0 or lap_s <= 0 or c.lap_distance is None:
+            return None
+        left = max(0.0, tl - float(c.lap_distance))
+        return left / tl * lap_s
+
+    def _podium_shots(self, t, cfg):
+        """P1 onto the line and through it; then P2 and P3 each onto theirs.
+        A human on the podium is held longer than an AI car."""
+        m = self.model
+        out = []
+        def holds(idx):
+            human = m.w.cars[idx].is_human
+            return ((float(cfg.get("human_lead_s", 5.0)), float(cfg.get("human_after_s", 10.0)))
+                    if human else (float(cfg.get("ai_lead_s", 5.0)), float(cfg.get("ai_after_s", 5.0))))
+        # P1 approaching on the final lap
+        if m.leader_finish_t is None and m.state == "final_lap" and m.leader_idx is not None:
+            c = m.w.cars[m.leader_idx]
+            eta = self._eta_to_line(c)
+            lead, after = holds(c.idx)
+            if eta is not None and eta <= lead:
+                out.append({"until": t + eta + after, "priority": cfg.get("p1_priority", 95),
+                            "car": c.idx, "reason": "winner", "hold": eta + after,
+                            "hold_max": lead + after + 10.0, "extendable": True})
+            return out
+        if m.leader_finish_t is None or m.road_winner is None:
+            self._podium = None
+            return out
+        if self._podium is None:
+            plan = []
+            for p in (2, 3):
+                c = m.w.car_at_position(p)
+                if c is not None:
+                    cross = m.finish_t.get(c.idx) or (m.leader_finish_t + max(0.0, c.delta_leader or 0.0))
+                    plan.append({"pos": p, "car": c.idx, "cross": cross})
+            self._podium = {"plan": plan}
+        lead1, after1 = holds(m.road_winner)
+        min_after = float(cfg.get("winner_min_after_s", 3.0))
+        min_shot = float(cfg.get("min_shot_s", 3.0))
+        # the podium schedule is fixed once, at the winner's finish, from each
+        # car's gap: P2 then P3, each onto his line (lead_s before), each at
+        # least min_shot on screen, in finishing order. "Every time": a car that
+        # crosses close behind still gets his own shot.
+        if "shots" not in self._podium:
+            shots = []
+            prev_start = m.leader_finish_t + min_after - min_shot
+            for item in self._podium["plan"]:
+                lead, after = holds(item["car"])
+                start = max(item["cross"] - lead, m.leader_finish_t + min_after, prev_start + min_shot)
+                # the shot before keeps at least its own minimum (5 s for one of ours)
+                if shots:
+                    pv = shots[-1]
+                    pv_min = float(cfg.get("min_shot_human_s", 5.0)) if m.w.cars[pv["car"]].is_human else min_shot
+                    start = max(start, pv["start"] + pv_min)
+                shots.append({"pos": item["pos"], "car": item["car"], "lead": lead, "after": after,
+                              "start": start, "end": max(item["cross"] + after, start + min_shot)})
+                prev_start = start
+            self._podium["shots"] = shots
+        shots = [sh for sh in self._podium["shots"]
+                 if sh["car"] in m.finish_t or not m.is_retired(sh["car"])]
+        # the winner: through the line, cut away when P2 arrives, and -- for one
+        # of our drivers -- back to him afterwards for the rest of his time
+        w_full_end = m.leader_finish_t + after1
+        w_end = min(w_full_end, shots[0]["start"]) if shots else w_full_end
+        if t < w_end:
+            out.append({"until": w_end, "priority": cfg.get("p1_priority", 95), "car": m.road_winner,
+                        "reason": "winner", "hold": max(0.5, w_end - t),
+                        "hold_max": after1 + 10.0, "extendable": True})
+        for k, sh in enumerate(shots):
+            end = min(sh["end"], shots[k + 1]["start"]) if k + 1 < len(shots) else sh["end"]
+            if sh["start"] <= t < end:
+                out.append({"until": end, "priority": cfg.get("p%d_priority" % sh["pos"], 96 - sh["pos"]),
+                            "car": sh["car"], "reason": "podium_p%d" % sh["pos"],
+                            "hold": max(0.5, end - t),
+                            "hold_max": sh["lead"] + sh["after"] + 10.0, "extendable": True})
+        if shots and m.w.cars[m.road_winner].is_human:
+            left = w_full_end - w_end
+            r0 = shots[-1]["end"]
+            if left > 1.0 and r0 <= t < r0 + left:
+                out.append({"until": r0 + left, "priority": cfg.get("p1_priority", 95),
+                            "car": m.road_winner, "reason": "winner_return",
+                            "hold": max(0.5, r0 + left - t), "hold_max": left + 5.0,
+                            "extendable": True})
+        return out
 
     # ---- the tick ----------------------------------------------------------
     def observe(self, t):
@@ -12967,6 +13190,11 @@ class V3Gallery:
                     and best["reason"] == self._prot["reason"]
                     and best["car"] == self._prot["car"]
                     and t < self._prot["until"])
+            # V9.19: the finish cycle and the podium shots move their own end
+            # (a fight that is still on, a crossing that is later than guessed)
+            if same and best.get("extendable"):
+                self._prot["until"] = best["until"]
+                self._prot["hold_max"] = best.get("hold_max", self._prot.get("hold_max"))
             if not same and (self._prot is None
                              or best["priority"] > self._prot["priority"]
                              or t >= self._prot["until"]):

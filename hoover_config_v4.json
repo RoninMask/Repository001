@@ -512,7 +512,7 @@
           "priority": 85
         },
         "collision_human": {
-          "hold_s": 8.0,
+          "hold_s": 5.0,
           "priority": 85
         },
         "lead_change": {
@@ -543,6 +543,39 @@
           "hold_s": 8.0,
           "hold_max_s": 600.0,
           "_about": "V8.6: from `laps` to go the camera locks to the human in the closest fight (or best placed); winner, red flag and safety car outrank it"
+        },
+        "finish_cycle": {
+          "enabled": true,
+          "laps": 2,
+          "priority": 79,
+          "base_front_s": 14.0,
+          "base_mid_s": 10.0,
+          "base_back_s": 6.0,
+          "hva_gap_s": 1.0,
+          "hva_bonus_s": 8.0,
+          "hva_release_gap_s": 0.5,
+          "hva_max_s": 30.0,
+          "hh_gap_s": 1.5,
+          "hh_bonus_s": 12.0,
+          "hh_release_gap_s": 1.5,
+          "hh_max_s": 60.0,
+          "pass_confirm_s": 2.0,
+          "after_pass_s": 4.0,
+          "separate_confirm_s": 2.0,
+          "cooldown_s": 20.0,
+          "_about": "V9.19 (20 OCT, Dustin): replaces the human_finish lock. Visits the humans in turn: P1-3 14 s, P4-10 10 s, P11+ 6 s; +8 s for a fight with an AI car under 1.0 s (held while under 0.5 s, max 30 s); +12 s for a fight between two humans under 1.5 s, held until a pass (confirmed 2 s, then 4 s more) or a 1.5 s gap, max 60 s. 20 s before a human is revisited, except in a human-vs-human fight. enabled:false puts the old lock back."
+        },
+        "podium": {
+          "enabled": true,
+          "ai_lead_s": 5.0,
+          "ai_after_s": 5.0,
+          "human_lead_s": 5.0,
+          "human_after_s": 10.0,
+          "merge_s": 2.0,
+          "p1_priority": 95,
+          "p2_priority": 94,
+          "p3_priority": 93,
+          "_about": "V9.19 (20 OCT): P1, P2 and P3 each shown onto the line (lead_s before, after_s after; a human longer). Within merge_s of the car ahead it is covered by that shot. enabled:false = winner shot only, as before."
         }
       },
       "share_hysteresis_s": 20.0,
