@@ -880,7 +880,7 @@ COMMON_CSS = r"""
   body{font-family:Poppins,"Segoe UI",Arial,sans-serif;color:#fff;-webkit-font-smoothing:antialiased}
   .hidden{opacity:0!important;pointer-events:none}
 """
-FONT_LINK = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">'
+FONT_LINK = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Titillium+Web:wght@700&display=swap" rel="stylesheet">'
 
 TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover tower</title>
 %(font)s<style>%(common)s
@@ -1180,13 +1180,13 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
   .r.later > *{opacity:.78}
   .r.done > *{opacity:.55}
 
-  .ttl{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:5vh;letter-spacing:.12em;line-height:1;color:var(--led);
+  .ttl{font-family:'Titillium Web',Arial,sans-serif;font-weight:700;font-size:5vh;letter-spacing:.12em;line-height:1;color:var(--led);
        text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8),0 0 16px rgba(255,42,26,.4);text-align:right}
   .line{display:flex;align-items:flex-end;gap:.7vw}
-  .ampm{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:2.4vh;letter-spacing:.1em;color:var(--led);
+  .ampm{font-family:'Titillium Web',Arial,sans-serif;font-weight:700;font-size:2.4vh;letter-spacing:.1em;color:var(--led);
         text-shadow:0 0 2px #000,0 0 3px #000,0 0 6px rgba(255,42,26,.8);padding-bottom:.2vh;line-height:1.25}
   .r svg{display:block;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.95)) drop-shadow(0 0 3px rgba(0,0,0,.8)) drop-shadow(0 0 6px rgba(255,42,26,.8)) drop-shadow(0 0 14px rgba(255,42,26,.4))}
-  .sh{font-family:Poppins,Arial,sans-serif;font-weight:700;font-size:3.6vh;letter-spacing:.12em;color:var(--led);
+  .sh{font-family:'Titillium Web',Arial,sans-serif;font-weight:700;font-size:3.6vh;letter-spacing:.12em;color:var(--led);
       text-shadow:0 0 8px rgba(255,42,26,.9),0 0 20px rgba(255,42,26,.5)}
 </style></head><body>
 <div id="wrap">
