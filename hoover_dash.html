@@ -427,11 +427,13 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
       <div class="field"><label>Constructors' Cup ($ · top 3 teams, both cars' points)</label><div class="row"><input type="text" data-ov="prizes.constructors.0" style="width:60px"><input type="text" data-ov="prizes.constructors.1" style="width:60px"><input type="text" data-ov="prizes.constructors.2" style="width:60px"></div></div>
       <div class="field"><label>Fade (ms)</label><input type="text" data-ov="prizes.fade_ms" style="width:70px"></div>
       <div class="field"><label>Pop up by itself when the race ends</label><div class="row"><label class="switch"><input type="checkbox" data-ov="prizes.auto_show"><i></i></label><span class="note">after</span><input type="text" data-ov="prizes.auto_delay_s" style="width:50px"><span class="note">s, for</span><input type="text" data-ov="prizes.auto_hold_s" style="width:50px"><span class="note">s · Show results below keeps it up until Hide</span></div></div>
+      <div class="field"><label>Mid-race table: show money (off = points only)</label><label class="switch"><input type="checkbox" data-ov="prizes.provisional_money"><i></i></label></div>
+      <div class="field"><label>Cycle the "as it stands" table during the race</label><div class="row"><label class="switch"><input type="checkbox" data-ov="prizes.cycle_on"><i></i></label><span class="note">every</span><input type="text" data-ov="prizes.cycle_every_min" style="width:50px"><span class="note">min, for</span><input type="text" data-ov="prizes.cycle_hold_s" style="width:50px"><span class="note">s · not in the first</span><input type="text" data-ov="prizes.cycle_skip_first_laps" style="width:40px"><span class="note">or last</span><input type="text" data-ov="prizes.cycle_skip_last_laps" style="width:40px"><span class="note">laps</span></div></div>
     </div>
     <div class="row" style="margin-top:10px"><button class="btn accent" id="btnresults">Show results</button><button class="btn" id="btnresultshide">Hide</button>
       <span class="note">Pole:</span><select id="ovpole"></select><span class="note">Fastest lap:</span><select id="ovfl"></select>
       <span class="note" id="resnote"></span></div>
-    <div class="note" style="margin-top:6px">Pole is remembered from qualifying and fastest lap comes from the race; pick a driver here only to correct them. Pressing Show also writes <span class="mono">results/results_&lt;date&gt;.json</span> and <span class="mono">.csv</span> beside the tool.</div>
+    <div class="note" style="margin-top:6px">Pole is remembered from qualifying and fastest lap comes from the race; pick a driver here only to correct them. Show and Hide work any time. During the race the screen says <b>AS IT STANDS · Lap N of M</b> and nothing is saved; at the flag the result <b>locks</b> as tonight's FINAL, survives Stop, and writes the payout record <span class="mono">results/FINAL_&lt;date&gt;.json · .csv · .html</span> (the .html prints).</div>
     <div id="respreview" class="note mono" style="margin-top:8px;white-space:pre;max-height:220px;overflow:auto"></div>
   </div>
 
@@ -1003,7 +1005,7 @@ function renderResults(st){
   const R = st && st.results; if (!R) { $("#respreview").textContent = "No feed yet."; return; }
   const money = x => "$" + (Math.round(x * 100) / 100);
   const lines = [];
-  lines.push("Total tonight " + money(R.total || 0) + " of a possible " + money(R.maximum || 0) + " · " + (R.humans || 0) + " human driver(s)");
+  lines.push((R.mode === "final" ? "FINAL (locked " + (R.locked_at || "") + ") · " : R.mode === "provisional" ? "AS IT STANDS · lap " + (R.lap || 0) + " of " + (R.total_laps || "?") + " · not saved · " : "No race result yet · ") + "Total " + money(R.total || 0) + " of a possible " + money(R.maximum || 0) + " · " + (R.humans || 0) + " human driver(s)");
   (R.drivers || []).filter(d => d.prize).forEach(d => lines.push(("P" + d.pos).padEnd(4) + d.name.padEnd(18).slice(0, 18) + " " + money(d.prize).padStart(6) + "  " + d.items.map(i => i.label).join(" + ") + "  → " + d.charity));
   (R.constructors || []).filter(t => t.prize).forEach(t => lines.push(("C" + t.rank).padEnd(4) + (t.team || "").padEnd(18).slice(0, 18) + " " + money(t.prize).padStart(6) + "  " + t.points + " pts  → " + t.charity));
   const B = R.bonuses || {};
@@ -1035,7 +1037,7 @@ document.querySelectorAll("[data-slip]").forEach(b => b.onclick = () => {
   $("#cdstart").dispatchEvent(new Event("input", {bubbles: true}));
 });
 $("#cdmore").onclick = ev => { ev.preventDefault(); const f = $("#cdfields"); f.style.display = f.style.display === "none" ? "" : "none"; };
-$("#btnresults").onclick = async () => { const r = await api("/api/overlay/control", {action: "results"}); toast(r.ok ? "Results on screen" + (r.exported_to ? "; sheet written to " + esc(r.exported_to) : "") : esc(r.msg || r.error)); };
+$("#btnresults").onclick = async () => { const r = await api("/api/overlay/control", {action: "results"}); toast(r.ok ? (r.mode === "final" ? "FINAL results on screen; payout sheet in " + esc(r.exported_to || "results") : "As-it-stands table on screen (not saved)") : esc(r.msg || r.error)); };
 $("#btnresultshide").onclick = async () => { await api("/api/overlay/control", {action: "results_hide"}); };
 $("#ovpole").onchange = async () => { await api("/api/overlay/control", {action: "override", pole: $("#ovpole").value}); };
 $("#ovfl").onchange = async () => { await api("/api/overlay/control", {action: "override", fastest_lap: $("#ovfl").value}); };

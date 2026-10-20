@@ -125,6 +125,10 @@ DEFAULT_SETTINGS = {
         "points": [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
         "fade_ms": 900,
         "auto_show": True, "auto_delay_s": 4, "auto_hold_s": 30,   # pops up with the game's after-race, 30 s, then fades
+        # V9.17 (20 OCT): mid-race "as it stands" -- provisional, never written to disk
+        "provisional_money": True,             # False = points only on the provisional table
+        "cycle_on": False, "cycle_every_min": 8, "cycle_hold_s": 12,   # optional mid-race cycle
+        "cycle_skip_first_laps": 3, "cycle_skip_last_laps": 2,
     },
     "radio": {"hold_s": 12, "label": "TEAM RADIO"}
 }
@@ -166,6 +170,58 @@ def _ms(ms):
 # ============================================================================
 # SETTINGS
 # ============================================================================
+
+def payout_sheet_html(fin, prizes):
+    """A printable payout sheet for the night -- who to pay, how much, and why."""
+    doc = fin.get("doc") or {}
+    E = lambda t: (str(t if t is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    M = lambda x: "$%s" % ("%g" % round(float(x or 0), 2))
+    try:
+        date = time.strftime("%d %B %Y", time.strptime(fin.get("date", ""), "%Y-%m-%d"))
+    except Exception:
+        date = fin.get("date", "")
+    rows = []
+    for d in doc.get("drivers", []):
+        if not d.get("prize"):
+            continue
+        items = "<br>".join("%s &nbsp;<b>%s</b>" % (E(i.get("label")), M(i.get("amount"))) for i in d.get("items", []))
+        rows.append("<tr><td>P%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class=r><b>%s</b></td></tr>" % (
+            d.get("pos") or "-", E(d.get("name")), E(d.get("team")), E(d.get("charity")), items, M(d.get("prize"))))
+    cons = []
+    for t in doc.get("constructors", []):
+        if not t.get("prize"):
+            continue
+        cons.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s pts</td><td class=r><b>%s</b></td></tr>" % (
+            t.get("rank"), E(t.get("team")), E(t.get("charity")), t.get("points"), M(t.get("prize"))))
+    chs = "".join("<tr><td>%s</td><td class=r><b>%s</b></td></tr>" % (E(c.get("charity")), M(c.get("total")))
+                  for c in doc.get("charities", []))
+    B = doc.get("bonuses") or {}
+    def bon(label, b):
+        if not b or not b.get("name"):
+            return "<li>%s: not recorded</li>" % label
+        return "<li>%s: %s%s</li>" % (label, E(b.get("name")),
+                                      (" &rarr; %s %s" % (M(b.get("amount")), E(b.get("charity")))) if b.get("paid") else " (AI &mdash; unpaid)")
+    css = ("body{font-family:Segoe UI,Arial,sans-serif;color:#111;max-width:980px;margin:28px auto;padding:0 20px}"
+           "h1{margin:0;font-size:26px}h2{font-size:16px;margin:26px 0 8px;border-bottom:2px solid #e10600;padding-bottom:4px}"
+           ".sub{color:#555;margin:4px 0 18px}table{border-collapse:collapse;width:100%}td,th{padding:7px 9px;border-bottom:1px solid #ddd;"
+           "text-align:left;vertical-align:top;font-size:14px}th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#666}"
+           ".r{text-align:right}.tot{font-size:22px;margin-top:6px}.note{color:#777;font-size:12px;margin-top:24px}"
+           "@media print{body{margin:0}}")
+    return ("<!doctype html><html><head><meta charset='utf-8'><title>Payout sheet %s</title><style>%s</style></head><body>"
+            "<h1>%s &mdash; payout sheet</h1><div class=sub>%s &middot; %s &middot; locked %s</div>"
+            "<div class=tot>Total to pay: <b>%s</b> <span style='color:#777;font-size:14px'>(of a possible %s with %s human drivers)</span></div>"
+            "<h2>Money by charity &mdash; the cheques to write</h2><table><tr><th>Charity</th><th class=r>Amount</th></tr>%s</table>"
+            "<h2>Drivers</h2><table><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Charity</th><th>Prizes</th><th class=r>Total</th></tr>%s</table>"
+            "<h2>Constructors' Cup</h2><table><tr><th>Rank</th><th>Team</th><th>Charity</th><th>Points</th><th class=r>Prize</th></tr>%s</table>"
+            "<h2>Bonuses</h2><ul>%s%s</ul>"
+            "<div class=note>Written by Hoover's overlay at the flag and rewritten if the classification changed. "
+            "File: FINAL_%s.json / .csv / .html in the results folder.</div></body></html>") % (
+        E(fin.get("date")), css, E(prizes.get("subtitle") or "Formula Awesome Charity Race"), E(fin.get("track")), E(date),
+        E(fin.get("locked_at")), M(doc.get("total")), M(doc.get("maximum")), doc.get("humans", 0),
+        chs or "<tr><td colspan=2>none</td></tr>", "".join(rows) or "<tr><td colspan=6>none</td></tr>",
+        "".join(cons) or "<tr><td colspan=5>none</td></tr>",
+        bon("Pole", B.get("pole")), bon("Fastest lap", B.get("fastest_lap")), E(fin.get("date")))
+
 
 class Settings(object):
     """V9.6: two files. hoover_overlay_settings.default.json travels with the
@@ -643,6 +699,8 @@ class Overlay(object):
         self._night_dirty = False
         self._podium_at = None
         self._auto_fired = False
+        self._cycle_at = None
+        self._final_sig = None
 
     def _save_night(self):
         try:
@@ -757,9 +815,68 @@ class Overlay(object):
             self._night_dirty = False
             self._save_night()
         if action == "results":
-            folder = self.export_results(self.results_doc())
-            return {"ok": True, "seq": self.cmd_seq, "exported_to": folder}
+            # V9.17: only tonight's locked FINAL is ever written; a provisional table never is
+            fin = self.todays_final()
+            folder = self.export_final(fin) if fin else None
+            return {"ok": True, "seq": self.cmd_seq, "exported_to": folder,
+                    "mode": "final" if fin else "provisional"}
         return {"ok": True, "seq": self.cmd_seq}
+
+    # ---- V9.17 (20 OCT): the locked FINAL and the payout record ----
+    @staticmethod
+    def _today():
+        return time.strftime("%Y-%m-%d")
+
+    def todays_final(self):
+        f = self.night.get("final")
+        return f if (f and f.get("date") == self._today() and f.get("doc")) else None
+
+    def _lock_final(self, results, snap):
+        """Called while the race is classified. Keeps the latest classification as
+        tonight's FINAL (penalties can still move it in the first seconds), saves it
+        into the night file so it survives Stop, and rewrites the payout record."""
+        if not results.get("drivers"):
+            return
+        sig = json.dumps([results.get("total"), [(d.get("code"), d.get("pos"), d.get("prize")) for d in results["drivers"]],
+                          [(t.get("team"), t.get("prize")) for t in results.get("constructors", [])]], sort_keys=True)
+        if sig == self._final_sig and self.todays_final():
+            return
+        self._final_sig = sig
+        doc = dict(results)
+        doc["track"] = snap.get("track") or doc.get("track") or ""
+        self.night["final"] = {"date": self._today(), "locked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                               "track": doc["track"], "doc": doc}
+        self._save_night()
+        self.export_final(self.night["final"])
+
+    def export_final(self, fin):
+        """FINAL_<date>.json / .csv / .html beside the tool -- the payout record. Same
+        names all night, so the last write is the truth."""
+        try:
+            doc = fin["doc"]
+            folder = os.path.join(os.path.dirname(self.settings.path), "results")
+            os.makedirs(folder, exist_ok=True)
+            base = os.path.join(folder, "FINAL_%s" % fin["date"])
+            with open(base + ".json", "w", encoding="utf-8") as f:
+                json.dump(fin, f, indent=2, ensure_ascii=False)
+            with open(base + ".csv", "w", encoding="utf-8", newline="") as f:
+                f.write("pos,code,name,human,team,charity,points,prize,items\n")
+                for d in doc["drivers"]:
+                    f.write("%s,%s,\"%s\",%s,\"%s\",\"%s\",%s,%s,\"%s\"\n" % (
+                        d["pos"], d["code"], d["name"], int(d["human"]), d["team"], d["charity"],
+                        d["points"], d["prize"], "; ".join("%s $%g" % (i["label"], i["amount"]) for i in d["items"])))
+                f.write("\nrank,team,charity,points,prize\n")
+                for t in doc["constructors"]:
+                    f.write("%s,\"%s\",\"%s\",%s,%s\n" % (t["rank"], t["team"], t["charity"], t["points"], t["prize"]))
+                f.write("\ncharity,total\n")
+                for c in doc["charities"]:
+                    f.write("\"%s\",%s\n" % (c["charity"], c["total"]))
+            with open(base + ".html", "w", encoding="utf-8") as f:
+                f.write(payout_sheet_html(fin, (self.settings.get().get("prizes") or {})))
+            return folder
+        except Exception as e:
+            sys.stdout.write("results: could not write the payout record (%s)\n" % e)
+            return None
 
     def state(self):
         self.settings.reload()
@@ -828,7 +945,18 @@ class Overlay(object):
                 self._save_night()
         prizes = cfg.get("prizes") or {}
         moments = snap.get("moments") or {}
-        if snap.get("is_race") and moments.get("podium"):
+        live_results = compute_payouts(rows, prizes, pole=self.night.get("pole"),
+                                       fastest_override=(self.night.get("overrides") or {}).get("fastest_lap"),
+                                       pole_override=(self.night.get("overrides") or {}).get("pole"))
+        live_results["event"] = snap.get("event") or {}
+        live_results["track"] = snap.get("track") or ""
+        is_race = bool(snap.get("is_race"))
+        classified = is_race and bool(moments.get("podium"))
+        racing = is_race and snap.get("connected") and bool(rows) and not classified
+        # V9.17: the race is classified -> lock tonight's FINAL (survives Stop) and write the record
+        if classified and rows:
+            self._lock_final(live_results, snap)
+        if classified:
             if self._podium_at is None:
                 self._podium_at = now
             if (prizes.get("auto_show") and not self._auto_fired and cfg["surfaces"].get("results")
@@ -837,18 +965,48 @@ class Overlay(object):
                 self.control({"action": "results", "hold_s": prizes.get("auto_hold_s") or 30, "auto": True})
         else:
             self._podium_at = None
-            if not snap.get("is_race"):
+            if not is_race:
                 self._auto_fired = False
+        # V9.17: optional mid-race cycle of the provisional table (manual Show/Hide works any time)
+        if racing and prizes.get("cycle_on") and cfg["surfaces"].get("results"):
+            lap = int(snap.get("lap") or 0)
+            tot = int(snap.get("total_laps") or 0)
+            in_window = lap > int(float(prizes.get("cycle_skip_first_laps") or 0)) and (
+                tot <= 0 or lap <= tot - int(float(prizes.get("cycle_skip_last_laps") or 0)))
+            every = max(1.0, float(prizes.get("cycle_every_min") or 8)) * 60.0
+            if self._cycle_at is None:
+                self._cycle_at = now
+            with self.lock:
+                showing = self.commands.get("results") is not None and (
+                    self.commands["results"].get("until") is None or self.commands["results"]["until"] > now)
+            if in_window and not showing and now - self._cycle_at >= every:
+                self._cycle_at = now
+                self.control({"action": "results", "hold_s": float(prizes.get("cycle_hold_s") or 12), "auto": True})
+        elif not is_race:
+            self._cycle_at = None
         with self.lock:
             cmds = {k: (v if (v is None or v.get("until") is None or v.get("until") > now) else None)
                     for k, v in self.commands.items()}
             if cmds["ticker_slot"] is None and self.commands["ticker_slot"] is not None:
                 cmds["ticker_slot"] = self.commands["ticker_slot"]
-        results = compute_payouts(rows, prizes, pole=self.night.get("pole"),
-                                  fastest_override=(self.night.get("overrides") or {}).get("fastest_lap"),
-                                  pole_override=(self.night.get("overrides") or {}).get("pole"))
-        results["event"] = snap.get("event") or {}
-        results["track"] = snap.get("track") or ""
+        # V9.17: which table the screen draws
+        fin = self.todays_final()
+        if racing:
+            results, mode = live_results, "provisional"
+        elif classified and fin:
+            results, mode = fin["doc"], "final"
+        elif fin:
+            results, mode = fin["doc"], "final"           # Hoover stopped / between sessions: tonight's FINAL stands
+        else:
+            results, mode = live_results, ("not_race" if rows else "empty")
+        results = dict(results)
+        results["mode"] = mode
+        results["lap"] = int(snap.get("lap") or 0)
+        results["total_laps"] = int(snap.get("total_laps") or 0)
+        results["session"] = snap.get("session_name") or ""
+        results["date_label"] = (time.strftime("%d %b %Y", time.strptime(fin["date"], "%Y-%m-%d")).upper()
+                                 if (mode == "final" and fin) else time.strftime("%d %b %Y").upper())
+        results["locked_at"] = fin.get("locked_at") if (mode == "final" and fin) else None
         results["pole_memory"] = self.night.get("pole")
         results["overrides"] = self.night.get("overrides") or {}
         return {
@@ -1330,12 +1488,18 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
   #chr .row b{color:var(--gold);font-variant-numeric:tabular-nums}
   #ft{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);font-size:1.4vh;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600}
   #ft b{color:#fff}
+  #prov{display:none;position:absolute;left:50%%;top:4.2vh;transform:translate(-50%%,-50%%);background:var(--gold);color:#181c25;
+        font-weight:800;font-size:1.5vh;letter-spacing:.18em;padding:.5vh 1.4vw;border-radius:4px;text-transform:uppercase;white-space:nowrap}
+  #full.prov #prov{display:block}
+  #full.prov #hd{border-bottom-color:var(--gold)}
+  #full.nomoney td.prize,#full.nomoney th.prz,#full.nomoney #hd .money,#full.nomoney .b .m,#full.nomoney #chrp,
+  #full.nomoney #cons td.prize,#full.nomoney #bty{visibility:hidden}
 </style></head><body>
-<div id="full">
-  <div id="hd"><div class="t"><span id="title">Final results</span><small id="sub"></small></div><div class="money"><span id="total">$0</span><small>raised for charity tonight</small></div></div>
+<div id="full"><div id="prov"></div>
+  <div id="hd"><div class="t"><span id="title">Final results</span><small id="sub"></small></div><div class="money"><span id="total">$0</span><small id="totl">raised for charity tonight</small></div></div>
   <div id="body">
     <div class="panel"><div class="ph"><b>Classification</b> driver · team · charity · points · prize</div>
-      <table id="cls"><thead><tr><th style="width:3vw">P</th><th style="width:.5vw"></th><th>Driver</th><th style="width:12.5vw">Team</th><th style="width:13.5vw">Charity</th><th style="width:4vw;text-align:right">Pts</th><th style="width:11vw;text-align:right">Prize</th></tr></thead><tbody></tbody></table></div>
+      <table id="cls"><thead><tr><th style="width:3vw">P</th><th style="width:.5vw"></th><th>Driver</th><th style="width:12.5vw">Team</th><th style="width:13.5vw">Charity</th><th style="width:4vw;text-align:right">Pts</th><th class="prz" style="width:11vw;text-align:right">Prize</th></tr></thead><tbody></tbody></table></div>
     <div id="right">
       <div class="panel"><div class="ph"><b>Constructors' Cup</b> both cars' points</div>
         <table id="cons"><colgroup><col style="width:2.4vw"><col style="width:.5vw"><col><col style="width:5vw"><col style="width:3vw"><col style="width:4.5vw"></colgroup><tbody></tbody></table></div>
@@ -1344,7 +1508,7 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
         <div class="b"><div class="l">Fastest lap</div><div class="v" id="fl"></div><div class="m" id="flm"></div></div>
         <div class="b"><div class="l">Podium bounty</div><div class="v" id="bty" style="font-size:1.3vh;font-weight:600;white-space:normal"></div></div>
       </div>
-      <div class="panel"><div class="ph"><b>Money by charity</b></div><div id="chr"></div></div>
+      <div class="panel" id="chrp"><div class="ph"><b>Money by charity</b></div><div id="chr"></div></div>
     </div>
   </div>
   <div id="ft"><span id="donor"></span><span><b id="headline"></b></span></div>
@@ -1358,9 +1522,22 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
     const P=d.settings.prizes||{}; document.documentElement.style.setProperty("--fade",(P.fade_ms||900)+"ms");
     const c=d.commands&&d.commands.results; const on=d.settings.surfaces.results&&c;
     if(!on){full.classList.remove("on");return;}
-    const R=d.results||{}; const ev=R.event||{};
-    $("title").textContent=P.title||"Final results";
-    $("sub").textContent=[P.subtitle, R.track, ev.date||ev.event_date, ev.status?("counts as "+ev.status):""].filter(Boolean).join(" · ");
+    const R=d.results||{}; const ev=R.event||{}; const mode=R.mode||"empty";
+    const prov=mode!=="final"; full.classList.toggle("prov",prov);
+    full.classList.toggle("nomoney",prov&&P.provisional_money===false);
+    $("totl").textContent=mode==="final"?"raised for charity tonight":"if the race ended now";
+    if(mode==="final"){
+      $("title").textContent=P.title||"FINAL RESULTS";
+      $("sub").textContent=[P.subtitle, R.track, R.date_label].filter(Boolean).join(" · ");
+    }else if(mode==="provisional"){
+      $("title").textContent="AS IT STANDS";
+      $("sub").textContent=[P.subtitle, R.track].filter(Boolean).join(" · ");
+      $("prov").textContent="Provisional · if the race ended now"+(R.total_laps?" · Lap "+R.lap+" of "+R.total_laps:"");
+    }else{
+      $("title").textContent="NOT A RACE RESULT";
+      $("sub").textContent=[R.session, R.track].filter(Boolean).join(" · ");
+      $("prov").textContent="Provisional · "+(R.session||"no race running")+" · not a result";
+    }
     $("total").textContent=money(R.total||0);
     $("cls").querySelector("tbody").innerHTML=(R.drivers||[]).map(x=>`<tr class="${x.human?"human":""}"><td class="pos">${x.pos||"-"}</td><td class="bar"><i style="background:${esc(x.colour)}"></i></td><td class="nm">${esc(x.name)}${x.status&&["OUT","DSQ","NC"].includes(x.status)?' <small style="opacity:.6">'+esc(x.status)+'</small>':""}</td><td>${esc(x.team)}</td><td class="chr">${esc(x.charity)}</td><td class="num">${x.points||""}</td><td class="prize">${x.items.length?money(x.prize)+'<small>'+esc(x.items.map(i=>i.label).join(" + "))+'</small>':""}</td></tr>`).join("");
     $("cons").querySelector("tbody").innerHTML=(R.constructors||[]).slice(0,6).map(t=>`<tr class="${t.prize?"paid":""}"><td class="rk">${t.rank}</td><td class="bar"><i style="background:${esc(t.colour)}"></i></td><td>${esc(t.team)}</td><td class="chr">${esc(t.charity_code||t.charity)}</td><td class="num">${t.points}</td><td class="prize">${t.prize?money(t.prize):""}</td></tr>`).join("");
