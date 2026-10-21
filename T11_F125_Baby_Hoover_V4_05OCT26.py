@@ -8147,6 +8147,8 @@ class V3Booth:
             return None
         if st == "INC-02" and f.get("beat") == "off" and (f.get("view") or {}).get("big"):
             return None                              # a crash: one line, we come back
+        if st == "INC-07":
+            return None                              # V9.23: a human's impact breaks the start silence
         if f.get("pileup"):
             return None                              # V9.21: a pile-up breaks the start silence
         return "rewrite:start_window"
@@ -8832,6 +8834,19 @@ class V3Booth:
     # ---- V9.23 (21 OCT): the state calls cut in -------------------------------
     _PREEMPT_KINDS = ("SAFETY_CAR", "VSC", "RED_FLAG", "START", "RESTART", "SC_RETURNED")
 
+    def _is_snap(self, c):
+        """V9.23: a call that outranks every story line and cuts a playing
+        line: the state calls, and a human's impact (INC-07, the snap beat)."""
+        if not c.hard:
+            return False
+        if c.kind in self._PREEMPT_KINDS:
+            return True
+        return c.kind == "S_INC_07" and (c.facts or {}).get("beat") == "impact"
+
+    @staticmethod
+    def _is_impact(c):
+        return c.kind == "S_INC_07" and c.hard
+
     def _preempt_for_state(self, t):
         """The 21 OCT race test: the safety car was called twelve seconds after
         it was deployed because a retirement passage was still playing. A
@@ -8846,11 +8861,11 @@ class V3Booth:
             return
         if self.channel_busy_until <= t + 1e-9:
             return
-        waiting = [c for c in self.queue if c.kind in self._PREEMPT_KINDS and c.hard]
+        waiting = [c for c in self.queue if self._is_snap(c)]
         if not waiting:
             return
         last = self.emitted[-1] if self.emitted else None
-        if last is not None and last.get("kind") in self._PREEMPT_KINDS:
+        if last is not None and (last.get("kind") in self._PREEMPT_KINDS or last.get("kind") == "S_INC_07"):
             return                           # never cut one state call for another
         left = self.channel_busy_until - t
         if left < float(pc.get("min_left_s", 1.5)):
@@ -8958,9 +8973,12 @@ class V3Booth:
                 # V9.23: a state call (start, restart, safety car, red flag)
                 # outranks every story line, bonus or not (the green flag
                 # lost to a battle line on screen in the SC replay)
-                if c.kind in self._PREEMPT_KINDS and c.hard:
+                # (the 98 cap flattens the must-calls into a tie the oldest
+                # line wins: the impact's consequence expired behind twelve
+                # seconds of defence beats, so the whole impact story outranks)
+                if self._is_snap(c) or self._is_impact(c):
                     pri = 1000.0 + c.priority
-                if best is not None and best.kind in self._PREEMPT_KINDS and best.hard:
+                if best is not None and (self._is_snap(best) or self._is_impact(best)):
                     bp = 1000.0 + best.priority
                 if best is None or (pri, -c.t_create) > (bp, -best.t_create):
                     best = c
@@ -17937,6 +17955,9 @@ class P_INC_07(StoryProcessor):
                                    "places": _places_word(lost) if lost else None},
                               view={"human": True, "lost": lost > 0, "quiet": quiet},
                               numbers={"places": lost}, must=True, speaker="ANALYST")
+                    claim = eng.claims_out[-1] if eng.claims_out else None
+                    if claim is not None and getattr(claim, "story", None) is rec:
+                        claim.priority = max(claim.priority, 99.0)   # above any battle line's bonus
                     self.close(t, rec, rec.phase)
                 continue
             if c.pit_status or m.is_retired(c.idx) or c.idx in m.finish_t:
