@@ -1444,17 +1444,14 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     <pattern id="slatH" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="8" height="5" fill="#000"/></pattern>
     <pattern id="slatV" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="5" height="8" fill="#000"/></pattern>
   </defs>
-  <!-- V9.23 corner badge: AWESOME teal on a black bar across the top, FORMULA black on a teal bar up the left,
-       sharing the A in the corner; A CHARITY RACE small under AWESOME. Solid bars read on any picture. -->
-  <rect x="0" y="0" width="556" height="74" fill="#050505"/>
-  <rect x="74" y="74" width="482" height="28" fill="#050505"/>
-  <rect x="0" y="74" width="74" height="500" fill="#1DE9D6"/>
-  <text x="16" y="59" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="60"
-        textLength="522" lengthAdjust="spacing" fill="#1DE9D6">AWESOME</text>
-  <text transform="translate(59,556) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="60"
-        textLength="452" lengthAdjust="spacing" fill="#050505">FORMUL</text>
-  <text id="topline" x="92" y="94" font-family="Poppins,Arial,sans-serif" font-weight="700" font-size="17" letter-spacing="7"
-        fill="#ffffff">A CHARITY RACE</text>
+  <!-- FORMUL reads bottom to top up the left edge; its A is AWESOME's first letter in the corner -->
+  <text transform="translate(103,1040) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="880" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMUL</text>
+  <!-- AWESOME runs as far across as FORMULA runs up: corner (26) to 1040 -->
+  <text x="26" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="1014" lengthAdjust="spacing" fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
+  <text id="topline" x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700"
+        font-size="42" letter-spacing="9" fill="#1DE9D6" style="filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
 </svg>
 </div>
 <div id="clocks"></div>
@@ -1513,7 +1510,7 @@ COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoo
     wrap.classList.toggle("on", !adOn);
     if(adOn) return;
     document.getElementById("frame").classList.toggle("off", C.frame===false);
-    const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", "#ffffff");
+    const tl=document.getElementById("topline"); tl.textContent=C.top_line||""; tl.setAttribute("fill", C.accent||"#1DE9D6");
     let nextIdx=ts.findIndex(t=>t>now); if(nextIdx<0) nextIdx=3;
     const H=Math.round(window.innerHeight*0.0625);
     document.getElementById("clocks").innerHTML=ts.map((t,i)=>{
