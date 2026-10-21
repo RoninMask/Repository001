@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
                  "row_hide_after_min": 3, "auto_idle": True, "ads_alternate": True, "ads_every_s": 10},
     "tower": {
         "width": 320, "row_height": 34, "max_rows": 22,
+        "font_scale": 1.3,               # V9.23 (21 OCT, Dustin): tower text 1.3x; the session word is bigger still
         "name_mode": "code",            # code | short | full
         "columns": {
             "position": True, "colour": True, "name": True, "team": True, "charity": True,
@@ -96,6 +97,7 @@ DEFAULT_SETTINGS = {
     },
     "ticker": {
         "height": 44, "speed_px_s": 90, "separator": "  ◆  ",
+        "font_scale": 2.0,               # V9.23: ticker text twice the size (set height 88 and the OBS source 1920x88)
         "mode": "cycle",                 # off | slot1 | slot2 | slot3 | slot4 | cycle
         "cycle_s": 45,
         "slots": {
@@ -1042,17 +1044,17 @@ FONT_LINK = '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@5
 
 TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover tower</title>
 %(font)s<style>%(common)s
-  :root{--row:34px;--w:320px}
+  :root{--row:34px;--w:320px;--fs:1.3}
   #tower{width:var(--w);position:relative;opacity:0;transition:opacity .5s, width .45s cubic-bezier(.2,.7,.2,1)}
   .row{overflow:hidden}
   #tower.on{opacity:1}
-  #head{height:44px;background:var(--ink);border-left:6px solid var(--red);display:flex;align-items:center;
+  #head{height:calc(44px*var(--fs));background:var(--ink);border-left:6px solid var(--red);display:flex;align-items:center;
         justify-content:space-between;padding:0 12px;box-sizing:border-box;border-radius:6px 6px 0 0}
-  #session{font-weight:700;font-size:14px;letter-spacing:.08em;text-transform:uppercase}
-  #sub{font-size:11px;opacity:.75;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
-  #lap{font-weight:700;font-size:16px;text-align:right}
-  #lap small{display:block;font-size:10px;opacity:.75;font-weight:600;letter-spacing:.08em}
-  #sc{display:none;height:22px;line-height:22px;background:var(--gold);color:#181c25;font-weight:700;font-size:11px;
+  #session{font-weight:800;font-size:calc(22px*var(--fs));letter-spacing:.1em;text-transform:uppercase;line-height:1.05;color:#fff;text-shadow:0 0 12px rgba(225,6,0,.55)}
+  #sub{font-size:calc(11px*var(--fs));opacity:.75;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+  #lap{font-weight:700;font-size:calc(16px*var(--fs));text-align:right}
+  #lap small{display:block;font-size:calc(10px*var(--fs));opacity:.75;font-weight:600;letter-spacing:.08em}
+  #sc{display:none;height:calc(22px*var(--fs));line-height:calc(22px*var(--fs));background:var(--gold);color:#181c25;font-weight:700;font-size:calc(11px*var(--fs));
       letter-spacing:.14em;text-align:center;text-transform:uppercase}
   #sc.on{display:block}
   #rows{position:relative;background:rgba(16,19,26,.86);border-radius:0 0 6px 6px;overflow:hidden}
@@ -1061,30 +1063,30 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   .row.cam{background:rgba(225,6,0,.18)}
   .row.flash{animation:purple 1.2s ease-out 1}
   @keyframes purple{0%%{background:rgba(176,92,255,.55)}100%%{background:transparent}}
-  .pos{width:34px;text-align:center;font-weight:700;font-size:14px;background:rgba(255,255,255,.06);height:100%%;
+  .pos{width:calc(34px*var(--fs));text-align:center;font-weight:700;font-size:calc(14px*var(--fs));background:rgba(255,255,255,.06);height:100%%;
        line-height:var(--row);flex:none}
   .row.human .pos{background:var(--red)}
   .bar{width:5px;height:22px;margin:0 8px 0 6px;border-radius:2px;flex:none}
   .cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:width .45s cubic-bezier(.2,.7,.2,1), opacity .3s;
         box-sizing:border-box}
-  .name{font-weight:600;font-size:14px;letter-spacing:.02em;width:56px;flex:none}
+  .name{font-weight:600;font-size:calc(14px*var(--fs));letter-spacing:.02em;width:calc(56px*var(--fs));flex:none}
   .row:not(.human) .name{color:rgba(255,255,255,.72);font-weight:500}
-  .team,.charity{font-size:11.5px;font-weight:600;letter-spacing:.06em;color:rgba(255,255,255,.6);width:46px;flex:none;text-transform:uppercase}
+  .team,.charity{font-size:calc(11.5px*var(--fs));font-weight:600;letter-spacing:.06em;color:rgba(255,255,255,.6);width:calc(46px*var(--fs));flex:none;text-transform:uppercase}
   .charity{color:rgba(255,255,255,.5)}
   .cell.wide{width:var(--wide)}
   .spacer{flex:1}
-  .tyre{width:20px;height:20px;border-radius:50%%;border:2.5px solid #999;font-size:10px;font-weight:700;line-height:20px;
+  .tyre{width:calc(20px*var(--fs));height:calc(20px*var(--fs));border-radius:50%%;border:2.5px solid #999;font-size:calc(10px*var(--fs));font-weight:700;line-height:calc(20px*var(--fs));
         text-align:center;flex:none;margin-right:7px;color:#fff;box-sizing:border-box}
   .tyre.S{border-color:#e10600}.tyre.M{border-color:#f3c623}.tyre.H{border-color:#eee}.tyre.I{border-color:#39b54a}.tyre.W{border-color:#0067ff}
-  .tyre small{font-size:8px;opacity:.7}
-  .tag{font-size:9px;font-weight:700;letter-spacing:.1em;padding:2px 5px;border-radius:3px;margin-right:6px;flex:none}
+  .tyre small{font-size:calc(8px*var(--fs));opacity:.7}
+  .tag{font-size:calc(9px*var(--fs));font-weight:700;letter-spacing:.1em;padding:2px 5px;border-radius:3px;margin-right:6px;flex:none}
   .tag.PIT{background:var(--gold);color:#181c25}.tag.OUT,.tag.DSQ,.tag.NC{background:#555;color:#ddd}
   .tag.FIN{background:#fff;color:#181c25}.tag.GAR{background:#444;color:#bbb}
-  .gained{font-size:10.5px;font-weight:700;width:28px;text-align:right;flex:none;margin-right:6px}
+  .gained{font-size:calc(10.5px*var(--fs));font-weight:700;width:calc(28px*var(--fs));text-align:right;flex:none;margin-right:6px}
   .gained.up{color:#52e252}.gained.down{color:#ff6a6a}
-  .num{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.85);flex:none;text-align:right;padding-right:8px}
-  .gap{width:78px;padding-right:10px}
-  .lapt{width:70px;color:rgba(255,255,255,.65)}
+  .num{font-size:calc(12px*var(--fs));font-weight:600;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.85);flex:none;text-align:right;padding-right:8px}
+  .gap{width:calc(78px*var(--fs));padding-right:10px}
+  .lapt{width:calc(70px*var(--fs));color:rgba(255,255,255,.65)}
   .fl{width:16px;height:16px;border-radius:50%%;background:var(--purple);flex:none;margin-right:6px;
       display:none;align-items:center;justify-content:center}
   .fl svg{width:10px;height:10px}
@@ -1093,12 +1095,12 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   .row.cam .camico{display:block}
   .row.out .name,.row.out .num,.row.out .team,.row.out .charity{opacity:.45}
   /* V9.6: the permanent column labels under the session bar */
-  #cols{height:18px;display:flex;align-items:center;background:rgba(16,19,26,.96);border-bottom:1px solid rgba(255,255,255,.08);
-        font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5)}
-  #cols .pos{font-size:9px;background:none;height:auto}
+  #cols{height:calc(18px*var(--fs));display:flex;align-items:center;background:rgba(16,19,26,.96);border-bottom:1px solid rgba(255,255,255,.08);
+        font-size:calc(9px*var(--fs));font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+  #cols .pos{font-size:calc(9px*var(--fs));background:none;height:auto}
   #cols .bar{visibility:hidden;height:1px}
-  #cols .cell,#cols .num{font-size:9px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.14em}
-  #cols .tyre{border:none;border-radius:0;height:auto;line-height:1;font-size:9px;color:rgba(255,255,255,.5);width:27px;margin-right:0;text-align:center}
+  #cols .cell,#cols .num{font-size:calc(9px*var(--fs));font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.14em}
+  #cols .tyre{border:none;border-radius:0;height:auto;line-height:1;font-size:calc(9px*var(--fs));color:rgba(255,255,255,.5);width:27px;margin-right:0;text-align:center}
   #cols .lapt{color:rgba(255,255,255,.5)}
   #tower.compact #cols{height:16px}
   .row.camopen .num,.row.camopen .tyre,.row.camopen .gained,.row.camopen .tag{display:none!important}
@@ -1119,9 +1121,9 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   function fmtTime(s){s=Math.max(0,s|0);return Math.floor(s/60)+":"+String(s%%60).padStart(2,"0");}
   function render(d){
     const S=d.settings.tower, C=S.columns, on=d.settings.surfaces.tower;
-    root.setProperty("--w",S.width+"px"); root.setProperty("--row",S.row_height+"px");
+    const fs=Number(S.font_scale||1.3); root.setProperty("--fs",String(fs)); root.setProperty("--w",Math.round(S.width*fs)+"px"); root.setProperty("--row",S.row_height+"px");
     // one column open: 62%% of the base width; all three open (after the flag): 48%% each
-    const wideOne=Math.round(S.width*0.62), wideAll=Math.round(S.width*0.48);
+    const wideOne=Math.round(S.width*fs*0.62), wideAll=Math.round(S.width*fs*0.48);
     const rowH=S.row_height;
     if(!on||(!d.rows.length&&S.hide_when_idle)){tower.classList.remove("on");return;} tower.classList.add("on");
     const state=S.states_from_hoover?(d.tower_state||"normal"):"normal";
@@ -1163,8 +1165,8 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     const wideW = wide==="all" ? wideAll : wideOne; root.setProperty("--wide", wideW+"px");
     const baseW = {name:56, team:46, charity:46}; let opened=0;
     for(const k of ["name","team","charity"]){ if(C[k]!==false && (wide==="all"||wide===k)) opened += wideW-baseW[k]; }
-    const extra = camRowOpen ? (S.camera_row_extra_px||300) : opened;
-    tower.style.width=(S.width+colsExtra+extra)+"px";
+    const extra = camRowOpen ? (S.camera_row_extra_px||300) : Math.round(opened/fs);
+    tower.style.width=Math.round((S.width+colsExtra+extra)*fs)+"px";   // V9.23: the whole tower scales with the text
     const shown=d.rows.slice(0,S.max_rows||22); const seen=new Set();
     rowsEl.style.height=(shown.length*rowH)+"px";
     shown.forEach((r,i)=>{
@@ -1204,14 +1206,14 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
 
 TICKER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover ticker</title>
 %(font)s<style>%(common)s
-  :root{--h:44px}
+  :root{--h:44px;--fs:2}
   #bar{position:absolute;left:0;right:0;bottom:0;height:var(--h);background:rgba(16,19,26,.92);display:flex;align-items:stretch;
        opacity:0;transition:opacity .5s;border-top:2px solid var(--red)}
   #bar.on{opacity:1}
-  #label{flex:none;background:var(--red);color:#fff;font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  #label{flex:none;background:var(--red);color:#fff;font-weight:700;font-size:calc(12px*var(--fs));letter-spacing:.14em;text-transform:uppercase;
          display:flex;align-items:center;padding:0 16px;min-width:120px;justify-content:center}
   #scroll{flex:1;overflow:hidden;position:relative;display:flex;align-items:center}
-  .track{position:absolute;white-space:nowrap;font-weight:600;font-size:15px;letter-spacing:.02em;will-change:transform;
+  .track{position:absolute;white-space:nowrap;font-weight:600;font-size:calc(15px*var(--fs));letter-spacing:.02em;will-change:transform;
          transition:opacity .4s}
   .track.fade{opacity:0}
 </style></head><body>
@@ -1230,7 +1232,7 @@ TICKER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover
     const k=keys[cycleIdx%%keys.length]; return {k,...slots[k]};
   }
   function render(d){
-    const T=d.settings.ticker; document.documentElement.style.setProperty("--h",T.height+"px"); speed=T.speed_px_s||90;
+    const T=d.settings.ticker; document.documentElement.style.setProperty("--h",T.height+"px"); document.documentElement.style.setProperty("--fs",String(T.font_scale||2)); speed=T.speed_px_s||90;
     const s=d.settings.surfaces.ticker?pick(d):null;
     if(!s){bar.classList.remove("on");curKey=null;return;} bar.classList.add("on");
     const key=s.k+"|"+s.text;
