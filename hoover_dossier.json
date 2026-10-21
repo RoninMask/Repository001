@@ -4,33 +4,122 @@
   "drivers": {
     "d_ronin": {
       "facts": [
-        "Ronin told us before the race he'd settle for second place, and he's named Valor as the man he most wants to beat.",
-        "He's running softs for the entire race, a bold call for Abu Dhabi's long straights.",
-        "Ronin is a pilot in real life."
+        "Dustin told us he'd settle for third tonight, naming Mike and Cade as the two drivers he expects ahead of him.",
+        "Dustin's racing for Autism Center OK because family members are affected by autism, and he gave a shout-out to Asher.",
+        "Dustin says he'll bring the car home clean and dial down the aggression to fight at the end.",
+        "Dustin's pushing for pole in qualifying to avoid having to be aggressive in the race itself.",
+        "Dustin plans to pit late in the window hoping to take advantage of a potential yellow flag or safety car."
       ],
       "armed": {
-        "on_podium": "He told Sienna second was the realistic target, and here he is.",
-        "on_win": "He came in predicting second, but Ronin has gone one better.",
-        "on_retire": "He feared that ninety-degree turn onto the long straight, and it may have caught him out."
+        "on_podium": "He told Sienna third was his target, and here he is on the podium.",
+        "on_win": "He told Sienna he'd settle for third, but he's brought it home for the win.",
+        "on_retire": "He told Sienna if he went out early he'd watch on a big screen and cheer for the human drivers."
       },
-      "_source": "interview conv_5801m4hgdz4xe2qtwcsegbwfpm4m (claude-sonnet-4-5-20250929 pass)"
+      "interview": {
+        "predicted_finish": 3,
+        "rival_id": null,
+        "rival": null
+      },
+      "match": {
+        "handle": "Ronin0700VII",
+        "spoken": "Dustin",
+        "aliases": []
+      },
+      "_source": "interview conv_8501m5eab3ykewftsxk555c2nvg7 (claude-sonnet-4-5-20250929 pass)"
+    },
+    "d_pure": {
+      "facts": [
+        "Alex told us he expects a battle if he goes side by side with Dustin after their contact and warnings last race.",
+        "Alex is racing for the NASCAR Foundation tonight because he thinks it's cool that it relates to cars.",
+        "Alex plans to save his tyres in qualifying and keep the car clean for consistency.",
+        "Alex predicts Mike, Cade and Dustin will fill the podium.",
+        "If Alex finds himself fourth in the final laps with charity money on the line, he told us he'll go for it."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna he'd go for it if charity money was on the line, and here he is.",
+        "on_lead": "He told Sienna his plan was consistency and clean racing, but he's leading the field."
+      },
+      "interview": {
+        "predicted_finish": null,
+        "rival_id": "d_ronin",
+        "rival": "Dustin"
+      },
+      "match": {
+        "handle": "PuRe R3Z",
+        "spoken": "Alex",
+        "aliases": []
+      },
+      "_source": "interview conv_7501m5b1hms5ec2v5j523nxj95yb (claude-sonnet-4-5-20250929 pass)"
+    },
+    "d_shockin": {
+      "facts": [
+        "Shokin told us he is aiming for first place and plans to show everyone the rear view of his car all day.",
+        "Shokin named Dustin as his main rival, saying the two of them are always racing each other.",
+        "Shokin predicted Dustin will be too aggressive and crash into the wall.",
+        "Shokin has been away working on other projects but is back in the seat and looking to get going again.",
+        "Shokin always eats sushi before the race as a ritual for the Samurai."
+      ],
+      "armed": {
+        "on_win": "He told Sienna he was aiming for first and planned to show everyone his rear view all day, and he has done exactly that.",
+        "on_retire": "He told Sienna if his rival Dustin crashed he would be proven right about the aggression."
+      },
+      "interview": {
+        "predicted_finish": 1,
+        "rival_id": "d_ronin",
+        "rival": "Dustin"
+      },
+      "match": {
+        "handle": "Shockin05",
+        "spoken": "Shokin",
+        "aliases": [
+          "Sholly"
+        ]
+      },
+      "_source": "interview conv_2101m4hjc0x2erdvd1211vc0v3xv (claude-sonnet-4-5-20250929 pass; 21 OCT hand fix: garbled wording in fact 2)"
     },
     "d_valor": {
       "facts": [
-        "Valor told us he'll finish first today, and he's named Ronin as the man he most wants to beat.",
-        "There's history between Valor and Ronin: Valor says Ronin blocked him in the last race.",
-        "Valor predicts Ronin will end up in the wall during this five-lap sprint."
+        "Mike told us he'll finish first tonight, and he's named Dustin as the man he most wants to beat.",
+        "There's history between Mike and Dustin: Mike says Dustin blocked him in an earlier race.",
+        "Mike predicts Dustin will end up in the wall tonight."
       ],
       "armed": {
         "on_podium": "He told Sienna first place was the target, and here he is.",
-        "on_lead": "Valor said he'd qualify on pole and lead this race, and that's exactly where he is.",
+        "on_lead": "Mike said he'd qualify on pole and lead this race, and that's exactly where he is.",
         "on_win": "He called pole position and the win before the race, and he's delivered."
       },
-      "_source": "interview conv_9301m4hhacsreasbqw5f79ss8btg (claude-sonnet-4-5-20250929 pass)"
+      "interview": {
+        "predicted_finish": 1,
+        "rival_id": "d_ronin",
+        "rival": "Dustin"
+      },
+      "match": {
+        "handle": "VaLoR",
+        "spoken": "Mike",
+        "aliases": []
+      },
+      "_source": "interview conv_9301m4hhacsreasbqw5f79ss8btg (09 OCT call; 21 OCT hand rewrite to on-air names: Valor->Mike, Ronin->Dustin; the five-lap-sprint detail removed)"
     },
-    "d_pure": {
-      "facts": [],
-      "armed": {}
+    "d_ecx": {
+      "facts": [
+        "Evan told us he's coming for the win, first place his only target.",
+        "Evan's running a setup with extra downforce, leaning towards grip over straight-line speed."
+      ],
+      "armed": {
+        "on_podium": "He told Sienna he was coming for the win, and he's right in the mix.",
+        "on_win": "He told Sienna first place was the target, and he's delivered."
+      },
+      "interview": {
+        "predicted_finish": 1,
+        "rival_id": null,
+        "rival": null
+      },
+      "match": {
+        "handle": "ECxR6",
+        "spoken": "Evan",
+        "aliases": []
+      },
+      "_source": "interview conv_4901m4hh9bwnfhhrqq5bpzs0a6am (09 OCT call; 21 OCT hand edit: names not in the roster removed, 'first race in the league' removed as no longer true)"
     },
     "d_faze": {
       "facts": [],
@@ -39,39 +128,14 @@
     "d_raider": {
       "facts": [],
       "armed": {}
-    },
-    "d_ecx": {
-      "facts": [
-        "ECX told us he's targeting first place today, and named Valor as the driver he most wants to beat.",
-        "This is ECX's first race in the league, and he says he's here to shake things up.",
-        "ECX is running a setup with extra downforce, leaning towards grip over straight-line speed."
-      ],
-      "armed": {
-        "on_podium": "He told Sienna first place was the target, and here he is on debut.",
-        "on_win": "ECX called his shot before the race: first place, and he's delivered on his very first outing.",
-        "on_retire": "ECX said that sharp left-hander early in the lap worried him, and it may have caught him out."
-      },
-      "_source": "interview conv_4901m4hh9bwnfhhrqq5bpzs0a6am (claude-sonnet-4-5-20250929 pass)"
-    },
-    "d_shockin": {
-      "facts": [
-        "Shockin told us he's aiming for first and plans to show everyone the rear view of his car all day.",
-        "He named Ronin as his main rival and predicted Ronin will be too aggressive and crash into the wall.",
-        "Shockin has been away working on other projects and says he's still getting back up to speed."
-      ],
-      "armed": {
-        "on_podium": "He told Sienna he was aiming for first, and here he is.",
-        "on_lead": "He said the plan was to show everyone the rear view of his car all day, and that's exactly what's happening.",
-        "on_win": "He called first place before the race, and he's delivered."
-      },
-      "_source": "interview conv_2101m4hjc0x2erdvd1211vc0v3xv (claude-sonnet-4-5-20250929 pass)"
     }
   },
   "_interviews": {
-    "tool": "interviews_v1_09OCT26",
-    "built": "2026-10-10T00:17:54Z",
+    "tool": "hand build from PC cards 21 OCT 26",
+    "built": "2026-10-21T17:45:00Z",
     "drivers": [
       "d_ecx",
+      "d_pure",
       "d_ronin",
       "d_shockin",
       "d_valor"

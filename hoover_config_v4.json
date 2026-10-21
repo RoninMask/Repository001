@@ -878,7 +878,10 @@
         "per_driver": 2,
         "extra": 2,
         "reserve_headline": 1,
-        "interval_s": 75.0
+        "interval_s": 75.0,
+        "kinds": ["PRACTICE"],
+        "_v9_22": "V9.22 (21 OCT): kinds: the sessions that air interview lines (practice). mix (off for 21 OCT, Dustin: interviews only need to get in): when enabled, a charity card airs only while charities <= interviews aired this session and a sponsor read only while sponsors < interviews; hold_when_dry keeps them waiting once the interviews run out.",
+        "mix": {"enabled": false, "hold_when_dry": true}
       }
     },
     "timed_session": {

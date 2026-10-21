@@ -8668,6 +8668,68 @@ class V3Booth:
                 return False
         return True
 
+    # ---- V9.22 (21 OCT): interviews lead the quiet-session mix -----------------
+    def _mix_cfg(self):
+        return ((self._colour_cfg or {}).get("practice_interview") or {}).get("mix") or {}
+
+    def _mix(self, kind):
+        """Lines aired this session kind: iv (interview), ch (charity), ad (sponsor)."""
+        m = getattr(self, "_mix_n", None)
+        if m is None:
+            m = self._mix_n = {}
+        return m.setdefault(kind, {"iv": 0, "ch": 0, "ad": 0, "dry": None})
+
+    def _iv_kinds(self):
+        pi = (self._colour_cfg or {}).get("practice_interview") or {}
+        return pi.get("kinds") or ["PRACTICE"]
+
+    def _iv_available(self, t, kind):
+        """Could _practice_interview air a line now (same quota rules), without
+        taking it."""
+        pi = (self._colour_cfg or {}).get("practice_interview") or {}
+        if not pi.get("enabled", True) or kind not in self._iv_kinds() or self.stories is None:
+            return False
+        mat = getattr(self.blobctx, "material", None) if self.blobctx is not None else None
+        if mat is None:
+            return False
+        eng = self.stories
+        per = int(pi.get("per_driver", 2))
+        extra = int(pi.get("extra", 2))
+        skip = int(pi.get("reserve_headline", 1))
+        spent = getattr(self, "_practice_iv_spent", None) or {}
+        extra_used = getattr(self, "_practice_iv_extra", 0)
+        for h in eng.humans():
+            if not eng.w.cars[h].name_resolved:
+                continue
+            key = eng.dossier_key(h)
+            n = spent.get(key, 0)
+            if n >= per and extra_used >= extra:
+                continue
+            if mat.fresh_facts(key, t, skip=skip):
+                return True
+        return False
+
+    def _mix_allows(self, t, kind, what):
+        """V9.22: in the quiet sessions the drivers' interviews lead. A charity
+        card airs only while charities stay at or below the interviews aired,
+        a sponsor read only while sponsors stay strictly below them
+        (practice_interview.mix). When the session never had an interview to
+        air (no league driver with one is in it), the gate stands aside and the
+        old cadence runs; once interviews have aired and run out, it holds
+        (mix.hold_when_dry)."""
+        mc = self._mix_cfg()
+        if not mc.get("enabled", True) or kind not in self._iv_kinds():
+            return True
+        m = self._mix(kind)
+        avail = self._iv_available(t, kind)
+        if m["iv"] == 0 and not avail:
+            return True                       # nothing to lead with: old cadence
+        if not avail and not mc.get("hold_when_dry", True):
+            return True
+        if what == "ch":
+            return m["ch"] + 1 <= m["iv"]
+        return m["ad"] + 1 < m["iv"]          # sponsors strictly fewer
+
     def _practice_interview(self, t, mat, pi, kind):
         """V9.12: one interview line in a practice colour slot, or False."""
         eng = self.stories
@@ -8703,6 +8765,7 @@ class V3Booth:
                               priority=11.0, speaker="ANALYST", demotable=True)
                 self._colour_last = t
                 self.counter_colour += 1
+                self._mix(kind)["iv"] += 1
                 self.queue.append(claim)
                 self._air(claim, t)
                 return True
@@ -8742,8 +8805,8 @@ class V3Booth:
         if self._quiet_charity(t, kind):   # V9.13: the charity card, once per team per night
             return True
         interval = float(cfg.get("interval_s", 120.0))
-        pi = (cfg.get("practice_interview") or {}) if kind == "PRACTICE" else {}
-        if pi.get("enabled", True) and pi.get("interval_s") is not None and kind == "PRACTICE":
+        pi = (cfg.get("practice_interview") or {}) if kind in self._iv_kinds() else {}
+        if pi.get("enabled", True) and pi.get("interval_s") is not None and kind in self._iv_kinds():
             interval = float(pi["interval_s"])
         first_after = float(cfg.get("first_after_s", 30.0))
         last = self._colour_last
@@ -8758,8 +8821,12 @@ class V3Booth:
         # two per driver (facts 2 and 3 of his card; the headline is kept for
         # the grid intro), then up to `extra` more from whoever has spare,
         # least recently featured driver first. The race keeps the rest.
-        if kind == "PRACTICE" and pi.get("enabled", True) and self.stories is not None \
-                and getattr(self, "_colour_alt", "interview") == "interview":
+        # V9.22: when interviews are not ahead of the charity and sponsor
+        # reads, the slot tries an interview every time, not every other time
+        m = self._mix(kind)
+        behind = self._mix_cfg().get("enabled", True) and m["iv"] <= max(m["ad"] + 1, m["ch"])
+        if kind in self._iv_kinds() and pi.get("enabled", True) and self.stories is not None \
+                and (behind or getattr(self, "_colour_alt", "interview") == "interview"):
             self._colour_alt = "lore"
             if self._practice_interview(t, mat, pi, kind):
                 return True
@@ -8821,10 +8888,14 @@ class V3Booth:
         ts = self._ts
         if kind in ("PRACTICE", "QUALI") and ts is not None and ts.get("ended") and not st.get("closed") \
                 and sp.get("bookends", True):
+            if not self._mix_allows(t, kind, "ad"):
+                st["closed"] = True             # V9.22: interviews lead; no closing read
+                return False
             st["closed"] = True
             claim = eng.sponsor_claim(t, 1, sp, everyone=True)
             if claim is not None:
                 claim.facts["view"] = {"beat": "lull_sponsor", "bookend": "close"}
+                self._mix(kind)["ad"] += 1
                 return self._quiet_air(claim, t)
         # the cadence read
         cd = (lull.get("cooldown_s", {}) or {}).get("sponsor", 300.0)
@@ -8834,11 +8905,14 @@ class V3Booth:
         due = (t - st["open_t"]) >= first if st.get("last") is None else (t - st["last"]) >= float(cd)
         if not due:
             return False
+        if not self._mix_allows(t, kind, "ad"):
+            return False                    # V9.22: wait for the next interview
         group = int((sp.get("group") or {}).get(kind, 1) or 1)
         claim = eng.sponsor_claim(t, group, sp)
         if claim is None:
             return False
         st["last"] = t
+        self._mix(kind)["ad"] += 1
         return self._quiet_air(claim, t)
 
     def _quiet_charity(self, t, kind):
@@ -8858,10 +8932,13 @@ class V3Booth:
         due = (t - st["open_t"]) >= first if st["last"] is None else (t - st["last"]) >= every
         if not due:
             return False
+        if not self._mix_allows(t, kind, "ch"):
+            return False                    # V9.22: wait for the next interview
         claim = eng.charity_claim(t, kind, cfg)
         if claim is None:
             return False
         st["last"] = t
+        self._mix(kind)["ch"] += 1
         return self._quiet_air(claim, t)
 
     def _quiet_air(self, claim, t):
