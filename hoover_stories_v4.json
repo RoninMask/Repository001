@@ -3,11 +3,11 @@
  "engine": {
   "camera": {
    "hold_by_stickiness": {
-    "1": 2.5,
-    "2": 3.0,
-    "3": 4.0,
-    "4": 5.0,
-    "5": 7.0
+    "1": 5.0,
+    "2": 6.0,
+    "3": 8.0,
+    "4": 10.0,
+    "5": 12.0
    },
    "humans_only": true,
    "score_floor": 60.0,
@@ -17,7 +17,8 @@
    },
    "anchor_look_s": 4.0,
    "anchor_return_s": 4.0,
-   "anchor_priority": 60
+   "anchor_priority": 60,
+   "_v9_21": "holds 2.5-7 -> 5-12 s: a story moment keeps the camera longer; contact moments pass the Gallery's severity gate first"
   },
   "cluster_cap": 3.0,
   "cluster_multipliers": [
@@ -156,7 +157,14 @@
    "max_laps_ahead": 6,
    "max_age_s": 25.0,
    "priority_bonus": 4.0
-  }
+  },
+  "enabled_rows": [
+   "BAT-02",
+   "BAT-04",
+   "BAT-05",
+   "BAT-06"
+  ],
+  "_v9_21": "20 OCT setup night (Dustin): the whole battle matrix on (enabled_rows), the battle lock, the pile-up call, the finish programme. Tune sheet: Hoover_Overnight_Build_Handback_V1_21OCT26.md"
  },
  "params": {
   "BAT-01": {
@@ -169,7 +177,22 @@
    "open_gap_s": 1.5,
    "project_gap_max_s": 6.0,
    "revisit_laps": 3,
-   "speak_separated_human": true
+   "speak_separated_human": true,
+   "close_fight_gap_s": 1.0,
+   "lunge_gap_s": 0.3,
+   "lunge_dv_kph": 15.0,
+   "lunge_cooldown_s": 20.0,
+   "defended_window_s": 8.0,
+   "defended_gap_s": 0.6,
+   "detail_every_s": 8.0,
+   "big_pass_pos": 3,
+   "reaction_close_s": 60.0,
+   "reaction_close_s_hh": 30.0,
+   "reaction_min_phases": 3,
+   "reaction_min_defended": 2,
+   "reaction_max_per_race": 4,
+   "reaction_max_age_s": 30.0,
+   "_v9_21": "phases (lunge / defended / detail cadence while the booth is on the fight) and the big-battle reaction trigger (spec 20 OCT section 7)"
   },
   "BAT-03": {
    "ai_only_top_n": 3
@@ -201,7 +224,14 @@
   "INC-01": {
    "ai_only_top_n": 3,
    "consequence_s": 8.0,
-   "merge_s": 6.0
+   "merge_s": 6.0,
+   "pileup_cars": 3,
+   "pileup_big_cars": 4,
+   "pileup_max_age_s": 40.0,
+   "severe_window_s": 6.0,
+   "severe_stopped_kph": 30.0,
+   "_v9_21": "the pile-up call (three cars or more in one incident): template, must, big moment; severe = a car stopped or out",
+   "pileup_window_s": 4.0
   },
   "INC-02": {
    "min_off_s": 0.8,
@@ -216,7 +246,8 @@
   },
   "INC-06": {
    "first_racing_lap": 2,
-   "min_cars": 2
+   "min_cars": 3,
+   "_v9_21": "min_cars 2 -> 3; template-written; silent when INC-01 already called the pile-up"
   },
   "LEAD-01": {
    "breakaway_frac_of_lap": 0.03,
@@ -229,7 +260,20 @@
    "close_laps": 3,
    "open_gap_s": 1.5,
    "revisit_laps": 3,
-   "flap_s": 25.0
+   "flap_s": 25.0,
+   "close_fight_gap_s": 1.0,
+   "lunge_gap_s": 0.3,
+   "lunge_dv_kph": 15.0,
+   "lunge_cooldown_s": 20.0,
+   "defended_window_s": 8.0,
+   "defended_gap_s": 0.6,
+   "detail_every_s": 8.0,
+   "reaction_close_s": 60.0,
+   "reaction_close_s_hh": 30.0,
+   "reaction_min_phases": 3,
+   "reaction_min_defended": 2,
+   "reaction_max_per_race": 4,
+   "reaction_max_age_s": 30.0
   },
   "LEAD-03": {
    "confirm_hold_s": 2.0,
@@ -313,12 +357,47 @@
    "carry_close_s": 600.0,
    "max_age_s": 20.0,
    "_about": "serious_pct: how much of the front wing must be gone before the booth says anything (never a percentage on air). heavy_pct: 'most of the front wing' wording. slow_s: lap time off his own pre-damage best before 'and it is costing him', measured on the second lap after the damage (the first is the crash lap). slow_max_s: a bigger delta is a crash or a pit, not pace, and is not said. humans_only: AI damage is never called. max_per_car per session."
+  },
+  "BAT-02": {
+   "defence_after_s": 12.0,
+   "revisit_laps": 2,
+   "pair_cooldown_s": 60.0,
+   "max_age_s": 20.0
+  },
+  "BAT-04": {
+   "alongside_gap_s": 0.15,
+   "alongside_hold_s": 1.2,
+   "release_gap_s": 0.6,
+   "release_hold_s": 2.0,
+   "pair_cooldown_s": 45.0,
+   "ai_only_top_n": 2,
+   "max_age_s": 10.0
+  },
+  "BAT-05": {
+   "train_gap_s": 1.5,
+   "train_min": 3,
+   "revisit_laps": 2,
+   "cooldown_s": 90.0,
+   "max_age_s": 20.0
+  },
+  "BAT-06": {
+   "stale_min_s": 0.5,
+   "stale_max_s": 1.5,
+   "stale_move_s": 0.3,
+   "stale_after_s": 40.0,
+   "max_age_s": 25.0
+  },
+  "SF-07": {
+   "interview_payoffs_max": 4,
+   "programme": true,
+   "programme_money": true,
+   "programme_max_age_s": 400.0
   }
  },
  "rows": {
   "BAT-01": {
    "anchor": "relate",
-   "base": 55,
+   "base": 62,
    "build": "V3-P1",
    "camera": "request",
    "cause_required": "no",
@@ -341,7 +420,8 @@
    "story": "Battle (catch to resolution)",
    "valence": "mixed",
    "voice": "lead (on screen) / analyst (off)",
-   "voice_default": "LEAD"
+   "voice_default": "LEAD",
+   "_v9_21": "base 55 -> 62 (20 OCT: 287 battles opened, 8 aired, under contact at 80)"
   },
   "BAT-02": {
    "anchor": "relate",
@@ -414,7 +494,7 @@
    "idle_laps": null,
    "min_race": "any",
    "must_call": "yes (human-human)",
-   "override": "Interrupt",
+   "override": "Priority",
    "register": "fact",
    "revisit": "none",
    "single_party": false,
@@ -422,7 +502,8 @@
    "story": "Side by side",
    "valence": "mixed",
    "voice": "lead",
-   "voice_default": "LEAD"
+   "voice_default": "LEAD",
+   "_v9_21": "Interrupt -> Priority for the camera: a side-by-side moment away from the story the booth is on is called, not cut to (23 of 65 cuts on the 20 OCT replay); the pile-up is the cutaway"
   },
   "BAT-05": {
    "anchor": "relate",

@@ -1,5 +1,5 @@
 {
-  "words_version": "V4-07OCT26",
+  "words_version": "V4-21OCT26",
   "_about": "Every spoken template for Baby Hoover V3. No broadcast English lives in the Python source: V3Booth._text selects a variant by deterministic rotation (DEC-11), fills its placeholders, and returns. Placeholders are validated at load against each kind's supply set. A variant may declare `when` (facts that must match) and its required placeholders are inferred from the template text -- a variant whose placeholders the context cannot supply is skipped, so cause/no-cause and named/unnamed forms need no code branch. British broadcast register; LEAD calls the present, ANALYST reaches one step for meaning.",
   "penalty_nouns": {
     "0": "drive-through penalty",
@@ -985,6 +985,542 @@
             "beat": "payoff"
           },
           "present": "That settles the one we called between {a} and {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "{a} lunges at {b}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "Here goes {a}, up the inside of {b} for the lead!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "{a} goes for it on {b}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "A move from {a}, diving at {b}!"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "{b} shuts the door. {a} will have to find another way through."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "Covered. {b} saw that one coming and {a} has had to back out of it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "{b} holds {pos}. That is the line covered, and {a} is back behind him."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "No way through for {a}; {b} placed the car exactly where it needed to be."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "{a} still right there on {b}, {gap} back, looking for a way past."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "{gap} between them now. {b} is driving a defensive line and {a} is waiting for a mistake."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "The gap is {gap}. {a} has the pace; {b} has the position."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail",
+            "drs": true
+          },
+          "present": "{a} has the wing open on {b} and the gap is down to {gap}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail",
+            "close": true
+          },
+          "present": "They are nose to tail for the lead, {a} on {b}, nothing in it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "This is a proper fight for the lead. {b} ahead, {a} {gap} behind and not going anywhere."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Wow. What a fight that was.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "These two have gone at it for lap after lap. Absolutely brilliant.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true
+          },
+          "present": "What a show {a} and {b} are giving us tonight!",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That is proper racing. Hard, fair, and right on the limit.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "You don't get much better than that. Wheel to wheel, corner after corner.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "The courage from both of them. Not an inch given.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I've been holding my breath for two laps watching that.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Give them both a round of applause. That was racing at its very best.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{a} and {b}: remember that one, because we'll be talking about it all night.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That's what this league is all about, right there.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Nobody blinked. Nobody backed out. Superb from both of them.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Lap after lap, inches apart. What a contest.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "The respect between those two. Racing that close and both still in one piece.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{b} threw everything at it, and {a} had an answer every time.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Edge of your seat stuff. I don't think anyone watching sat back for a second.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Two drivers, one piece of tarmac, and neither of them willing to give it up.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "If that's a taste of the season to come, sign me up.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "lunge": true
+          },
+          "present": "That battle had everything: the lunge, the defence, the switchback. Spectacular.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "Somewhere a charity is cheering, because both of them have just earned every cent of it.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Phew! Let's all take a breath after that one.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "defending": true
+          },
+          "present": "What composure from {a}. Never rattled, not once, with {b} all over him.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true
+          },
+          "present": "That's patience from {a}. He waited, he waited, and then he struck at exactly the right moment.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true,
+            "lunge": true
+          },
+          "present": "Bravery from {a} on that move. You have to commit to go up the inside there, and he committed.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "defending": true
+          },
+          "present": "Textbook defending from {a}. Every line covered, every door shut.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "loser_human": true
+          },
+          "present": "Hats off to {b} as well. He never stopped coming, and he never put a wheel wrong.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{a} and {b}, two of the cleanest racers in this league. Close all the way and not a hint of a cheap move.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true,
+            "loser_human": true
+          },
+          "present": "Real fighting spirit from {b}. He's lost the place, but he's won a lot of fans with that.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true
+          },
+          "present": "That's racecraft from {a}. Picking his spot, and making it stick.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I think I need a lie down after that. And I was only watching.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Somebody check on the pit crews. I think they've chewed through their headsets.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Those two have spent so long together tonight, they should probably split the fuel bill.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "My heart rate's higher than the engine revs right now.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true,
+            "defending": true
+          },
+          "present": "If {b} gets any closer to that gearbox, he'll need to start paying rent.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I've seen less drama at a family wedding. And I've been to some family weddings.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Can we get a replay? Actually, can we get every replay?",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Someone tell the race director to put the kettle on. Everyone needs a cup of tea after that.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That wasn't a battle, that was a full season of television in two laps.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "And the charity wins again. Honestly, they should just let these two fight every lap.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Somewhere in the garage, a race engineer has just stopped pacing. First time in two laps.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I'm not saying that was close, but I think they swapped paint samples.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Kenny, you've gone very quiet.",
+          "once": true,
+          "register": "humor",
+          "then": {
+            "speaker": "ANALYST",
+            "text": "I've been holding my breath since turn five, Jon."
+          }
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Those two have been glued together for so long, the stewards are checking if they're one car.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "If you blinked during that, I'm sorry. You missed about forty overtakes.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "winner_human": true
+          },
+          "present": "I'd ask {a} how he's feeling, but I think he's still trying to unclench his hands.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That was so close, the timing screen needed a nap.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Rumour has it they're still side by side on a parallel lap somewhere.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "My notes for that battle just say wow, underlined three times.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "Right. Who's going to tell them it's only a charity race? Because I'm not.",
+          "once": true,
+          "register": "humor"
         }
       ]
     },
@@ -1223,6 +1759,542 @@
             "beat": "payoff"
           },
           "present": "That settles the one we called between {a} and {b}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "{a} lunges at {b}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "Here goes {a}, up the inside of {b} for {pos}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "{a} goes for it on {b}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "lunge"
+          },
+          "present": "A move from {a}, diving at {b}!"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "{b} shuts the door. {a} will have to find another way through."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "Covered. {b} saw that one coming and {a} has had to back out of it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "{b} holds {pos}. That is the line covered, and {a} is back behind him."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "defended"
+          },
+          "present": "No way through for {a}; {b} placed the car exactly where it needed to be."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "{a} still right there on {b}, {gap} back, looking for a way past."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "{gap} between them now. {b} is driving a defensive line and {a} is waiting for a mistake."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "The gap is {gap}. {a} has the pace; {b} has the position."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail",
+            "drs": true
+          },
+          "present": "{a} has the wing open on {b} and the gap is down to {gap}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "detail",
+            "close": true
+          },
+          "present": "They are nose to tail for {pos}, {a} on {b}, nothing in it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "detail"
+          },
+          "present": "This is a proper fight for {pos}. {b} ahead, {a} {gap} behind and not going anywhere."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Wow. What a fight that was.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "These two have gone at it for lap after lap. Absolutely brilliant.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true
+          },
+          "present": "What a show {a} and {b} are giving us tonight!",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That is proper racing. Hard, fair, and right on the limit.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "You don't get much better than that. Wheel to wheel, corner after corner.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "The courage from both of them. Not an inch given.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I've been holding my breath for two laps watching that.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Give them both a round of applause. That was racing at its very best.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{a} and {b}: remember that one, because we'll be talking about it all night.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That's what this league is all about, right there.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Nobody blinked. Nobody backed out. Superb from both of them.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Lap after lap, inches apart. What a contest.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "The respect between those two. Racing that close and both still in one piece.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{b} threw everything at it, and {a} had an answer every time.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Edge of your seat stuff. I don't think anyone watching sat back for a second.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Two drivers, one piece of tarmac, and neither of them willing to give it up.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "If that's a taste of the season to come, sign me up.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "lunge": true
+          },
+          "present": "That battle had everything: the lunge, the defence, the switchback. Spectacular.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "Somewhere a charity is cheering, because both of them have just earned every cent of it.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Phew! Let's all take a breath after that one.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "defending": true
+          },
+          "present": "What composure from {a}. Never rattled, not once, with {b} all over him.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true
+          },
+          "present": "That's patience from {a}. He waited, he waited, and then he struck at exactly the right moment.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true,
+            "lunge": true
+          },
+          "present": "Bravery from {a} on that move. You have to commit to go up the inside there, and he committed.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "defending": true
+          },
+          "present": "Textbook defending from {a}. Every line covered, every door shut.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "loser_human": true
+          },
+          "present": "Hats off to {b} as well. He never stopped coming, and he never put a wheel wrong.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true
+          },
+          "present": "{a} and {b}, two of the cleanest racers in this league. Close all the way and not a hint of a cheap move.",
+          "once": true
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true,
+            "loser_human": true
+          },
+          "present": "Real fighting spirit from {b}. He's lost the place, but he's won a lot of fans with that.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "pass": true
+          },
+          "present": "That's racecraft from {a}. Picking his spot, and making it stick.",
+          "once": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I think I need a lie down after that. And I was only watching.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Somebody check on the pit crews. I think they've chewed through their headsets.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Those two have spent so long together tonight, they should probably split the fuel bill.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "My heart rate's higher than the engine revs right now.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "hh": true,
+            "defending": true
+          },
+          "present": "If {b} gets any closer to that gearbox, he'll need to start paying rent.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I've seen less drama at a family wedding. And I've been to some family weddings.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Can we get a replay? Actually, can we get every replay?",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Someone tell the race director to put the kettle on. Everyone needs a cup of tea after that.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That wasn't a battle, that was a full season of television in two laps.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "And the charity wins again. Honestly, they should just let these two fight every lap.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Somewhere in the garage, a race engineer has just stopped pacing. First time in two laps.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "I'm not saying that was close, but I think they swapped paint samples.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Kenny, you've gone very quiet.",
+          "once": true,
+          "register": "humor",
+          "then": {
+            "speaker": "ANALYST",
+            "text": "I've been holding my breath since turn five, Jon."
+          }
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Those two have been glued together for so long, the stewards are checking if they're one car.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "If you blinked during that, I'm sorry. You missed about forty overtakes.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "named": true,
+            "winner_human": true
+          },
+          "present": "I'd ask {a} how he's feeling, but I think he's still trying to unclench his hands.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "That was so close, the timing screen needed a nap.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "Rumour has it they're still side by side on a parallel lap somewhere.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "reaction"
+          },
+          "present": "My notes for that battle just say wow, underlined three times.",
+          "once": true,
+          "register": "humor"
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "reaction",
+            "human": true
+          },
+          "present": "Right. Who's going to tell them it's only a charity race? Because I'm not.",
+          "once": true,
+          "register": "humor"
         }
       ]
     },
@@ -1714,6 +2786,108 @@
             "session": "PRACTICE"
           },
           "present": "Contact between {a} and {b} in practice. Nobody is racing anybody, which makes that one hard to explain."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 1,
+            "where": true
+          },
+          "present": "Big crash! {count} cars in it{where}, and {a} is right in the middle of that."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 2,
+            "where": true
+          },
+          "present": "Oh, that is a big one! {count} cars together at {where}, {a} and {b} both in it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 3,
+            "where": true
+          },
+          "present": "Crash! {count} cars at {where}, and three of ours, {list}, are in it!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 1
+          },
+          "present": "Big crash! {count} cars in it, and {a} is right in the middle of that."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 2
+          },
+          "present": "Oh, that is a big one! {count} cars together, {a} and {b} both in it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 3
+          },
+          "present": "Crash! {count} cars, and {list} are all in it!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 0,
+            "where": true
+          },
+          "present": "Big crash at {where}! {count} cars in that one."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "humans": 0
+          },
+          "present": "Crash! {count} cars together, and that is going to shuffle the order."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup",
+            "first_lap": true,
+            "humans": 1
+          },
+          "present": "Carnage on the opening lap! {count} cars in it, and {a} is one of them."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "pileup"
+          },
+          "present": "A pile-up, {count} cars. Hold on, we will sort out who is where.",
+          "fallback": true
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "consequence",
+            "pileup": true,
+            "human": true
+          },
+          "present": "Out of that pile-up, {a} is the one who paid for it, {places} gone, {pos} now."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "consequence",
+            "pileup": true
+          },
+          "present": "The dust settles on that {count} car crash, and {a} has lost {places}."
         }
       ]
     },
@@ -2044,6 +3218,22 @@
             "beat": "chaos"
           },
           "present": "A first lap incident with {count} cars in it. Let us sort out the order."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "chaos",
+            "big": true
+          },
+          "present": "Chaos at the start! {count} cars in trouble on the opening lap."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "chaos",
+            "human": true
+          },
+          "present": "{count} cars caught up in that first lap mess. Let us find our drivers in it."
         }
       ]
     },
@@ -2539,7 +3729,8 @@
           "speaker": "ANALYST",
           "when": {
             "beat": "best_human",
-            "only": false
+            "programme": true,
+            "has_team": false
           },
           "present": "Best of our drivers tonight is {a}, home in {pos}."
         },
@@ -2622,6 +3813,185 @@
             "ahead": false
           },
           "present": "{a} said {b} was the driver he most wanted to beat. {b} had the better of him tonight."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_podium",
+            "win": false,
+            "money": true
+          },
+          "present": "And one of our own is on the podium: {a}, {pos} overall, and that is prize money for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_podium",
+            "win": true,
+            "money": true
+          },
+          "present": "{a} wins it, one of ours on the top step, and the money goes to {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_podium",
+            "money": false,
+            "has_team": true
+          },
+          "present": "One of our own is on the podium: {a}, {pos} overall, for {team}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_podium",
+            "money": false,
+            "has_team": false
+          },
+          "present": "One of our own is on the podium: {a}, {pos} overall."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "best_human",
+            "programme": true,
+            "has_team": true
+          },
+          "present": "Best of our drivers tonight: {a}, {pos} at the flag, for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_result",
+            "first": true,
+            "has_charity": true
+          },
+          "present": "The classification for our drivers. {a}, {pos}, for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_result",
+            "first": false,
+            "has_charity": true
+          },
+          "present": "{a}, {pos}, for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_result",
+            "first": false,
+            "has_charity": true
+          },
+          "present": "{a} is classified {pos}, racing for {team} and {charity}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_result",
+            "has_charity": false,
+            "has_team": true
+          },
+          "present": "{a}, {pos}, for {team}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_result",
+            "has_charity": false,
+            "has_team": false
+          },
+          "present": "{a} is classified {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_out",
+            "has_charity": true
+          },
+          "present": "{a} did not see the flag tonight; his race ended early, and {team} and {charity} will have to wait for the next one."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "human_out",
+            "has_charity": false
+          },
+          "present": "{a} did not finish; his race ended early."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "pole",
+            "money": true
+          },
+          "present": "Pole position in qualifying went to {a}, and that is ten dollars to {charity}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "pole",
+            "money": false
+          },
+          "present": "Pole position in qualifying was {a}'s."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "fastest_lap",
+            "money": true
+          },
+          "present": "Fastest lap of the race: {a}, a {time}, and ten dollars more for {charity}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "fastest_lap",
+            "money": false
+          },
+          "present": "The fastest lap of the race went to {a}, a {time}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "constructors",
+            "money": true
+          },
+          "present": "The Constructors' Cup, both cars counted: {a} take it on {pa} points, {b} second on {pb}, {c} third on {pc}, and the top three teams earn for their charities."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "constructors",
+            "money": false
+          },
+          "present": "The Constructors' Cup: {a} first on {pa} points, {b} second on {pb}, {c} third on {pc}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "handoff",
+            "money": true
+          },
+          "present": "The full results, and the money raised for charity tonight, are on your screen now."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "handoff",
+            "money": false
+          },
+          "present": "The full results are on your screen now."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "human_podium",
+            "win": true,
+            "money": true
+          },
+          "present": "One of our own wins it. {a} takes the top step, and the prize money goes to {charity}."
         }
       ]
     },
@@ -4452,6 +5822,210 @@
             "beat": "new_nose"
           },
           "present": "{a} on the new wing now. The car should feel like a different thing."
+        }
+      ]
+    },
+    "S_BAT_02": {
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "holding"
+          },
+          "present": "Look at the job {a} is doing in front. {b} has been inside a second for a while now and he has not had a sniff."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "holding"
+          },
+          "present": "{a} is under siege for {pos} from {b}, and so far every answer has been the right one."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "holding"
+          },
+          "present": "{a} defending {pos}: covering the inside, braking late, giving {b} nothing to work with."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "holding"
+          },
+          "present": "The pressure on {a} from {b} is relentless, {gap} back, and he is holding it together."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "still_holding"
+          },
+          "present": "{a} is still holding {b} off for {pos}. That is lap after lap of pressure absorbed."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "still_holding"
+          },
+          "present": "Still {a} ahead of {b}. The attack has not let up and neither has the defence."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "held"
+          },
+          "present": "{a} has held it. {b} gave it everything and {a} kept {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "held"
+          },
+          "present": "That is a defence won. {a} keeps {pos} and {b} has to think again."
+        }
+      ]
+    },
+    "S_BAT_04": {
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "alongside"
+          },
+          "present": "Side by side! {a} and {b} for {pos}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "alongside"
+          },
+          "present": "They are wheel to wheel! {a} alongside {b}!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "alongside",
+            "hh": true
+          },
+          "present": "Two of ours side by side for {pos}, {a} and {b}, nobody lifting!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "alongside",
+            "lead": true
+          },
+          "present": "{a} is alongside {b} for the lead!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "resolved",
+            "outcome": "passed"
+          },
+          "present": "{a} makes it stick! Through on {b} for {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "resolved",
+            "outcome": "passed"
+          },
+          "present": "And {a} wins that one, past {b} and into {pos}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "resolved",
+            "outcome": "held"
+          },
+          "present": "{a} holds the place. {b} was alongside and could not complete it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "resolved",
+            "outcome": "held"
+          },
+          "present": "{a} keeps {pos}; {b} had the run but not the corner."
+        }
+      ]
+    },
+    "S_BAT_05": {
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "train"
+          },
+          "present": "A train is forming behind {a}: {count} cars nose to tail for {pos}, and {b} is in it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "train"
+          },
+          "present": "{count} cars in one bunch now, {a} at the front of it, {b} one of ours in there."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "train"
+          },
+          "present": "{count} cars covered by {span} for {pos}. One mistake and the whole thing changes."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "grows"
+          },
+          "present": "That train is growing: {count} cars now behind {a}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "train_status"
+          },
+          "present": "Still {count} cars in the queue behind {a}, and {b} is still waiting his turn."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "thins"
+          },
+          "present": "The train behind {a} has broken up. {b} comes out of it {pos}."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "thins"
+          },
+          "present": "That bunch of {count} has strung out now; {a} is {pos} out of it."
+        }
+      ]
+    },
+    "S_BAT_06": {
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stalemate"
+          },
+          "present": "{a} and {b}, {gap} apart for {pos}, and it has not moved for a while. Neither can do anything about the other."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stalemate"
+          },
+          "present": "This one has settled into a stalemate: {b} ahead, {a} {gap} back, nobody gaining."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stalemate"
+          },
+          "present": "{a} cannot get closer to {b}, and {b} cannot get away. {gap}, lap after lap."
         }
       ]
     }

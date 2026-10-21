@@ -627,6 +627,13 @@ def _norm_name(s):
     return "".join(str(s or "").split()).lower()
 
 
+def _hidden_name(s):
+    """V9.21: the game's placeholder for a name it will not show ("Player",
+    with or without a number). Never said on air as a name."""
+    n = _norm_name(s)
+    return (not n) or n == "player" or (n.startswith("player") and n[6:].isdigit())
+
+
 class Parser:
     def __init__(self, world, log):
         self.w = world
@@ -720,7 +727,13 @@ class Parser:
             c.sector = sector
             c.result_status = rstat
             c.driver_status = dstat
-            c.grid = grid if 0 < grid < 100 else 0     # V8.7: 255 = unknown
+            # V9.21 (20 OCT setup night): Lap Data's m_gridPosition is
+            # zero-based on the wire (pole = 0; the Final Classification's
+            # is one-based, pole = 1). The booth read it as a place and put
+            # every driver one grid slot better than he started: "from
+            # eighth on the grid" for ninth, on the 9th and the 20th alike.
+            # 255 is still unknown.
+            c.grid = (grid + 1) if 0 <= grid < 100 else 0
             c.penalties = pen
             c.warnings = warn
             c.lap_distance = lap_dist
@@ -1001,6 +1014,22 @@ def enforce_unique_spoken(world, log=None):
                 taken.add(c.spoken_short.lower())
                 changed += 1
             elif not team_ok:
+                # V9.21 (20 OCT): a position label rots inside the sentence
+                # ("the car running eleventh has lost three places, down to
+                # tenth now"). Before it: the race number when it is unique.
+                # The position is the last resort it always was.
+                alt = None
+                if c.race_number and numbers.get(c.race_number, 0) == 1 \
+                        and ("the number %d car" % c.race_number) not in taken:
+                    alt = "the number %d car" % c.race_number
+                if alt is not None:
+                    if c.spoken_short != alt:
+                        changed += 1
+                    c.spoken_short = c.spoken_full = alt
+                    c.spoken_dynamic = False
+                    c.unique_fallback = "number"
+                    taken.add(alt.lower())
+                    continue
                 if not c.spoken_dynamic:
                     changed += 1
                 c.spoken_short = c.spoken_full = None
@@ -6205,6 +6234,12 @@ class RaceModel:
                          % self.w.session_kind)
             return False
         retire = kind in ("RETIREMENT", None)   # lifecycle "retirement only"
+        # V9.21 (20 OCT, 20:26:51): "Lights out and away we go" aired, then
+        # "Lights coming on" three seconds later. The lights line belongs to
+        # the start sequence and nowhere else; once the race is green it is
+        # dropped, never said late.
+        if kind == "LIGHTS_ON" and s != "start_sequence":
+            return False
         if s == "start_sequence":
             return kind == "LIGHTS_ON"           # V8.3: one line as the lights come on
         if s in ("pre_start", "formation"):
@@ -7453,10 +7488,15 @@ class WordsFile:
             return None
         return None if "{" in filled else filled
 
-    def select(self, kind, ctx, facts_view, past, avoid_templates=None):
+    def select(self, kind, ctx, facts_view, past, avoid_templates=None, probe=False):
         """Deterministic rotation over the satisfiable variants of `kind`.
         Returns (speaker, text, template_key) or None. avoid_templates lets the
-        repetition guard skip a recently-used template without going random."""
+        repetition guard skip a recently-used template without going random.
+        probe=True (V9.21) asks only whether a variant exists: the rotation,
+        the once-a-night ledger and the reaction pair are left untouched --
+        the booth's validation probe was spending a once-line on every tick,
+        so the 48 battle reactions (and the humor lines) were all 'spent'
+        before one of them aired."""
         entry = self.kinds.get(kind)
         if not entry:
             return None
@@ -7503,6 +7543,9 @@ class WordsFile:
         if chosen is None:
             chosen = sat[start % n]
             self._rot[kind] = (start + 1) % n
+        if probe:
+            self._rot[kind] = start
+            return chosen["speaker"], chosen["present"], chosen["present"]
         form = "past" if (past and chosen.get("past")) else "present"
         fill = {k: ("" if val is None else val) for k, val in ctx.items()}
         text = chosen[form].format(**fill)
@@ -7576,6 +7619,7 @@ class V3Booth:
         # race-state kinds break in, must-calls after must_after_s. Absent
         # from hoover_config_v3.json, so the V3 path never sees it.
         dw = config.get("v3", "dwell", default=None) or {}
+        self._dwell_cfg = dw               # V9.21: battle lock, ai_only_frac
         self.dwell_enabled = bool(dw.get("enabled", False))
         self.dwell_s = float(dw.get("dwell_s", 25.0))
         self.dwell_idle_s = float(dw.get("idle_release_s", 8.0))
@@ -7598,6 +7642,13 @@ class V3Booth:
         self._dwell_held_ids = set()
         self.counter_dwell_focus = 0     # focus changes (stories told)
         self.counter_dwell_bridges = 0   # lines written with a previous_story
+        # V9.21: the big-moment voice (speech.big_moment): the settings the
+        # pile-up call and the biggest passes are synthesised with, and how
+        # many a race may have. Reset per race by anchor time.
+        bm = config.get("v3", "speech", "big_moment", default=None) or {}
+        self._big_cfg = bm
+        self._big_used = []              # anchor_t of the race each one aired in
+        self.counter_big_moments = 0
         self._abbrevs = config.get("v3", "speech", "abbreviations", default=[])
         self._line_seq = 0
         self._winner_named = False
@@ -7607,6 +7658,12 @@ class V3Booth:
         pc = config.get("v3", "pacing", default={}) or {}
         self.pc_min_gap = pc.get("min_gap_s", 1.2)
         self.pc_max_consec = pc.get("max_consecutive", 4)
+        # V9.21 (20 OCT spec, run-away guard): the run before a breath is
+        # drawn between min_consecutive and max_consecutive each time, from
+        # a seeded generator so a replay is reproducible.
+        self.pc_min_consec = int(pc.get("min_consecutive", self.pc_max_consec))
+        self._run_rng = random.Random(int(pc.get("run_seed", 7)))
+        self._run_limit = self._roll_run()
         self.pc_breath = pc.get("breath_s", 3.5)
         self.pc_max_speech = pc.get("max_continuous_speech_s", 12.0)
         self.pc_breath_run = pc.get("breath_after_run_s", 4.5)
@@ -7818,6 +7875,8 @@ class V3Booth:
             return None
         if st == "INC-02" and f.get("beat") == "off" and (f.get("view") or {}).get("big"):
             return None                              # a crash: one line, we come back
+        if f.get("pileup"):
+            return None                              # V9.21: a pile-up breaks the start silence
         return "rewrite:start_window"
 
     # ---- V8.3 fix 4: story dwell -------------------------------------------
@@ -7826,6 +7885,29 @@ class V3Booth:
         f = claim.facts or {}
         return f.get("story_id"), f.get("story_type")
 
+    def focus_until(self, t):
+        """V9.21: when the current focus ends -- the dwell (half of it for a
+        story with no human in it), renewed by the battle lock while the
+        story is a close fight that keeps producing phases."""
+        fo = self._focus
+        if fo is None:
+            return t
+        rec = fo.get("rec")
+        dwell = self.dwell_s
+        humans = getattr(rec, "humans", None)
+        if rec is not None and humans is not None and not humans:
+            dwell *= float((self._dwell_cfg or {}).get("ai_only_frac", 0.5))
+        base = fo["t_start"] + dwell
+        st = getattr(self, "stories", None)
+        bl = (self._dwell_cfg or {}).get("battle_lock") or {}
+        if st is not None and rec is not None and bl.get("enabled", True) \
+                and hasattr(st, "battle_hold_until") and hasattr(rec, "beats"):
+            try:
+                return st.battle_hold_until(rec, t, fo["t_start"], base, bl)
+            except Exception:
+                return base
+        return base
+
     def _dwell_release(self, t):
         """Drop the focus when its story has closed, its dwell has run, or it
         has had nothing to say for idle_release_s with nothing queued."""
@@ -7833,7 +7915,7 @@ class V3Booth:
         if fo is None:
             return
         rec = fo.get("rec")
-        done = (t - fo["t_start"]) >= self.dwell_s
+        done = t >= self.focus_until(t)
         if not done and rec is not None and not rec.live \
                 and not rec.row.get("speak_after_close", False):
             done = True
@@ -7846,7 +7928,7 @@ class V3Booth:
             # than the story closing or going idle) puts its story into a
             # refocus cooldown, so the booth and the camera cannot re-lock on
             # it the moment the next beat lands -- the loop Dustin named.
-            ran = (t - fo["t_start"]) >= self.dwell_s
+            ran = t >= self.focus_until(t)
             fo["ended_by"] = "ran" if ran else ("closed" if (rec is not None and not rec.live) else "idle")
             if ran and self.dwell_refocus_cooldown_s > 0:
                 self._refocus_block[fo["story_id"]] = t + self.dwell_refocus_cooldown_s
@@ -7876,7 +7958,17 @@ class V3Booth:
         rec = getattr(claim, "story", None)
         if rec is not None and str((rec.row or {}).get("override", "")).lower() == "interrupt":
             return None
+        if (claim.facts or {}).get("reaction") or (claim.facts or {}).get("pileup"):
+            return None                 # V9.21: the reaction to a fight, the pile-up: now or never
         if claim.hard and (t - fo["t_start"]) >= self.dwell_must_after_s:
+            # V9.21: a must-call about another story airs as an aside while
+            # the booth is on a story -- one or two sentences, the camera
+            # stays -- and no more than one aside every aside_every_s
+            every = float((self._dwell_cfg or {}).get("aside_every_s", 30.0))
+            last = getattr(self, "_last_aside_t", None)
+            if last is not None and (t - last) < every:
+                return "rewrite:dwell"
+            claim.facts["aside"] = True
             return None
         if claim.claim_id not in self._dwell_held_ids:
             self._dwell_held_ids.add(claim.claim_id)
@@ -7918,6 +8010,12 @@ class V3Booth:
         fo = self._focus or getattr(self, "_focus_last", None)
         if fo is not None and fo["story_id"] == sid:
             return
+        # V9.21: written while the booth is on another story, this line may
+        # air as an aside (the writer is told; the camera does not move)
+        if self._focus is not None:
+            rec = getattr(claim, "story", None)
+            if not (rec is not None and str((rec.row or {}).get("override", "")).lower() == "interrupt"):
+                claim.facts["aside_hint"] = True
         claim.facts["focus_new"] = True
         if fo is not None and (fo.get("t_end", claim.t_create) - fo["t_start"]) >= self.dwell_min_for_bridge_s:
             last = self.said.last_on_story(fo["story_id"]) if self.said else None
@@ -7969,6 +8067,25 @@ class V3Booth:
         self.counter_dwell_focus += 1
         # V8.4 cycle 2: the line that opens a focus frames the story
         claim.facts["focus_new"] = True
+
+    def _big_moment_voice(self, claim, t):
+        """V9.21: the voice settings for a big moment, or None. A claim the
+        engine marked big_moment gets them while the race's allowance lasts
+        (speech.big_moment.max_per_race, default 2); the pile-up call always
+        counts first because it is raised first."""
+        cfg = self._big_cfg or {}
+        if not cfg or not cfg.get("enabled", True):
+            return None
+        if not (claim.facts or {}).get("big_moment"):
+            return None
+        anchor = getattr(self.model, "anchor_t", None)
+        used = sum(1 for a in self._big_used if a == anchor)
+        if used >= int(cfg.get("max_per_race", 2)):
+            return None
+        self._big_used.append(anchor)
+        self.counter_big_moments += 1
+        vs = cfg.get("voice_settings") or {}
+        return dict(vs) if vs else None
 
     def _in_refocus_cooldown(self, sid, t):
         until = self._refocus_block.get(sid)
@@ -8068,6 +8185,15 @@ class V3Booth:
                 and claim.t_create < (rec.closed_t or 0) - 1e-3 \
                 and not rec.row.get("speak_after_close", False):
             return "drop:story_closed"
+        # V9.21: a line that follows another (the reaction after the pass
+        # call) waits for it and dies with it -- "Wow, what a fight" after a
+        # pass nobody heard is noise
+        fol = getattr(claim, "follows", None)
+        if fol is not None:
+            if fol.outcome == "dropped":
+                return "drop:follows_dropped"
+            if fol.outcome != "aired":
+                return "rewrite:wait_follows"
         # a transition beat spoken after the story has moved on is stale
         if rec is not None and rec.live and f.get("beat_kind") == "transition" \
                 and rec.phase != f.get("phase") and beat not in ("open",) \
@@ -8126,12 +8252,10 @@ class V3Booth:
         # a story beat with no satisfiable variant is dropped, never a crash:
         # the words file is allowed to be narrower than the engine's beats
         ctx, fv = self._story_context(claim)
-        probe = self.words.select(claim.kind, ctx, fv, False)
+        probe = self.words.select(claim.kind, ctx, fv, False, probe=True)
         if probe is None:
             return "drop:no_variant"
-        # select() advanced the rotation; step it back so the probe is free
-        self.words._rot[claim.kind] = (self.words._rot.get(claim.kind, 0) - 1) % max(
-            1, len(self.words.kinds.get(claim.kind, {}).get("variants", [])))
+        # (V9.21: the probe no longer touches the rotation or the once ledger)
         return "ok"
 
     def _name_for_kind(self, car, kind):
@@ -8174,6 +8298,8 @@ class V3Booth:
             ctx["b"] = disp["b"]
         if len(nm) >= 3:
             ctx["c"] = nm[2]
+        elif disp.get("c"):
+            ctx["c"] = disp["c"]            # V9.21: a third name the engine rendered (teams)
         fv = dict(f.get("view") or {})
         return ctx, fv
 
@@ -9087,7 +9213,15 @@ class V3Booth:
         ignore = {_norm_name(x) for x in (lc.get("ignore_names") or [])}
         humans = [pl for pl in players if not pl.get("ai")
                   and _norm_name(pl.get("name") or "") not in ignore]
-        here = [on_air(pl.get("name") or "") for pl in humans if (pl.get("name") or "").strip()]
+        # V9.21 (20 OCT, 20:23:31: "Player, Player, Player ... and Player
+        # already in the lobby with us"): a hidden name is not a name. Cars
+        # the game shows as "Player" (online names off, or a driver whose
+        # name is hidden) are counted, never listed; the line names the
+        # drivers it knows and says how many it does not.
+        named = [pl for pl in humans if (pl.get("name") or "").strip()
+                 and not _hidden_name(pl.get("name"))]
+        hidden_n = sum(1 for pl in humans if _hidden_name(pl.get("name") or ""))
+        here = [on_air(pl.get("name") or "") for pl in named]
         # the roster's humans who have not appeared
         in_lobby = {(pl.get("name") or "").strip() for pl in humans}
         missing = []
@@ -9134,13 +9268,28 @@ class V3Booth:
             new_names = [n for n in here if n not in (self._lobby_said_here or ())]
             self._lobby_said_here = key
             self._lobby_arr_t = t
+            listed = list(here)
+            if hidden_n:
+                listed.append("%s more with %s name%s hidden" % (
+                    _num_word(hidden_n), "his" if hidden_n == 1 else "their",
+                    "" if hidden_n == 1 else "s"))
             ctx = {"a": new_names[0] if new_names else here[0],
                    "b": new_names[1] if len(new_names) > 1 else None,
-                   "count": _num_word(len(here)), "list": _join_words(here)}
+                   "count": _num_word(len(here) + hidden_n), "list": _join_words(listed)}
             ctx = {k: v for k, v in ctx.items() if v is not None}
             air("LOBBY_ARRIVE", ctx,
                 {"first": self._lobby_lines == 0, "one": len(new_names) == 1,
                  "many": len(new_names) > 2})
+            return True
+        # V9.21: nobody we can name yet, only hidden names -- one count, once
+        if not here and hidden_n and self._lobby_said_here is None \
+                and (self._lobby_arr_t is None or (t - self._lobby_arr_t) >= every):
+            self._lobby_said_here = ()
+            self._lobby_arr_t = t
+            what = "%s cars with their names hidden" % _num_word(hidden_n) if hidden_n > 1 \
+                else "one car with its name hidden"
+            air("LOBBY_ARRIVE", {"a": what, "count": _num_word(hidden_n), "list": what},
+                {"first": self._lobby_lines == 0, "one": True, "many": False})
             return True
         # 2. who we are waiting on, once the arrivals have settled
         if missing and not self._lobby_said_missing and self._lobby_arr_t is not None \
@@ -9266,6 +9415,12 @@ class V3Booth:
         self.take(claim)
         return True
 
+    def _roll_run(self):
+        lo, hi = int(self.pc_min_consec), int(self.pc_max_consec)
+        if lo >= hi:
+            return hi
+        return self._run_rng.randint(lo, hi)
+
     def _pacing_gap(self, claim):
         """The silence to insert before this line, per the governor."""
         if self._last_air_end is None:
@@ -9281,7 +9436,7 @@ class V3Booth:
         run_len = self.channel_busy_until - (self._run_start
                                              if self._run_start is not None
                                              else self.channel_busy_until)
-        if self._consec >= self.pc_max_consec:
+        if self._consec >= self._run_limit:
             gap = max(gap, self.pc_breath)
         if run_len >= self.pc_max_speech:
             gap = max(gap, self.pc_breath_run)
@@ -9311,7 +9466,12 @@ class V3Booth:
                     and self._focus["story_id"] == self._story_of(claim)[0]:
                 self._focus["t_last"] = t
         else:
-            self._dwell_note(claim, t)
+            if (claim.facts or {}).get("aside"):
+                # V9.21: an aside does not move the booth's focus or the camera
+                self._last_aside_t = t
+                self.counter_asides = getattr(self, "counter_asides", 0) + 1
+            else:
+                self._dwell_note(claim, t)
             result = self.writer.write_line(self._line_request(claim, past, t))
         speaker, text = result.speaker, result.text
         tmpl_key = result.template_id
@@ -9341,8 +9501,12 @@ class V3Booth:
             # four tenths up" and "Mike on a flyer, two tenths up" share most
             # of their words and are both news. The exact-repeat check above
             # still applies to them.
+            # V9.21: a pile-up call and the results programme are template
+            # lines about different cars from one shape; both are news.
             if self.stories is not None and self.rp_near_jaccard > 0 \
-                    and not (claim.facts or {}).get("timed_session"):
+                    and not (claim.facts or {}).get("timed_session") \
+                    and not (claim.facts or {}).get("pileup") \
+                    and not (claim.facts or {}).get("template_only"):
                 mine = set(w.lower() for w in text.split())
                 for (et, txt) in self._recent_texts:
                     if (t - et) > self.rp_near_window:
@@ -9365,6 +9529,7 @@ class V3Booth:
                 self.pc_min_gap + 1e-6:
             self._consec = 1        # a breath / real gap resets the run
             self._run_start = air_t
+            self._run_limit = self._roll_run()      # V9.21: a fresh run length
         else:
             self._consec += 1
         self.channel_busy_until = air_t + duration
@@ -9456,7 +9621,16 @@ class V3Booth:
                 st = {}
                 rec["stamps"] = st
             st["t_air_wall"] = round(time.time(), 6)
-            sr = self.speech.speak(line_id, speaker, speech_text, air_t)
+            # V9.21 (20 OCT, Dustin: "big moments need more passion"): a line
+            # the engine marked as a big moment -- the pile-up call, a human
+            # taking the lead or a podium place, the reaction to a big battle
+            # -- is synthesised with the big-moment voice settings (less
+            # stability, more style), at most big_moments_per_race a race.
+            big = self._big_moment_voice(claim, air_t)
+            rec["big_moment"] = bool(big)
+            rec["aside"] = bool((claim.facts or {}).get("aside"))
+            sr = self.speech.speak(line_id, speaker, speech_text, air_t,
+                                   settings=big)
             rec["spoken"] = sr.spoken
             rec["duration_actual_s"] = sr.duration_actual_s
             rec["speech_fail_reason"] = sr.fail_reason
@@ -10557,6 +10731,19 @@ class ModelWriter(Writer):
                     "the passage may be cut off after any line."
                     % (self.user_preamble, blob_json, recent, extra, cam, n,
                        request.speaker or "LEAD", request.word_budget or 24))
+        # V9.21: an aside -- the booth is on another story and the camera
+        # stays there; this line is about something else, said in passing
+        facts = getattr(getattr(request, "claim", None), "facts", None) or {}
+        shot = b.get("shot") or {}
+        if facts.get("aside_hint") and shot.get("on_screen") \
+                and not shot.get("subject_on_screen", True):
+            extra += ("\nThis is an aside: the picture and the story are on %s, not on this. "
+                      "Open with 'Meanwhile' or 'Away from the camera' or 'Elsewhere', say "
+                      "it in one plain sentence, and do not tell the viewer to look at it."
+                      % shot["on_screen"])
+        if facts.get("big_moment"):
+            extra += ("\nThis is a big moment. Sound like you saw it: open with a short "
+                      "exclamation, then the call. Still one sentence, still only the facts given.")
         return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
                 "(most recent last):\n%s%s\n\nWrite the single next line for the "
                 "%s voice, at most %d words." %
@@ -10740,6 +10927,11 @@ class HybridWriter(Writer):
         with the other model writer as the stand-in when the lane's own writer
         was not built."""
         if not self._use_model(request.kind):
+            return self.template, "template"
+        # V9.21 (20 OCT): a claim may insist on its template -- the pile-up
+        # call that must air inside two seconds, the results programme that
+        # must say the classification exactly. Set by the engine per claim.
+        if (getattr(request.claim, "facts", None) or {}).get("template_only"):
             return self.template, "template"
         lane = ((request.blob or {}).get("licence") or {}).get("lane", "slow")
         want = self.fast_lane if lane == "fast" else self.slow_lane
@@ -11109,7 +11301,7 @@ class SpeechChannel:
         return self._busy_until
 
     # -- finalised line -> sound ---------------------------------------------
-    def speak(self, line_id, speaker, text, t_air):
+    def speak(self, line_id, speaker, text, t_air, settings=None):
         chars = len(text or "")
         if self.chars_used + chars > self.char_budget:
             if not self._budget_logged:
@@ -11143,7 +11335,7 @@ class SpeechChannel:
         t_req = self._now()
         stamps = {"t_speech_request": round(t_req, 6)}
         try:
-            pcm, t_first = self._synth(text, voice)
+            pcm, t_first = self._synth(text, voice, settings)
         except Exception as e:
             self._register_fail()
             if self._fail_count <= 5:
@@ -11181,7 +11373,7 @@ class SpeechChannel:
                             trimmed_ms=trimmed_ms, chars=chars)
 
     # -- synthesis (held HTTPS connection, streaming PCM) --------------------
-    def _synth(self, text, voice):
+    def _synth(self, text, voice, settings=None):
         if self._transport is not None:
             t0 = self._now()
             return self._transport(text, voice), t0
@@ -11190,8 +11382,11 @@ class SpeechChannel:
         url = "%s/%s/stream?output_format=%s" % (self.endpoint, voice,
                                                  self.output_format)
         u = urllib.parse.urlsplit(url)
+        vs = dict(self.voice_settings)
+        if settings:
+            vs.update(settings)             # V9.21: the big-moment voice
         body = json.dumps({"text": text, "model_id": self.model,
-                           "voice_settings": self.voice_settings}).encode("utf-8")
+                           "voice_settings": vs}).encode("utf-8")
         headers = {"xi-api-key": self._api_key or "",
                    "content-type": "application/json", "accept": "audio/pcm"}
         conn = getattr(self._local, "conn", None)
@@ -12833,13 +13028,45 @@ class V3Gallery:
                     break
             else:
                 incidents.append({"t0": ct, "t_last": ct, "cars": {a, b}})
+        pile_n = int(pc.get("pileup", {}).get("cars", 3))
+        stopped_kph = float(pc.get("collision_human", {}).get("severe_stopped_kph", 30.0))
+        severe_win = float(pc.get("collision_human", {}).get("severe_window_s", 6.0))
+        need_severe = bool(pc.get("collision_human", {}).get("requires_severe", True))
         for inc in incidents:
             cars = inc["cars"]
             human = any(m.w.cars[i].is_human for i in cars)
             # show the lowest-placed car in the incident
             car = max(cars, key=lambda i: m.last_pos.get(i, 99))
-            if human:
+            # V9.21 (20 OCT, Dustin): a pile-up takes the camera whoever is in
+            # it, and holds; a two-car contact takes it only when it is
+            # severe -- a car stopped or out -- so the camera stops strobing
+            # to every tap (27 of 78 cuts on the 20th were human contacts).
+            if len(cars) >= pile_n:
+                hs = [i for i in cars if m.w.cars[i].is_human]
+                show = max(hs, key=lambda i: m.last_pos.get(i, 99)) if hs else car
+                add("pileup", inc["t0"], show, 88, 12.0)
+                continue
+            sev_seen = getattr(self, "_severe_inc", None)
+            if sev_seen is None:
+                sev_seen = self._severe_inc = {}
+            key = round(inc["t0"], 3)
+            severe = any(i in m.retired_at for i in cars)
+            if not severe and (t - inc["t0"]) <= severe_win:
+                for i in cars:
+                    sp = (getattr(m, "speeds", {}) or {}).get(i)
+                    if sp is not None and sp < stopped_kph and not m.w.cars[i].pit_status:
+                        severe = True
+                        sev_seen[key] = i
+                        break
+            if severe and key not in sev_seen:
+                sev_seen[key] = car
+            if key in sev_seen:
+                severe = True
+                car = sev_seen[key]
+            if human and (severe or not need_severe):
                 add("collision_human", inc["t0"], car, 85, 5.0)
+            elif human:
+                continue
             else:
                 # G3-3 / DEC-3: an AI-only collision is protected only if it
                 # involves a top-three car or causes a retirement; otherwise it
@@ -12900,12 +13127,14 @@ class V3Gallery:
                 # Draven and Multionia): the shared focus takes the camera
                 # only to one of our drivers
                 car = next((i for i in subs if m.w.cars[i].is_human), None)
-                until = fo["t_start"] + booth.dwell_s
+                until = booth.focus_until(t)      # V9.21: the battle lock renews it
                 if car is not None and t < until and not m.is_retired(car):
                     cands.append({"until": until, "priority": fcfg.get("priority", 76),
                                   "car": car, "reason": "booth_focus",
                                   "hold": fcfg.get("hold_s", 8.0),
-                                  "hold_max": fcfg.get("hold_max_s", booth.dwell_s)})
+                                  "hold_max": max(fcfg.get("hold_max_s", booth.dwell_s),
+                                                  until - fo["t_start"]),
+                                  "extendable": True})
             fccfg = pc.get("finish_cycle", {}) or {}
             if fccfg.get("enabled", False):
                 fc = self._finish_cycle(t, st, fccfg)
@@ -13556,7 +13785,8 @@ STORY_PLACEHOLDERS = {"a", "b", "c", "gap", "rate", "laps", "places", "cause", "
                       "time", "corner", "human", "margin", "ceiling", "proj",
                       "phase", "relation", "penalty", "when", "grid", "delta",
                       "seconds", "guess", "thread", "hook", "said",
-                      "about", "team", "charity", "interview", "line"}   # V9.13 / V9.15
+                      "about", "team", "charity", "interview", "line",
+                      "where", "list", "rank", "span", "pa", "pb", "pc"}   # V9.13 / V9.15 / V9.21
 
 STORY_GROUP_CLASS = {
     "Lead": CLASS_ACTION, "Battles": CLASS_ACTION, "Position": CLASS_ACTION,
@@ -13599,6 +13829,20 @@ def _fmt_rate(r):
     if abs(r - round(r)) < 0.05:
         return "a second a lap" if round(r) == 1 else "%d seconds a lap" % int(round(r))
     return "%.1f seconds a lap" % r
+
+
+def _laptime_words(ms):
+    """V9.21: a lap time for a template, m:ss.mmm (the speech normaliser reads
+    lap times out), or None."""
+    try:
+        ms = int(ms)
+    except (TypeError, ValueError):
+        return None
+    if ms <= 0:
+        return None
+    s = ms / 1000.0
+    m = int(s // 60)
+    return "%d:%06.3f" % (m, s - m * 60)
 
 
 def _fmt_gap(g):
@@ -14183,6 +14427,21 @@ class StoryProcessor:
         rec.phase = phase
         self.beat(t, rec, "transition", phase, ctx, view, numbers, must)
 
+    def last_claim(self, rec):
+        """V9.21: the claim the last beat on this record raised, or None."""
+        c = self.eng.claims_out[-1] if self.eng.claims_out else None
+        return c if (c is not None and getattr(c, "story", None) is rec) else None
+
+    def mark_big(self, rec, template_only=False):
+        """V9.21: the last beat on this record is a big moment (the voice
+        lifts, the writer opens with an exclamation)."""
+        c = self.last_claim(rec)
+        if c is not None:
+            c.facts["big_moment"] = True
+            if template_only:
+                c.facts["template_only"] = True
+        return c
+
 
 _STORY_REGISTRY = {}
 
@@ -14236,12 +14495,18 @@ class StoryEngine:
         self.claims_out_lull = 0
         self.predictions = PredictionLedger()     # V6 (08 OCT)
         enabled = set(scfg.e("enabled_phases", ["V3-P1"]))
+        # V9.21 (20 OCT, Dustin: "the whole battle matrix in"): rows named in
+        # engine.enabled_rows register whatever their build phase; rows in
+        # engine.disabled_rows never do.
+        on_rows = set(scfg.e("enabled_rows", []) or [])
+        off_rows = set(scfg.e("disabled_rows", []) or [])
         self.processors = []
         for rid, cls in sorted(_STORY_REGISTRY.items()):
             row = scfg.rows.get(rid)
-            if row is None:
+            if row is None or rid in off_rows:
                 continue
-            if row.get("build", "") not in enabled and "all" not in enabled:
+            if row.get("build", "") not in enabled and "all" not in enabled \
+                    and rid not in on_rows:
                 continue
             self.processors.append(cls(self))
         self.log("[stories] %d processors registered: %s" % (
@@ -14632,6 +14897,14 @@ class StoryEngine:
         self._mention_t = {}
         self.incoming = []
         self._gap_last = {}
+        self._reactions_race = 0          # V9.21: the battle reactions allowance
+        self._pileups_race = 0            # V9.21: the pile-up calls allowance
+        for proc in self.processors:      # V9.21: a processor with per-race state
+            if hasattr(proc, "reset_race"):
+                try:
+                    proc.reset_race(t)
+                except Exception as ex:
+                    self.log("[stories] %s reset failed: %s" % (proc.ID, ex))
         if self.lull_active:
             self._lull_set(t, False, "restart")
         self._lull_below_since = None
@@ -15375,6 +15648,14 @@ class StoryEngine:
                 continue
             if not rec.beats:
                 continue
+            # V9.21 (20 OCT): a contact story asks for the camera only when
+            # it is a pile-up or severe (a car stopped or out); the Gallery's
+            # own incident gate shows those. Ten of the 78 cuts on the 20th
+            # were ordinary contacts strobing the picture.
+            if rec.row_id == "INC-01" and not (rec.fields.get("pileup") or rec.fields.get("severe")):
+                continue
+            if rec.row_id == "INC-02" and not rec.fields.get("big"):
+                continue
             bt = rec.beats[-1][0]
             hold = float(holds.get(str(row.get("stick", 2)), 3.0))
             car = self._focus_car(rec)
@@ -15385,6 +15666,42 @@ class StoryEngine:
                             "car": car, "reason": "story:" + rec.row_id,
                             "hold": hold, "hold_max": hold + 6.0})
         return out
+
+    # ---- V9.21: the battle lock (20 OCT, Dustin: 20-60 s on good content) --
+    def battle_hold_until(self, rec, t, focus_start, base_until, cfg):
+        """How long the camera (and the booth) may stay on a battle story:
+        the base dwell, renewed by every phase change while the pair is close,
+        up to lock_max_s from the focus start -- half of that for a fight with
+        no human in it -- and not renewed after release_quiet_s without a
+        phase change or once the gap is past release_gap_s. Returns 'until'."""
+        if rec is None or not rec.live or focus_start is None:
+            return base_until
+        rows = set(cfg.get("rows", ["BAT-01", "BAT-02", "BAT-03", "BAT-04", "BAT-05", "LEAD-02"]))
+        if rec.row_id not in rows:
+            return base_until
+        lock_max = float(cfg.get("lock_max_s", 90.0))
+        if not rec.humans:
+            lock_max *= float(cfg.get("ai_only_frac", 0.5))
+        cap = focus_start + lock_max
+        until = min(base_until, cap)
+        renew = float(cfg.get("renew_s", 25.0))
+        quiet = float(cfg.get("release_quiet_s", 20.0))
+        gap_max = float(cfg.get("release_gap_s", 2.0))
+        gap = rec.fields.get("gap")
+        if gap is not None and gap > gap_max:
+            return until
+        if rec.fields.get("stalemate"):
+            return until                  # BAT-06: nothing is happening here
+        # the last phase change (a transition or threshold beat), not a revisit;
+        # a side-by-side moment on the pair (BAT-04) counts as one
+        last_phase_t = rec.fields.get("last_phase_t")
+        for (bt, kind, name) in reversed(rec.beats):
+            if kind in ("transition", "threshold", "phase"):
+                last_phase_t = bt if last_phase_t is None else max(last_phase_t, bt)
+                break
+        if last_phase_t is None or (t - last_phase_t) > quiet:
+            return until
+        return min(cap, max(until, last_phase_t + renew))
 
     def _focus_car(self, rec):
         hs = [i for i in rec.participants if self.is_human(i)
@@ -15577,6 +15894,7 @@ class P_LEAD_02(StoryProcessor):
                       ctx={"a": eng.name(rec.participants[0]),
                            "b": eng.name(rec.participants[1])},
                       view={"outcome": "passed"}, must=bool(rec.humans))
+            P_BAT_01._reaction(self, t, rec, "passed", rec.participants[0], rec.participants[1])
             self.close(t, rec, "passed")
             return
         if rec.participants[0] != chaser:
@@ -15615,6 +15933,7 @@ class P_LEAD_02(StoryProcessor):
                 self.beat(t, rec, "transition", "resolved",
                           ctx={"a": eng.name(chaser), "b": eng.name(leader)},
                           view={"outcome": "held"})
+                P_BAT_01._reaction(self, t, rec, "held", chaser, leader)
                 self.close(t, rec, "held")
             return
         if gap <= attack and rec.phase == "closing":
@@ -15633,6 +15952,11 @@ class P_LEAD_02(StoryProcessor):
             rec.fields["drs_said"] = True
             self.beat(t, rec, "threshold", "drs",
                       ctx={"a": eng.name(chaser), "b": eng.name(leader)})
+        # V9.21: the lead battle has the same phases as any other (lunge,
+        # defence, detail while the booth is on it)
+        P_BAT_01._phases(self, t, rec, chaser, leader, gap,
+                         {"a": eng.name(chaser), "b": eng.name(leader),
+                          "gap": _fmt_gap(gap), "pos": "the lead"})
         cad = self.p("revisit_laps", 3)
         if eng.laps_since(rec.last_beat_t) >= cad:
             self.beat(t, rec, "revisit", "status",
@@ -15684,7 +16008,10 @@ class P_LEAD_03(StoryProcessor):
                 rec.phase = "changed"
                 self.beat(t, rec, "transition", "changed",
                           ctx={"a": eng.name(a), "b": eng.name(b)},
-                          view={"pit": pit}, must=not pit)
+                          view={"pit": pit, "human": eng.is_human(a)}, must=not pit)
+                # V9.21: one of ours taking the lead on the road is a big moment
+                if not pit and eng.is_human(a):
+                    self.mark_big(rec)
                 self.close(t, rec, "pit_cycle" if pit else "on_track")
 
 
@@ -15727,7 +16054,13 @@ class P_BAT_01(StoryProcessor):
                 self.beat(t, rec, "transition", "resolved",
                           ctx={"a": eng.name(a), "b": eng.name(b),
                                "pos": _ordinal(eng.pos(a))},
-                          view={"outcome": "passed"}, must=bool(rec.humans))
+                          view={"outcome": "passed", "podium": (eng.pos(a) or 99) <= 3,
+                                "human": eng.is_human(a)},
+                          must=bool(rec.humans))
+                # V9.21: a human passing for a podium place is a big moment
+                if eng.is_human(a) and (eng.pos(a) or 99) <= int(self.p("big_pass_pos", 3)):
+                    self.mark_big(rec)
+                self._reaction(t, rec, "passed", a, b)
                 self.close(t, rec, "passed")
                 rec = None
                 continue
@@ -15767,9 +16100,13 @@ class P_BAT_01(StoryProcessor):
                     and not rec.fields.get("drs_said"):
                 rec.fields["drs_said"] = True
                 self.beat(t, rec, "threshold", "drs", ctx)
+            # V9.21: the battle phases inside attack range -- the lunge, the
+            # defence, and the detail cadence while the booth is on it
+            self._phases(t, rec, behind, ahead, gap, ctx)
             if gap > fail_gap and eng.laps_since(rec.last_beat_t) >= self.p("fail_laps", 3):
                 if self._was_close(rec):
                     self.beat(t, rec, "transition", "resolved", ctx, view={"outcome": "failed"})
+                    self._reaction(t, rec, "failed", behind, ahead)
                 self.close(t, rec, "failed")
                 continue
             if eng.laps_since(rec.last_beat_t) >= self.p("revisit_laps", 3):
@@ -15808,8 +16145,135 @@ class P_BAT_01(StoryProcessor):
             self.beat(t, rec, "transition", "resolved",
                       ctx={"a": eng.name(behind), "b": eng.name(ahead),
                            "pos": _ordinal(pb)},
-                      view={"outcome": outcome}, must=(outcome == "passed" and bool(rec.humans)))
+                      view={"outcome": outcome, "podium": outcome == "passed" and pb <= 3,
+                            "human": eng.is_human(behind)},
+                      must=(outcome == "passed" and bool(rec.humans)))
+            if outcome == "passed" and eng.is_human(behind) and pb <= int(self.p("big_pass_pos", 3)):
+                self.mark_big(rec)
+            self._reaction(t, rec, outcome, behind, ahead)
             self.close(t, rec, outcome)
+
+    # ---- V9.21 (20 OCT spec, section 4): battle phases ----------------------
+    def _phases(self, t, rec, behind, ahead, gap, ctx):
+        """Inside attack range: a lunge (the car behind closing hard with a
+        speed advantage), the defence that answers it (the gap re-opens with
+        no pass), the time the pair has spent close, the phases seen, and a
+        detail line every detail_every_s while the booth is on this fight."""
+        eng = self.eng
+        f = rec.fields
+        close_gap = float(self.p("close_fight_gap_s", 1.0))
+        if gap is not None and gap <= close_gap:
+            if f.get("close_since") is None:
+                f["close_since"] = t
+            f["close_total_s"] = f.get("close_total_s", 0.0) + (t - f.get("_close_last_t", t))
+            f["_close_last_t"] = t
+        else:
+            f["close_since"] = None
+            f.pop("_close_last_t", None)
+        phases = f.setdefault("phases", [])
+        if rec.phase not in phases:
+            phases.append(rec.phase)
+        if rec.phase != "attack_range" or gap is None:
+            return
+        sp_b = eng.model.speeds.get(behind)
+        sp_a = eng.model.speeds.get(ahead)
+        dv = (sp_b - sp_a) if (sp_b is not None and sp_a is not None) else None
+        now_lunge = gap <= float(self.p("lunge_gap_s", 0.35)) and dv is not None \
+            and dv >= float(self.p("lunge_dv_kph", 8.0))
+        last_l = f.get("last_lunge_t")
+        if now_lunge and (last_l is None or (t - last_l) >= float(self.p("lunge_cooldown_s", 20.0))):
+            f["last_lunge_t"] = t
+            f["lunges"] = f.get("lunges", 0) + 1
+            if "lunge" not in phases:
+                phases.append("lunge")
+            self.beat(t, rec, "threshold", "lunge", ctx,
+                      view={"human": bool(rec.humans), "hh": len(rec.humans) >= 2},
+                      numbers={"gap": gap}, must=bool(rec.humans), speaker="LEAD")
+            return
+        # the defence: a lunge that came to nothing -- the gap is back out
+        # inside defended_window_s and the order is unchanged
+        if last_l is not None and not f.get("defended_for_lunge") == last_l \
+                and (t - last_l) <= float(self.p("defended_window_s", 8.0)) \
+                and gap >= float(self.p("defended_gap_s", 0.6)):
+            f["defended_for_lunge"] = last_l
+            f["defended"] = f.get("defended", 0) + 1
+            if "defended" not in phases:
+                phases.append("defended")
+            self.beat(t, rec, "threshold", "defended", ctx,
+                      view={"human": bool(rec.humans), "hh": len(rec.humans) >= 2,
+                            "defender_human": eng.is_human(ahead)},
+                      numbers={"gap": gap, "defended": f["defended"]}, speaker="ANALYST")
+            return
+        # detail cadence while the booth is dwelling on this fight
+        booth = getattr(eng, "booth", None)
+        fo = getattr(booth, "_focus", None) if booth is not None else None
+        on_this = bool(fo) and fo.get("story_id") == rec.id
+        every = float(self.p("detail_every_s", 8.0))
+        if on_this and rec.last_beat_t is not None and (t - rec.last_beat_t) >= every:
+            self.beat(t, rec, "revisit", "detail", ctx,
+                      view={"human": bool(rec.humans), "hh": len(rec.humans) >= 2,
+                            "close": gap <= 0.5, "drs": bool(eng.drs.get(behind))},
+                      numbers={"gap": gap}, speaker="ANALYST" if (f.get("_detail_n", 0) % 2) else "LEAD")
+            f["_detail_n"] = f.get("_detail_n", 0) + 1
+
+    def _reaction(self, t, rec, outcome, a, b):
+        """Section 7: the big-battle reaction, once the fight is over. All
+        four conditions: close for long enough, at least three phases, ended
+        in a pass that stuck or a defence that held twice or more, and over.
+        A fizzle does not qualify. At most reaction_max_per_race a race;
+        template-written (the approved lines), a big moment for the voice."""
+        eng = self.eng
+        f = rec.fields
+        if outcome not in ("passed", "separated", "failed", "held"):
+            return
+        hh = len(rec.humans) >= 2
+        need_s = float(self.p("reaction_close_s_hh" if hh else "reaction_close_s", 30.0 if hh else 45.0))
+        if f.get("close_total_s", 0.0) < need_s:
+            return
+        phases = set(f.get("phases") or [])
+        if len(phases & {"attack_range", "big_catch", "drs", "lunge", "defended",
+                         "cooling", "side_by_side"}) < int(self.p("reaction_min_phases", 3)):
+            return
+        passed = outcome == "passed"
+        defended = int(f.get("defended", 0))
+        if not passed and defended < int(self.p("reaction_min_defended", 2)):
+            return
+        n = getattr(eng, "_reactions_race", 0)
+        if n >= int(self.p("reaction_max_per_race", 4)):
+            return
+        eng._reactions_race = n + 1
+        # {a} won the fight, {b} lost it
+        if passed:
+            win, lose = a, b
+        else:
+            win, lose = b, a                  # the defender held
+        humans = rec.humans
+        named = (hh or (eng.is_human(win) and not eng.is_human(lose)))
+        view = {"hh": hh, "named": bool(named), "pass": passed, "defending": not passed,
+                "lunge": int(f.get("lunges", 0)) > 0, "human": bool(humans),
+                "winner_human": eng.is_human(win), "loser_human": eng.is_human(lose)}
+        ctx = {"a": eng.name(win) if named else None,
+               "b": eng.name(lose) if named else None}
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        prev = self.last_claim(rec)           # the resolution line this reacts to
+        self.beat(t, rec, "threshold", "reaction", ctx, view=view,
+                  numbers={"close_s": round(f.get("close_total_s", 0.0), 1)},
+                  speaker="ANALYST", subjects=[win, lose])
+        c = self.last_claim(rec)
+        if c is not None and prev is not None and prev is not c:
+            c.follows = prev                  # airs only after it, never without it
+        if c is not None:
+            c.facts["template_only"] = True
+            c.facts["reaction"] = True
+            if humans:
+                c.facts["big_moment"] = True
+            # it follows the pass call at once or not at all: a must-call
+            # with a short shelf life
+            c.hard = True
+            c.priority = max(c.priority, 97.0)
+            c.max_age_override = float(self.p("reaction_max_age_s", 25.0))
+        eng.log("[stories] BATTLE REACTION: %s v %s, %s, %.0f s close, phases %s" % (
+            eng.name(win), eng.name(lose), outcome, f.get("close_total_s", 0.0), sorted(phases)))
 
     def _was_close(self, rec):
         if rec.humans and self.p("speak_separated_human", True):
@@ -15831,6 +16295,346 @@ class P_BAT_01(StoryProcessor):
         return {"lap": self.eng.lap_now() + int(math.ceil(laps)),
                 "feasibility": round(min(feas, 9.9), 2),
                 "confidence": "H" if n >= need else "L"}
+
+
+@story_processor
+class P_BAT_02(StoryProcessor):
+    """BAT-02 Defence (V9.21, 20 OCT). The fight from the car in front: once
+    a BAT-01 or LEAD-02 attack has sat in attack range for defence_after_s
+    with one of ours ahead, the ANALYST says what he is doing to hold it,
+    revisits every revisit_laps, and when the attack ends says whether he
+    held (a pass is BAT-01's call; this stays silent then)."""
+    ID = "BAT-02"
+
+    def observe(self, t):
+        eng = self.eng
+        if eng.model.state not in ("green", "final_lap"):
+            return
+        after = float(self.p("defence_after_s", 12.0))
+        live_fights = {}
+        for rec in list(eng.store.live.values()):
+            if rec.row_id not in ("BAT-01", "LEAD-02") or len(rec.participants) < 2:
+                continue
+            behind, ahead = rec.participants[0], rec.participants[1]
+            if not eng.is_human(ahead):
+                continue
+            if rec.phase not in ("attack_range",):
+                continue
+            since = rec.fields.get("close_since")
+            if since is None or (t - since) < after:
+                continue
+            live_fights[(ahead, behind)] = rec
+        # open / revisit
+        for (ahead, behind), fight in live_fights.items():
+            mine = eng.store.find(self.ID, [ahead, behind])
+            gap = fight.fields.get("gap")
+            ctx = {"a": eng.name(ahead), "b": eng.name(behind), "gap": _fmt_gap(gap),
+                   "pos": "the lead" if fight.row_id == "LEAD-02" else _ordinal(eng.pos(ahead))}
+            if mine is None:
+                cd = getattr(self, "_cool", {}).get((ahead, behind))
+                if cd is not None and (t - cd) < float(self.p("pair_cooldown_s", 60.0)):
+                    continue
+                mine = self.open(t, [ahead, behind],
+                                 fields={"fight": fight.id, "gap": gap,
+                                         "pos_at_open": _pos_map(eng, [ahead, behind])},
+                                 phase="holding")
+                self.beat(t, mine, "transition", "holding", ctx,
+                          view={"human": True, "hh": eng.is_human(behind),
+                                "lead": fight.row_id == "LEAD-02",
+                                "drs": bool(eng.drs.get(behind))},
+                          numbers={"gap": gap} if gap is not None else {},
+                          speaker="ANALYST")
+                continue
+            mine.fields["gap"] = gap
+            if eng.laps_since(mine.last_beat_t) >= int(self.p("revisit_laps", 2)):
+                self.beat(t, mine, "revisit", "still_holding", ctx,
+                          view={"human": True, "hh": eng.is_human(behind)},
+                          numbers={"gap": gap} if gap is not None else {}, speaker="ANALYST")
+        # close: the fight it mirrors is over
+        for mine in self.live():
+            ahead, behind = mine.participants[0], mine.participants[1]
+            fight = next((r for r in eng.store.live.values() if r.id == mine.fields.get("fight")), None)
+            if fight is not None and fight.phase == "attack_range":
+                continue
+            self._cool = getattr(self, "_cool", {})
+            self._cool[(ahead, behind)] = t
+            pa, pb = eng.pos(ahead), eng.pos(behind)
+            held = pa is not None and pb is not None and pa < pb
+            if held:
+                self.beat(t, mine, "transition", "held",
+                          {"a": eng.name(ahead), "b": eng.name(behind),
+                           "pos": _ordinal(pa) if fight is None or fight.row_id != "LEAD-02" else "the lead"},
+                          view={"human": True, "hh": eng.is_human(behind)},
+                          must=eng.is_human(behind), speaker="ANALYST")
+            self.close(t, mine, "held" if held else "lost")
+
+
+@story_processor
+class P_BAT_04(StoryProcessor):
+    """BAT-04 Side by side (V9.21, 20 OCT). Two cars alongside -- the gap
+    under alongside_gap_s for alongside_hold_s -- with one of ours in it.
+    An interrupt: the call goes out at once; it resolves as a pass or as the
+    car in front holding on. One per pair per pair_cooldown_s."""
+    ID = "BAT-04"
+
+    def observe(self, t):
+        eng = self.eng
+        if eng.model.state not in ("green", "final_lap"):
+            return
+        gap_max = float(self.p("alongside_gap_s", 0.2))
+        hold = float(self.p("alongside_hold_s", 0.8))
+        release = float(self.p("release_gap_s", 0.6))
+        release_s = float(self.p("release_hold_s", 2.0))
+        top_n = int(self.p("ai_only_top_n", 2))
+        since = getattr(self, "_since", None)
+        if since is None:
+            since = self._since = {}
+        self._cool = getattr(self, "_cool", {})
+        order = [c for c in eng.ordered() if eng.running(c.idx)]
+        seen = set()
+        for i in range(1, len(order)):
+            behind, ahead = order[i].idx, order[i - 1].idx
+            cb, ca = eng.w.cars[behind], eng.w.cars[ahead]
+            if cb.pit_status or ca.pit_status:
+                continue
+            human = eng.is_human(behind) or eng.is_human(ahead)
+            if not human and (eng.pos(ahead) or 99) > top_n:
+                continue
+            gap = eng.gap_ahead(behind)
+            pair = frozenset((behind, ahead))
+            seen.add(pair)
+            rec = next((r for r in self.live() if frozenset(r.participants) == pair), None)
+            # only inside a fight the engine already knows (BAT-01 / LEAD-02
+            # live for the pair): two cars brushing in traffic are not a
+            # side-by-side moment (20 OCT replay: twenty of them in five laps)
+            in_fight = any(r.row_id in ("BAT-01", "LEAD-02") and set(r.participants[:2]) == set(pair)
+                           for r in eng.store.live.values())
+            if gap is not None and gap <= gap_max and (in_fight or rec is not None):
+                since.setdefault(pair, t)
+                if rec is None and (t - since[pair]) >= hold:
+                    cd = self._cool.get(pair)
+                    if cd is not None and (t - cd) < float(self.p("pair_cooldown_s", 30.0)):
+                        continue
+                    rec = self.open(t, [behind, ahead],
+                                    fields={"pos_at_open": _pos_map(eng, [behind, ahead]),
+                                            "gap": gap},
+                                    phase="alongside")
+                    hh = eng.is_human(behind) and eng.is_human(ahead)
+                    self.beat(t, rec, "transition", "alongside",
+                              {"a": eng.name(behind), "b": eng.name(ahead),
+                               "pos": _ordinal(eng.pos(ahead))},
+                              view={"human": human, "hh": hh, "lead": eng.pos(ahead) == 1},
+                              must=human, speaker="LEAD")
+                    if human:
+                        self.mark_big(rec)
+                    # the fight it belongs to knows it had a side-by-side phase
+                    for r in eng.store.live.values():
+                        if r.row_id in ("BAT-01", "LEAD-02") and set(r.participants[:2]) == pair:
+                            ph = r.fields.setdefault("phases", [])
+                            if "side_by_side" not in ph:
+                                ph.append("side_by_side")
+                            r.fields["last_phase_t"] = t
+            else:
+                since.pop(pair, None)
+                if rec is not None:
+                    rec.fields["apart_since"] = rec.fields.get("apart_since") or t
+                    if gap is not None and gap >= release and (t - rec.fields["apart_since"]) >= release_s:
+                        self._resolve(t, rec, behind, ahead, "held")
+            if rec is not None and gap is not None and gap <= gap_max:
+                rec.fields["apart_since"] = None
+        for rec in self.live():
+            pair = frozenset(rec.participants)
+            if pair in seen:
+                continue
+            behind, ahead = rec.participants
+            pb, pa = eng.pos(behind), eng.pos(ahead)
+            if pb is None or pa is None:
+                self.close(t, rec, "lost")
+                continue
+            if pb < pa:
+                self._resolve(t, rec, behind, ahead, "passed")
+            else:
+                self._resolve(t, rec, behind, ahead, "held")
+
+    def _resolve(self, t, rec, behind, ahead, outcome):
+        eng = self.eng
+        self._cool = getattr(self, "_cool", {})
+        self._cool[frozenset((behind, ahead))] = t
+        human = bool(rec.humans)
+        hh = len(rec.humans) >= 2
+        if outcome == "passed":
+            self.beat(t, rec, "transition", "resolved",
+                      {"a": eng.name(behind), "b": eng.name(ahead), "pos": _ordinal(eng.pos(behind))},
+                      view={"outcome": "passed", "human": human, "hh": hh,
+                            "passer_human": eng.is_human(behind)},
+                      must=human, speaker="LEAD")
+        else:
+            self.beat(t, rec, "transition", "resolved",
+                      {"a": eng.name(ahead), "b": eng.name(behind), "pos": _ordinal(eng.pos(ahead))},
+                      view={"outcome": "held", "human": human, "hh": hh,
+                            "defender_human": eng.is_human(ahead)},
+                      speaker="ANALYST")
+        self.close(t, rec, outcome)
+
+
+@story_processor
+class P_BAT_05(StoryProcessor):
+    """BAT-05 Multi-car battle (V9.21, 20 OCT). A train: train_min cars or
+    more, each inside train_gap_s of the one ahead, with one of ours in it
+    and at least one AI car (an all-human group is HUM-01's). Called when it
+    forms, revisited every revisit_laps, and called again when it thins."""
+    ID = "BAT-05"
+
+    def observe(self, t):
+        eng = self.eng
+        if eng.model.state not in ("green", "final_lap"):
+            return
+        gap_max = float(self.p("train_gap_s", 1.5))
+        need = int(self.p("train_min", 3))
+        order = [c for c in eng.ordered() if eng.running(c.idx)]
+        trains = []
+        cur = []
+        for i, c in enumerate(order):
+            if c.pit_status:
+                if len(cur) >= need:
+                    trains.append(cur)
+                cur = []
+                continue
+            if i == 0 or not cur:
+                cur = [c.idx]
+                continue
+            gap = eng.gap_ahead(c.idx)
+            if gap is not None and gap <= gap_max and not eng.w.cars[cur[-1]].pit_status:
+                cur.append(c.idx)
+            else:
+                if len(cur) >= need:
+                    trains.append(cur)
+                cur = [c.idx]
+        if len(cur) >= need:
+            trains.append(cur)
+        live = self.live()
+        matched = set()
+        for tr in trains:
+            humans = [i for i in tr if eng.is_human(i)]
+            ais = [i for i in tr if not eng.is_human(i)]
+            if not humans or not ais:
+                continue
+            rec = None
+            for r in live:
+                if len(set(r.participants) & set(tr)) >= 2:
+                    rec = r
+                    break
+            lead, tail = tr[0], tr[-1]
+            span = eng.road_gap(lead, tail)
+            ctx = {"count": _num_word(len(tr)), "a": eng.name(lead),
+                   "b": eng.name(humans[0]), "pos": _ordinal(eng.pos(lead)),
+                   "span": _fmt_gap(span)}
+            ctx = {k: v for k, v in ctx.items() if v is not None}
+            if rec is None:
+                cd = getattr(self, "_cool", None)
+                if cd is not None and (t - cd) < float(self.p("cooldown_s", 90.0)):
+                    continue
+                rec = self.open(t, list(tr), fields={"cars": len(tr), "pos_at_open": _pos_map(eng, tr)},
+                                phase="train")
+                self.beat(t, rec, "transition", "train", ctx,
+                          view={"human": True, "humans": min(len(humans), 3),
+                                "front": (eng.pos(lead) or 99) <= 3},
+                          numbers={"count": len(tr)}, speaker="LEAD")
+            else:
+                matched.add(rec.id)
+                grew = len(tr) > rec.fields.get("cars", 0)
+                rec.participants = list(tr)
+                rec.humans = humans
+                rec.fields["cars"] = max(rec.fields.get("cars", 0), len(tr))
+                if grew and len(tr) >= rec.fields.get("cars", 0):
+                    self.beat(t, rec, "threshold", "grows", ctx,
+                              view={"human": True}, numbers={"count": len(tr)}, speaker="ANALYST")
+                elif eng.laps_since(rec.last_beat_t) >= int(self.p("revisit_laps", 2)):
+                    self.beat(t, rec, "revisit", "train_status", ctx,
+                              view={"human": True}, numbers={"count": len(tr)}, speaker="ANALYST")
+            matched.add(rec.id)
+        for rec in live:
+            if rec.id in matched:
+                continue
+            # the train has thinned below the minimum
+            self._cool = t
+            lasted = eng.laps_since(rec.opened_t)
+            if lasted >= 1:
+                lead_h = next((i for i in rec.participants if eng.is_human(i)), None)
+                self.beat(t, rec, "transition", "thins",
+                          {"a": eng.name(lead_h) if lead_h is not None else eng.name(rec.participants[0]),
+                           "pos": _ordinal(eng.pos(lead_h)) if lead_h is not None and eng.pos(lead_h) else None,
+                           "count": _num_word(rec.fields.get("cars", 3))},
+                          view={"human": True}, speaker="ANALYST")
+            self.close(t, rec, "thinned")
+
+
+@story_processor
+class P_BAT_06(StoryProcessor):
+    """BAT-06 Stalemate (V9.21, 20 OCT). A fight that has stopped moving: a
+    live BAT-01 or LEAD-02 record whose gap has sat between stale_min_s and
+    stale_max_s, moving less than stale_move_s, with no phase beat for
+    stale_after_s. One line, once per pair per race; it closes when the gap
+    moves or the fight ends. The camera lock reads it too: a stalemate is not
+    worth a minute."""
+    ID = "BAT-06"
+
+    def observe(self, t):
+        eng = self.eng
+        if eng.model.state not in ("green", "final_lap"):
+            return
+        lo, hi = float(self.p("stale_min_s", 0.5)), float(self.p("stale_max_s", 1.5))
+        move = float(self.p("stale_move_s", 0.3))
+        after = float(self.p("stale_after_s", 40.0))
+        said = getattr(self, "_said", None)
+        if said is None:
+            said = self._said = set()
+        for fight in list(eng.store.live.values()):
+            if fight.row_id not in ("BAT-01", "LEAD-02") or len(fight.participants) < 2:
+                continue
+            behind, ahead = fight.participants[0], fight.participants[1]
+            if not (eng.is_human(behind) or eng.is_human(ahead)):
+                continue
+            gap = fight.fields.get("gap")
+            f = fight.fields
+            if gap is None or not (lo <= gap <= hi):
+                f.pop("_stale_since", None)
+                f.pop("_stale_gap0", None)
+                continue
+            if f.get("_stale_since") is None:
+                f["_stale_since"], f["_stale_gap0"] = t, gap
+                continue
+            if abs(gap - f["_stale_gap0"]) > move:
+                f["_stale_since"], f["_stale_gap0"] = t, gap
+                continue
+            last_phase = None
+            for (bt, kind, name) in reversed(fight.beats):
+                if kind in ("transition", "threshold"):
+                    last_phase = bt
+                    break
+            if (t - f["_stale_since"]) < after or (last_phase is not None and (t - last_phase) < after):
+                continue
+            pair = frozenset((behind, ahead))
+            if pair in said or eng.store.find(self.ID, [behind, ahead]) is not None:
+                continue
+            said.add(pair)
+            f["stalemate"] = True
+            rec = self.open(t, [behind, ahead], fields={"fight": fight.id, "gap": gap,
+                                                        "pos_at_open": _pos_map(eng, [behind, ahead])},
+                            phase="stalemate")
+            self.beat(t, rec, "transition", "stalemate",
+                      {"a": eng.name(behind), "b": eng.name(ahead), "gap": _fmt_gap(gap),
+                       "pos": "the lead" if fight.row_id == "LEAD-02" else _ordinal(eng.pos(ahead))},
+                      view={"human": bool(rec.humans), "hh": len(rec.humans) >= 2,
+                            "lead": fight.row_id == "LEAD-02"},
+                      numbers={"gap": gap}, speaker="ANALYST")
+        for rec in self.live():
+            fight = next((r for r in eng.store.live.values() if r.id == rec.fields.get("fight")), None)
+            gap = fight.fields.get("gap") if fight is not None else None
+            if fight is None or gap is None or abs(gap - rec.fields.get("gap", gap)) > move:
+                if fight is not None:
+                    fight.fields.pop("stalemate", None)
+                self.close(t, rec, "moved" if fight is not None else "over")
 
 
 @story_processor
@@ -16357,6 +17161,7 @@ class P_INC_01(StoryProcessor):
                             merged.humans.append(i)
                 merged.fields["t_last"] = ct
                 merged.fields["count"] += 1
+                self._maybe_pileup(t, merged)
                 continue
             if not human:
                 # AI-vs-AI is silent unless it is at the front (policy 16 SEP)
@@ -16374,7 +17179,10 @@ class P_INC_01(StoryProcessor):
                       view={"human_human": hh, "human": human},
                       must=human)
         for rec in self.live():
-            if rec.phase == "contact" and t - rec.fields["t_last"] >= conseq:
+            # V9.21: a car in the incident that has stopped, or is out, makes
+            # it severe -- the camera goes there and the call is a big one
+            self._maybe_severe(t, rec)
+            if rec.phase in ("contact", "pileup") and t - rec.fields["t_last"] >= conseq:
                 rec.phase = "consequence"
                 lost = []
                 for i in rec.participants:
@@ -16384,11 +17192,104 @@ class P_INC_01(StoryProcessor):
                         lost.append((i, now - before))
                 if lost:
                     i, n = max(lost, key=lambda x: x[1])
+                    view = {"pileup": bool(rec.fields.get("pileup")),
+                            "human": eng.is_human(i)}
                     self.beat(t, rec, "transition", "consequence",
                               ctx={"a": eng.name(i), "places": _places_word(n),
-                                   "pos": _ordinal(eng.pos(i))},
-                              numbers={"places": n})
+                                   "pos": _ordinal(eng.pos(i)),
+                                   "count": _num_word(len(rec.participants))},
+                              view=view, numbers={"places": n},
+                              must=bool(rec.fields.get("pileup") and rec.humans))
                 self.close(t, rec, "consequence" if lost else "no_consequence")
+
+    # ---- V9.21 (20 OCT, Dustin: "three-car pile-ups and not a whisper") -----
+    # The lap-one crash on the 20th raised fourteen claims in twenty seconds
+    # and every one expired in the queue. A pile-up is one event: when an
+    # incident grows to pileup_cars, one must-call is raised at once --
+    # template-written so it airs inside two seconds, marked a big moment for
+    # the voice, never expiring on the story clock -- and the camera is asked
+    # for the crash. The model's consequence line follows as before.
+    def _maybe_pileup(self, t, rec):
+        eng = self.eng
+        if rec.fields.get("pileup") or rec.fields.get("pileup_late"):
+            return
+        need = int(self.p("pileup_cars", 3))
+        if len(rec.participants) < need:
+            return
+        # the cars must have come together at once: the record reached the
+        # count inside pileup_window_s of its first contact, not by a chain
+        # of taps over half a lap (the 20 OCT replay called eleven "pile-ups")
+        if (t - rec.opened_t) > float(self.p("pileup_window_s", 4.0)):
+            rec.fields["pileup_late"] = True
+            return
+        n = getattr(eng, "_pileups_race", 0)
+        if n >= int(self.p("pileup_max_per_race", 4)):
+            rec.fields["pileup_late"] = True      # the allowance is spent: an ordinary contact
+            return
+        eng._pileups_race = n + 1
+        rec.fields["pileup"] = True
+        rec.fields["pileup_t"] = t
+        rec.phase = "pileup"
+        humans = [i for i in rec.participants if eng.is_human(i)]
+        # the car to show: the lowest-placed human in it, else the lowest-placed car
+        pool = humans or list(rec.participants)
+        focus = max(pool, key=lambda i: eng.pos(i) or 0)
+        rec.fields["focus_car"] = focus
+        corner = None
+        tracks = getattr(getattr(eng, "blobctx", None), "tracks", None)
+        if tracks is not None:
+            try:
+                c = eng.w.cars[focus]
+                cn = tracks.corner_at(eng.w.track_id, c.lap_distance)
+                if cn:
+                    corner = cn.get("name") or ("turn %s" % _num_word(cn.get("n", 0)))
+            except Exception:
+                corner = None
+        names = [eng.name(i) for i in humans[:3]]
+        ctx = {"count": _num_word(len(rec.participants)),
+               "a": names[0] if names else None,
+               "b": names[1] if len(names) > 1 else None,
+               "c": names[2] if len(names) > 2 else None,
+               "where": corner,
+               "list": _join_words(names) if names else None,
+               "lap": _num_word(eng.lap_now()) if eng.lap_now() else None}
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        view = {"human": bool(humans), "humans": min(len(humans), 3),
+                "where": bool(corner), "first_lap": (eng.lap_now() or 0) <= 1,
+                "big": len(rec.participants) >= int(self.p("pileup_big_cars", 4))}
+        self.beat(t, rec, "threshold", "pileup", ctx=ctx, view=view,
+                  numbers={"count": len(rec.participants)}, must=True, speaker="LEAD",
+                  subjects=list(rec.participants[:4]))
+        claim = eng.claims_out[-1] if eng.claims_out else None
+        if claim is not None and getattr(claim, "story", None) is rec:
+            claim.facts["template_only"] = True
+            claim.facts["big_moment"] = True
+            claim.facts["pileup"] = True
+            claim.max_age_override = float(self.p("pileup_max_age_s", 40.0))
+            claim.priority = max(claim.priority, 99.0)
+        eng.log("[stories] PILE-UP: %d cars (%s)%s" % (
+            len(rec.participants), ", ".join(eng.name(i) for i in rec.participants),
+            (" at %s" % corner) if corner else ""))
+
+    def _maybe_severe(self, t, rec):
+        """A contact that leaves a car stopped (or out) inside severe_window_s
+        is severe: the camera's incident gate and the words file read it."""
+        if rec.fields.get("severe"):
+            return
+        eng = self.eng
+        m = eng.model
+        if (t - rec.fields.get("t_last", t)) > float(self.p("severe_window_s", 6.0)):
+            return
+        stopped = float(self.p("severe_stopped_kph", 30.0))
+        for i in rec.participants:
+            if i in m.retired_at:
+                rec.fields["severe"] = True
+                return
+            sp = m.speeds.get(i)
+            if sp is not None and sp < stopped and not eng.w.cars[i].pit_status:
+                rec.fields["severe"] = True
+                rec.fields.setdefault("focus_car", i)
+                return
 
 
 @story_processor
@@ -16545,13 +17446,25 @@ class P_INC_06(StoryProcessor):
             return
         rec = self.live()[0] if self.live() else None
         if rec is None:
+            # V9.21: a pile-up already called by INC-01 is the same crash; the
+            # first-lap line then adds nothing. And the line is read as
+            # written (template), not re-told by the model as one car's
+            # consequence (20 OCT, 20:27:03).
+            if any(r.row_id == "INC-01" and r.fields.get("pileup")
+                   for r in list(eng.store.live.values()) + eng.store.closed[-10:]):
+                return
             rec = self.open(t, sorted(cars), fields={"cars": len(cars),
                                                      "pos_at_open": _pos_map(eng, cars)},
                             phase="chaos")
             self.beat(t, rec, "transition", "chaos",
                       ctx={"count": _num_word(len(cars))},
-                      view={"human": bool(rec.humans)}, must=True,
+                      view={"human": bool(rec.humans), "big": len(cars) >= 4}, must=True,
                       numbers={"count": len(cars)})
+            claim = eng.claims_out[-1] if eng.claims_out else None
+            if claim is not None and getattr(claim, "story", None) is rec:
+                claim.facts["template_only"] = True
+                if len(cars) >= 4:
+                    claim.facts["big_moment"] = True
         elif len(cars) > rec.fields["cars"]:
             rec.fields["cars"] = len(cars)
             for i in cars:
@@ -17218,11 +18131,20 @@ class P_SF_07(StoryProcessor):
         self._best_said = False
         self._podium_said = False
 
+    def reset_race(self, t):
+        """V9.21: a new race gets its own podium and results programme (the
+        09 OCT capture: the programme fired at the qualifying classification
+        and then never for Race 2)."""
+        self._best_said = False
+        self._podium_said = False
+
     def observe(self, t):
         eng = self.eng
         m = eng.model
         if m.state not in ("finishing", "classified"):
             return
+        if getattr(m.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
+            return                      # V9.21: a qualifying classification is a grid, not a result
         self._podium(t)
         # best human: once every human has a finish position (or the field is
         # classified). V3's WINNER/RESULT/CORRECTION keep their own lines.
@@ -17235,9 +18157,27 @@ class P_SF_07(StoryProcessor):
         done = all(h in m.finish_pos or m.is_retired(h) for h in hs)
         if not done and m.final_classification is None:
             return
+        # V9.21 (20 OCT, Dustin): the finish is a programme, not a trickle.
+        # With the classification in hand it runs in order -- podium (above),
+        # a human on the podium named as one of ours, the best of ours if he
+        # is not on it, every human in finishing order with team and charity,
+        # the retirements, pole and fastest lap, the Constructors' Cup top
+        # three, and the hand-off to the Charity Results screen. Template-
+        # written so the classification is said exactly. The old way read
+        # whatever result lines happened to be queued, went quiet for a
+        # minute, then read the rest as "corrections".
+        if self.p("programme", True) and m.final_classification is None:
+            return                      # wait for the classification itself
         self._best_said = True
         ranked = sorted([h for h in hs if h in m.finish_pos],
                         key=lambda h: m.finish_pos[h])
+        if self.p("programme", True):
+            try:
+                self._programme(t, hs, ranked)
+            except Exception as ex:
+                eng.log("[stories] SF-07 programme failed: %s: %s" % (type(ex).__name__, ex))
+            self._interview_payoffs(t, hs)
+            return
         if not ranked:
             return
         best = ranked[0]
@@ -17249,6 +18189,166 @@ class P_SF_07(StoryProcessor):
                   view={"only": len(ranked) == 1})
         self.close(t, rec, "best_human")
         self._interview_payoffs(t, hs)
+
+    # ---- V9.21: the results programme ----------------------------------------
+    def _season_ident(self, idx):
+        bc = getattr(self.eng, "blobctx", None)
+        sb = getattr(getattr(bc, "tool", None), "season", None) if bc is not None else None
+        if sb is None:
+            return None
+        try:
+            if sb.ident(idx) is None:
+                sb.refresh(self.eng.w, getattr(self.eng.w, "ext", None))
+            return sb.ident(idx)
+        except Exception:
+            return None
+
+    def _class_rows(self):
+        """{idx: {position, status, grid, points, best_lap_ms}} from the Final
+        Classification (and its V5 extension when decoded)."""
+        m = self.eng.model
+        fc = m.final_classification or {}
+        ext = getattr(self.eng.w, "ext", None)
+        extra = {r["idx"]: r for r in ((getattr(ext, "final_class", None) or {}).get("rows") or [])}
+        out = {}
+        for idx, row in enumerate(fc.get("rows") or []):
+            if idx >= MAX_CARS or not row:
+                continue
+            p = row.get("position") or 0
+            if p <= 0:
+                continue
+            ex = extra.get(idx, {})
+            out[idx] = {"position": p, "status": row.get("result_status"),
+                        "grid": row.get("grid"), "points": ex.get("points"),
+                        "best_lap_ms": ex.get("best_lap_ms") or None}
+        return out
+
+    def _say(self, t, name, subjects, ctx, view, must=True, numbers=None):
+        """One programme line: a one-beat story of its own, template-written,
+        with a long shelf life so the whole programme airs in order."""
+        eng = self.eng
+        rec = self.open(t, list(subjects), fields={"programme": name}, phase=name)
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        self.beat(t, rec, "transition", name, ctx=ctx, view=view, must=must,
+                  numbers=numbers or {}, subjects=list(subjects))
+        claim = eng.claims_out[-1] if eng.claims_out else None
+        if claim is not None and getattr(claim, "story", None) is rec:
+            claim.facts["template_only"] = True
+            claim.max_age_override = float(self.p("programme_max_age_s", 150.0))
+        self.close(t, rec, name)
+
+    def _programme(self, t, hs, ranked):
+        eng = self.eng
+        m = eng.model
+        rows = self._class_rows()
+        if not rows:
+            return
+        # every human the race saw, retired ones included (humans() drops them)
+        hs = sorted(set(hs) | {c.idx for c in eng.w.cars if c.seen and c.is_human})
+        by_pos = {}
+        for idx, r in rows.items():
+            by_pos.setdefault(r["position"], idx)
+        podium = [by_pos.get(p) for p in (1, 2, 3)]
+        money = self.p("programme_money", True)
+
+        def tc(idx):
+            v = eng.team_charity_of(idx)
+            return (v[0], v[1]) if v else (None, None)
+
+        # 1. a human on the overall podium, named as one of ours (the podium
+        #    line itself named all three; this says what it means)
+        for p in (1, 2, 3):
+            idx = by_pos.get(p)
+            if idx is None or not eng.is_human(idx):
+                continue
+            team, charity = tc(idx)
+            self._say(t, "human_podium", [idx],
+                      {"a": eng.name(idx), "pos": _ordinal(p), "team": team, "charity": charity},
+                      {"win": p == 1, "money": bool(money and charity), "has_team": bool(team)})
+        # 2. the best of ours, when he is not already on the podium
+        humans_cls = sorted([h for h in hs if h in rows], key=lambda h: rows[h]["position"])
+        if humans_cls:
+            best = humans_cls[0]
+            bp = rows[best]["position"]
+            if bp > 3:
+                team, charity = tc(best)
+                self._say(t, "best_human", [best],
+                          {"a": eng.name(best), "pos": _ordinal(bp), "team": team, "charity": charity,
+                           "b": eng.name(humans_cls[1]) if len(humans_cls) > 1 else None},
+                          {"only": len(humans_cls) == 1, "programme": True, "has_team": bool(team)})
+        # 3. every human in finishing order, team and charity; the retirements
+        #    among them with where they stopped
+        rest = [h for h in humans_cls if rows[h]["position"] > 3]
+        total = len(rest)
+        for n, h in enumerate(rest):
+            r = rows[h]
+            team, charity = tc(h)
+            out = (r.get("status") not in (None, 3)) and m.is_retired(h)
+            if out:
+                lap = None
+                rt = m.retired_at.get(h)
+                self._say(t, "human_out", [h],
+                          {"a": eng.name(h), "team": team, "charity": charity,
+                           "pos": _ordinal(r["position"])},
+                          {"has_team": bool(team), "has_charity": bool(charity)})
+                continue
+            self._say(t, "human_result", [h],
+                      {"a": eng.name(h), "pos": _ordinal(r["position"]), "team": team,
+                       "charity": charity, "rank": _ordinal(n + 1), "count": _num_word(total)},
+                      {"has_team": bool(team), "has_charity": bool(charity),
+                       "first": n == 0, "last": n == total - 1, "on_podium": r["position"] <= 3})
+        # humans who never made the classification (left the session)
+        for h in hs:
+            if h in rows:
+                continue
+            team, charity = tc(h)
+            self._say(t, "human_out", [h], {"a": eng.name(h), "team": team, "charity": charity},
+                      {"has_team": bool(team), "has_charity": bool(charity)})
+        # 4. pole (grid slot one in the race classification) and fastest lap
+        pole = next((idx for idx, r in rows.items() if r.get("grid") == 1), None)
+        if pole is not None:
+            team, charity = tc(pole)
+            self._say(t, "pole", [pole], {"a": eng.name(pole), "team": team, "charity": charity},
+                      {"human": eng.is_human(pole), "money": bool(money and eng.is_human(pole) and charity)})
+        fl = None
+        for idx, r in rows.items():
+            bl = r.get("best_lap_ms")
+            if bl and (fl is None or bl < rows[fl]["best_lap_ms"]):
+                fl = idx
+        if fl is not None:
+            team, charity = tc(fl)
+            self._say(t, "fastest_lap", [fl],
+                      {"a": eng.name(fl), "team": team, "charity": charity,
+                       "time": _laptime_words(rows[fl]["best_lap_ms"])},
+                      {"human": eng.is_human(fl), "money": bool(money and eng.is_human(fl) and charity)},
+                      numbers={"best_lap_ms": rows[fl]["best_lap_ms"]})
+        # 5. the Constructors' Cup: both cars' points, AI and human alike
+        teams = {}
+        for idx, r in rows.items():
+            ident = self._season_ident(idx)
+            if ident is None or not ident.team_name:
+                continue
+            pts = r.get("points")
+            if pts is None:
+                pts = F1_POINTS.get(r["position"], 0) if r.get("status") == 3 else 0
+            tm = teams.setdefault(ident.team_name, {
+                "spoken": ident.team_spoken or ident.team_name,
+                "charity": ident.charity_spoken or ident.charity_name,
+                "points": 0, "best": 99, "cars": []})
+            tm["points"] += int(pts or 0)
+            tm["best"] = min(tm["best"], r["position"])
+            tm["cars"].append(idx)
+        cons = sorted(teams.values(), key=lambda x: (-x["points"], x["best"]))
+        if len(cons) >= 3:
+            self._say(t, "constructors", [],
+                      {"a": cons[0]["spoken"], "b": cons[1]["spoken"], "c": cons[2]["spoken"],
+                       "pa": _num_word_99(cons[0]["points"]), "pb": _num_word_99(cons[1]["points"]),
+                       "pc": _num_word_99(cons[2]["points"]), "charity": cons[0]["charity"]},
+                      {"has_charity": bool(cons[0]["charity"]), "money": bool(money)},
+                      numbers={"points_a": cons[0]["points"], "points_b": cons[1]["points"],
+                               "points_c": cons[2]["points"]})
+        # 6. the hand-off to the screen
+        self._say(t, "handoff", [], {}, {"money": bool(money)})
 
     def _podium(self, t):
         """V8.18 (14 OCT): the podium, once, from the Final Classification
@@ -18570,10 +19670,20 @@ class BabyHooverV3:
                         pass
                 if dup:
                     g["duplicates_dropped"] += 1
-                    if g["duplicates_dropped"] in (1, 100, 1000, 10000):
-                        self._log("*** UDP: duplicate datagrams on the feed (%d so far): the game is "
-                                  "sending every packet more than once -- check UDP Broadcast Mode "
-                                  "and the IP in the game's telemetry settings ***" % g["duplicates_dropped"])
+                    # V9.21 (20 OCT): the game re-sends event packets a few
+                    # times by design (the lights, flags, penalties); those
+                    # repeats are caught here and are not a fault. The
+                    # warning fires only when repeats are a real share of the
+                    # feed (udp.dup_warn_frac of fed, after dup_warn_min).
+                    nd, nf = g["duplicates_dropped"], g["fed"]
+                    warn_frac = float(udp_cfg.get("dup_warn_frac", 0.02))
+                    warn_min = int(udp_cfg.get("dup_warn_min", 500))
+                    if nd >= warn_min and nf > 0 and (nd / float(nd + nf)) >= warn_frac \
+                            and nd in (warn_min, warn_min * 10, warn_min * 100):
+                        self._log("*** UDP: %d duplicate datagrams on the feed (%.1f%% of packets): "
+                                  "the game may be sending every packet more than once -- check UDP "
+                                  "Broadcast Mode and the IP in the game's telemetry settings ***"
+                                  % (nd, 100.0 * nd / float(nd + nf)))
                     last_t = t
                     continue
                 g["fed"] += 1
@@ -19009,7 +20119,9 @@ class BabyHooverV3:
                           "refocus_blocked": b.counter_refocus_blocked,
                           "holds": b.counter_dwell_holds,
                           "stories_told": b.counter_dwell_focus,
-                          "bridges": b.counter_dwell_bridges},
+                          "bridges": b.counter_dwell_bridges,
+                          "asides": getattr(b, "counter_asides", 0),           # V9.21
+                          "big_moments": getattr(b, "counter_big_moments", 0)},
                 "start_window_holds": sum(
                     1 for r in b.claim_records if r.get("outcome_reason") == "start_window"),
             }

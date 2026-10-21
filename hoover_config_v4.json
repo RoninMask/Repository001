@@ -366,11 +366,11 @@
     },
     "finish": {
       "winner_call_max_delay_s": 5.0,
-      "max_corrections_per_car": 2,
+      "max_corrections_per_car": 1,
       "correct_only_if": [
-        "podium",
-        "human"
-      ]
+        "podium"
+      ],
+      "_v9_21": "the results programme (SF-07) reads every human from the classification; a correction is now only for a podium place that moved after it was announced"
     },
     "claims": {
       "max_age_s": {
@@ -388,7 +388,7 @@
     },
     "pacing": {
       "min_gap_s": 1.2,
-      "max_consecutive": 4,
+      "max_consecutive": 5,
       "breath_s": 3.5,
       "max_continuous_speech_s": 12.0,
       "breath_after_run_s": 4.5,
@@ -405,7 +405,10 @@
         "WINNER",
         "RACE_END",
         "PENALTY"
-      ]
+      ],
+      "min_consecutive": 2,
+      "run_seed": 7,
+      "_v9_21": "run-away guard (20 OCT spec section 5): the run before a breath is drawn between 2 and 5"
     },
     "repetition": {
       "exact_repeat_window_s": 120.0,
@@ -450,10 +453,10 @@
       "away_max_s": 12.0,
       "away_margin": 15.0,
       "human_share_window_s": 300.0,
-      "hold_floor_normal_s": 8.0,
+      "hold_floor_normal_s": 12.0,
       "hold_floor_incident_s": 5.0,
-      "hold_floor_lull_s": 15.0,
-      "max_hold_s": 60.0,
+      "hold_floor_lull_s": 20.0,
+      "max_hold_s": 90.0,
       "lull_top_score_threshold": 45.0,
       "human_share_bands": [
         {
@@ -513,7 +516,10 @@
         },
         "collision_human": {
           "hold_s": 5.0,
-          "priority": 85
+          "priority": 85,
+          "requires_severe": true,
+          "severe_stopped_kph": 30.0,
+          "severe_window_s": 6.0
         },
         "lead_change": {
           "hold_s": 6.0,
@@ -534,8 +540,8 @@
           "hold_max_s": 20.0
         },
         "booth_focus": {
-          "priority": 76,
-          "hold_s": 15.0
+          "priority": 80,
+          "hold_s": 30.0
         },
         "human_finish": {
           "priority": 90,
@@ -576,13 +582,19 @@
           "p2_priority": 94,
           "p3_priority": 93,
           "_about": "V9.19 (20 OCT): P1, P2 and P3 each shown onto the line (lead_s before, after_s after; a human longer). Within merge_s of the car ahead it is covered by that shot. enabled:false = winner shot only, as before."
+        },
+        "pileup": {
+          "cars": 3,
+          "hold_s": 12.0,
+          "priority": 88
         }
       },
       "share_hysteresis_s": 20.0,
       "share_band_inner_margin": 0.03,
       "lead_battle_merge_s": 8.0,
       "_v8_1": "09 OCT live run: 19 cuts in 116 s, every contact in a 15-human lobby pulled the camera for 5 s. Floors raised: normal 4 -> 6, incident 2.5 -> 5, lull 7 -> 10.",
-      "_v8_22": "14 OCT (Dustin: the camera jumps too much): normal floor 6 -> 8 s, lull floor 10 -> 15 s, max hold 40 -> 60 s, booth_focus minimum hold 8 -> 15 s (its maximum stays the booth's dwell). Incident floor unchanged at 5 s."
+      "_v8_22": "14 OCT (Dustin: the camera jumps too much): normal floor 6 -> 8 s, lull floor 10 -> 15 s, max hold 40 -> 60 s, booth_focus minimum hold 8 -> 15 s (its maximum stays the booth's dwell). Incident floor unchanged at 5 s.",
+      "_v9_21": "20 OCT (Dustin: 20-60 s on good content): normal floor 8 -> 12 s, lull floor 15 -> 20 s, max hold 60 -> 90 s so the battle lock can run; booth_focus 15 -> 30 s at priority 80 (only an Interrupt takes the camera off it); contact takes the camera only when severe (a car stopped or out) or a pile-up (3+ cars, 12 s)"
     },
     "naming": {
       "fallback_order": [
@@ -643,6 +655,17 @@
           "similarity_boost": 0.75,
           "speed": 1.0
         }
+      },
+      "big_moment": {
+        "enabled": true,
+        "max_per_race": 2,
+        "voice_settings": {
+          "stability": 0.3,
+          "similarity_boost": 0.8,
+          "style": 0.45,
+          "speed": 1.03
+        },
+        "_about": "V9.21 (20 OCT, Dustin: big moments need more passion): the pile-up call, a human taking the lead or a podium place, the big-battle reaction are synthesised with these settings instead of realtime.voice_settings, at most max_per_race a race."
       }
     },
     "writer": {
@@ -773,14 +796,34 @@
     "dwell": {
       "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
       "enabled": true,
-      "dwell_s": 40.0,
-      "idle_release_s": 15.0,
-      "must_after_s": 10.0,
+      "dwell_s": 45.0,
+      "idle_release_s": 20.0,
+      "must_after_s": 12.0,
       "min_for_bridge_s": 6.0,
       "bridge_window_s": 20.0,
       "human_bonus": 5.0,
       "refocus_cooldown_s": 30.0,
-      "_v8_22": "14 OCT: dwell 25 -> 40 s and idle release 10 -> 15 s for a longer story line; refocus_cooldown_s is the loop guard: a story whose dwell RAN its time cannot open a new dwell (and earns no on-screen bonus) for this long, so booth and camera cannot re-lock on it the moment the next beat lands. 0 disables the guard."
+      "_v8_22": "14 OCT: dwell 25 -> 40 s and idle release 10 -> 15 s for a longer story line; refocus_cooldown_s is the loop guard: a story whose dwell RAN its time cannot open a new dwell (and earns no on-screen bonus) for this long, so booth and camera cannot re-lock on it the moment the next beat lands. 0 disables the guard.",
+      "on_screen_bonus": 12.0,
+      "ai_only_frac": 0.5,
+      "aside_every_s": 30.0,
+      "battle_lock": {
+        "enabled": true,
+        "rows": [
+          "BAT-01",
+          "BAT-02",
+          "BAT-03",
+          "BAT-04",
+          "BAT-05",
+          "LEAD-02"
+        ],
+        "lock_max_s": 90.0,
+        "ai_only_frac": 0.5,
+        "renew_s": 25.0,
+        "release_quiet_s": 20.0,
+        "release_gap_s": 2.0
+      },
+      "_v9_21": "20 OCT: dwell 40 -> 45 s (half for a story with no human in it), idle release 15 -> 20, must-calls break in after 12 s (a story line lives 16 s, so 20 s let every pass elsewhere expire on the replay) and then as an aside (one per 30 s, camera stays), on-screen bonus 6 -> 12; the battle lock renews the focus by 25 s on every phase change while the pair is inside 2 s, up to 90 s (45 for AI only), and stops renewing after 20 s without a phase or on a stalemate"
     },
     "freshness": {
       "_about": "V8.6: a story line carrying a gap older than after_s is checked against the live gap at air time and dropped (stale_gap) if it has moved by more than the tolerance",
@@ -853,7 +896,10 @@
     "udp": {
       "_about": "V9.11 (19 OCT): one telemetry source. auto = lock to the loopback sender (the spectator game on this PC) the moment it speaks, else the first sender after lock_grace_s; any = feed every packet (the behaviour before 19 OCT); or an IP address to lock to. Other senders are counted in the manifest and ignored. On 09 OCT two local drivers' games were broadcasting onto the LAN and 28% of the packets Hoover modelled were theirs.",
       "source": "auto",
-      "lock_grace_s": 2.0
+      "lock_grace_s": 2.0,
+      "dup_warn_frac": 0.02,
+      "dup_warn_min": 500,
+      "_v9_21": "the game re-sends event packets by design; the duplicate warning speaks only past 2% of the feed"
     },
     "humor": {
       "_about": "V9.15 (19 OCT): lines in the words file or lore cards marked register: humor. Caps per session, spacing between two, never in the start sequence, the final lap or the finish, never within incident_gap_s of a human incident. Every humor line is also marked once (said once a night).",

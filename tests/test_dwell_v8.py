@@ -80,7 +80,7 @@ def _booth():
     b.stories = _Stories()
     b.writer = _Writer()
     # a scheduler test: every story kind has a line, whatever its context
-    b.words.select = lambda kind, ctx, fv, past, avoid_templates=None: ("LEAD", "Line.", "T")
+    b.words.select = lambda kind, ctx, fv, past, avoid_templates=None, probe=False: ("LEAD", "Line.", "T")
     return m, b
 
 
