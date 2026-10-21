@@ -9391,9 +9391,18 @@ class V3Booth:
         # a new session: kind changed, or the clock jumped back up
         if ts is None or ts["kind"] != kind or (ts["last_time_left"] is not None
                                                  and tl > ts["last_time_left"] + 120):
+            # V9.23 (21 OCT): once this session has been classified, a clock
+            # that jumps back up with the same session kind is the game's
+            # between-sessions countdown, not a new qualifying ("Qualifying
+            # is open, about three minutes" after the grid was set)
+            if ts is not None and ts["kind"] == kind and self.model.state in ("finishing", "classified", "closed"):
+                ts["last_time_left"] = tl
+                return False
             self._ts_reset(kind, t)
             ts = self._ts
         ts["last_time_left"] = tl
+        if self.model.state in ("finishing", "classified", "closed") and ts.get("ended"):
+            return False
         ts["time_left_max"] = max(ts["time_left_max"], tl)
         quali = kind == "QUALI"
         humans = [c.idx for c in w.cars if c.seen and c.is_human and c.name_resolved
@@ -9421,6 +9430,14 @@ class V3Booth:
             i = c.idx
             ll = int(c.last_lap_ms or 0)
             row = lap_rows[i] if (lap_rows is not None and i < len(lap_rows)) else None
+            # V9.23 (21 OCT: "Albon, a zero fifty-seven point two"): a lap
+            # time under the floor, or far under the session's quickest, is a
+            # partial lap (a session restart, a garage exit), not a time
+            qq = ts["quickest"][1] if ts["quickest"] else None
+            if ll > 0 and (ll < int(cfg.get("min_lap_ms", 65000))
+                           or (qq and ll < float(cfg.get("plausible_frac", 0.8)) * qq)):
+                ts["last_seen_lap"][i] = ll
+                continue
             if ll > 0 and ll != ts["last_seen_lap"].get(i):
                 ts["last_seen_lap"][i] = ll
                 ts["runs"][i] = ts["runs"].get(i, 0) + 1
@@ -9460,6 +9477,9 @@ class V3Booth:
             d = (ms - qms) / 1000.0
             return _gap_words(d) if d > 0.05 else None
 
+        # V9.23: a session that is over says its summary / grid and nothing else
+        if self.model.state in ("finishing", "classified", "closed") and ts["time_left_max"] > 60:
+            return self._ts_end(t, ts, kind, quali, humans, hset, qidx, qms, gap_to_quickest)
         # -- 3. a deleted lap (quali): the clock is the stake
         if invalid is not None:
             return self._ts_air("TS_INVALID", {"a": self._ts_name(invalid),
@@ -9531,35 +9551,11 @@ class V3Booth:
                                     speaker="ANALYST" if mark in (10, 2) else "LEAD")
 
         # -- 8. session end: the clock at zero (practice: summary; quali: hold pole for the classification)
-        if tl <= 0 and ts["time_left_max"] > 60 and not ts["ended"]:
-            fc = self.model.final_classification
-            if quali and fc is None:
-                # pole held: nothing until the classification (5, "Pole held")
-                if not ts.get("hold_said"):
-                    ts["hold_said"] = True
-                    return self._ts_air("TS_HOLD", {"a": self._ts_name(qidx) if qidx is not None else None},
-                                        {"has_a": qidx is not None}, t, speaker="ANALYST")
-                return False
-            ts["ended"] = True
-            hum = sorted([(ts["best"][h], h) for h in humans if h in ts["best"]])
-            if quali:
-                rows = fc.get("rows") or []
-                pole = next((r["idx"] for r in rows if r.get("position") == 1), qidx)
-                slots = []
-                for r in sorted(rows, key=lambda r: r.get("position") or 99):
-                    if r.get("position") and r["idx"] in hset:
-                        slots.append("%s %s" % (self._ts_name(r["idx"]), _ordinal_word(r["position"])))
-                ctx = {"a": self._ts_name(pole, full=True) if pole is not None else None,
-                       "time": self._fmt_laptime_spoken(ts["best"].get(pole)) if pole in ts["best"] else None,
-                       "list": _join_words(slots), "count": _num_word(len(slots))}
-                return self._ts_air("TS_GRID", ctx, {"has_list": bool(slots), "human_pole": pole in hset}, t)
-            ctx = {"a": self._ts_name(qidx, full=True) if qidx is not None else None,
-                   "time": self._fmt_laptime_spoken(qms) if qms else None,
-                   "b": self._ts_name(hum[0][1], full=True) if hum else None,
-                   "gap": gap_to_quickest(hum[0][0]) if hum else None,
-                   "count": _num_word(len(hum)) if hum else None}
-            return self._ts_air("TS_END", ctx, {"has_board": qidx is not None, "has_human": bool(hum),
-                                                "human_quickest": bool(hum and hum[0][1] == qidx)}, t)
+        #       V9.23: or the session classified early (the host ended it): the
+        #       summary / the grid goes out now, and nothing else after it
+        if (tl <= 0 or self.model.state in ("finishing", "classified", "closed")) \
+                and ts["time_left_max"] > 60 and not ts["ended"]:
+            return self._ts_end(t, ts, kind, quali, humans, hset, qidx, qms, gap_to_quickest)
         if ts["ended"]:
             return False
 
@@ -9598,6 +9594,39 @@ class V3Booth:
                                                                 "stale": bool(ctx["ago"])}, t,
                                             speaker="ANALYST", subjects=[h])
         return False
+
+    def _ts_end(self, t, ts, kind, quali, humans, hset, qidx, qms, gap_to_quickest):
+        """V9.23: the session summary (practice) or the grid (quali), once."""
+        if ts["ended"]:
+            return False
+        fc = self.model.final_classification
+        if quali and fc is None:
+            # pole held: nothing until the classification (5, "Pole held")
+            if not ts.get("hold_said"):
+                ts["hold_said"] = True
+                return self._ts_air("TS_HOLD", {"a": self._ts_name(qidx) if qidx is not None else None},
+                                    {"has_a": qidx is not None}, t, speaker="ANALYST")
+            return False
+        ts["ended"] = True
+        hum = sorted([(ts["best"][h], h) for h in humans if h in ts["best"]])
+        if quali:
+            rows = fc.get("rows") or []
+            pole = next((r["idx"] for r in rows if r.get("position") == 1), qidx)
+            slots = []
+            for r in sorted(rows, key=lambda r: r.get("position") or 99):
+                if r.get("position") and r["idx"] in hset:
+                    slots.append("%s %s" % (self._ts_name(r["idx"]), _ordinal_word(r["position"])))
+            ctx = {"a": self._ts_name(pole, full=True) if pole is not None else None,
+                   "time": self._fmt_laptime_spoken(ts["best"].get(pole)) if pole in ts["best"] else None,
+                   "list": _join_words(slots), "count": _num_word(len(slots))}
+            return self._ts_air("TS_GRID", ctx, {"has_list": bool(slots), "human_pole": pole in hset}, t)
+        ctx = {"a": self._ts_name(qidx, full=True) if qidx is not None else None,
+               "time": self._fmt_laptime_spoken(qms) if qms else None,
+               "b": self._ts_name(hum[0][1], full=True) if hum else None,
+               "gap": gap_to_quickest(hum[0][0]) if hum else None,
+               "count": _num_word(len(hum)) if hum else None}
+        return self._ts_air("TS_END", ctx, {"has_board": qidx is not None, "has_human": bool(hum),
+                                            "human_quickest": bool(hum and hum[0][1] == qidx)}, t)
 
     @staticmethod
     def _fmt_laptime_spoken(ms):

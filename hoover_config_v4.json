@@ -923,7 +923,10 @@
       "board_every_s": 240.0,
       "checkin_every_s": 75.0,
       "board_every_quali_s": 180.0,
-      "flyer_every_s": 25.0
+      "flyer_every_s": 25.0,
+      "min_lap_ms": 65000,
+      "plausible_frac": 0.8,
+      "_v9_23": "min_lap_ms / plausible_frac: a lap time under the floor or under this fraction of the session's quickest is a partial lap and is not a time (21 OCT: 'Albon, a zero fifty-seven point two'). A session classified early says its summary / grid at once and nothing after it; a clock that restarts after the classification is not a new session."
     },
     "penalty_reason_from_infringement": true,
     "_about_penalty_reason": "V8.20 (14 OCT): every penalty line carries the game's own reason (the PENA event's infringement type, spoken via INFRINGEMENT_WORDS) when no contact story names a cause. Absent from the V3 config so the identity gate holds.",
