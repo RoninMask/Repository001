@@ -97,7 +97,7 @@ DEFAULT_SETTINGS = {
     },
     "ticker": {
         "height": 44, "speed_px_s": 90, "separator": "  ◆  ",
-        "font_scale": 2.0,               # V9.23: ticker text twice the size (set height 88 and the OBS source 1920x88)
+        "font_scale": 2.6,               # V9.24: ticker text 2.6x (39 px in an 88 px bar); Overlays page -> Ticker -> Text size
         "mode": "cycle",                 # off | slot1 | slot2 | slot3 | slot4 | cycle
         "cycle_s": 45,
         "slots": {
@@ -1232,7 +1232,7 @@ TICKER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover
     const k=keys[cycleIdx%%keys.length]; return {k,...slots[k]};
   }
   function render(d){
-    const T=d.settings.ticker; document.documentElement.style.setProperty("--h",T.height+"px"); document.documentElement.style.setProperty("--fs",String(T.font_scale||2)); speed=T.speed_px_s||90;
+    const T=d.settings.ticker; document.documentElement.style.setProperty("--h",T.height+"px"); document.documentElement.style.setProperty("--fs",String(T.font_scale||2.6)); speed=T.speed_px_s||90;
     const s=d.settings.surfaces.ticker?pick(d):null;
     if(!s){bar.classList.remove("on");curKey=null;return;} bar.classList.add("on");
     const key=s.k+"|"+s.text;
