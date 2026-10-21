@@ -1317,6 +1317,78 @@ FEATURE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
 })();
 </script></body></html>"""
 
+OUTRO_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover outro</title>
+%(font)s<style>%(common)s
+  svg#o{position:absolute;inset:0;width:100vw;height:100vh}
+</style></head><body>
+<!-- V9.22 (21 OCT 26): the outro. Static: the FORMULA AWESOME frame on top and the V1 Decision Speed
+     Broadcasting band low and centred, just above the ticker. No words beyond the marks, nothing moves. -->
+<svg id="o" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+  <defs>
+    <pattern id="slatH" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="8" height="5" fill="#000"/></pattern>
+    <pattern id="slatV" patternUnits="userSpaceOnUse" width="8" height="8"><rect x="0" y="0" width="5" height="8" fill="#000"/></pattern>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".38" stop-color="#d9dde2"/><stop offset=".52" stop-color="#8d939b"/>
+      <stop offset=".7" stop-color="#e6e9ec"/><stop offset="1" stop-color="#9aa0a7"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc45a"/><stop offset=".55" stop-color="#ff7a12"/><stop offset="1" stop-color="#e05400"/>
+    </linearGradient>
+    <linearGradient id="bandfill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b0c0e" stop-opacity="0"/><stop offset=".14" stop-color="#0b0c0e" stop-opacity=".82"/>
+      <stop offset=".86" stop-color="#0b0c0e" stop-opacity=".82"/><stop offset="1" stop-color="#0b0c0e" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff7a12" stop-opacity="0"/><stop offset=".12" stop-color="#ff7a12"/><stop offset="1" stop-color="#ff7a12"/>
+    </linearGradient>
+    <filter id="glowO" x="-20%%" y="-50%%" width="140%%" height="200%%"><feGaussianBlur stdDeviation="4" result="b"/>
+      <feFlood flood-color="#ff7a12" flood-opacity=".7"/><feComposite in2="b" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="lift" x="-10%%" y="-30%%" width="120%%" height="160%%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity=".9"/></filter>
+  </defs>
+
+  <!-- the FORMULA AWESOME frame, as on the countdown -->
+  <text transform="translate(103,1040) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="880" lengthAdjust="spacing" fill="url(#slatV)" stroke="#000" stroke-width="1.5">FORMUL</text>
+  <text x="26" y="98" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="100"
+        textLength="1014" lengthAdjust="spacing" fill="url(#slatH)" stroke="#000" stroke-width="1.5">AWESOME</text>
+  <text x="1880" y="80" text-anchor="end" font-family="Poppins,Arial,sans-serif" font-weight="700" font-size="42" letter-spacing="9"
+        fill="#1DE9D6" style="filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 8px rgba(29,233,214,.55))">A CHARITY RACE</text>
+
+  <!-- the V1 band: long, slim, centred, just above the 44 px ticker -->
+  <rect x="260" y="912" width="1400" height="112" fill="url(#bandfill)"/>
+  <rect x="260" y="912" width="1400" height="1.5" fill="url(#bandfill)" opacity=".9"/>
+  <g id="mark" filter="url(#lift)">
+    <g transform="skewX(-14)">
+      <text id="mV" x="0" y="1000" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="104"
+            fill="url(#silver)" stroke="#3a3d42" stroke-width="1.2">V</text>
+      <text id="m1" x="0" y="1000" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="104"
+            fill="url(#orange)" filter="url(#glowO)">1</text>
+      <text id="mT" x="0" y="988" font-family="'Titillium Web',Poppins,Arial,sans-serif" font-weight="700" font-size="44"
+            letter-spacing="4" fill="url(#silver)" stroke="#3a3d42" stroke-width=".6">DECISION SPEED BROADCASTING</text>
+    </g>
+    <rect id="mR" x="0" y="1006" width="10" height="5" fill="url(#rule)"/>
+    <g id="mS" fill="#ff7a12" filter="url(#glowO)"></g>
+  </g>
+</svg>
+<script>
+// lay the mark out once the fonts are in, then centre it on the screen
+(function(){
+  function lay(){
+    const V=document.getElementById("mV"), O=document.getElementById("m1"), T=document.getElementById("mT");
+    const sk=Math.tan(14*Math.PI/180);                 // skewX shifts x by y*tan
+    const vw=V.getComputedTextLength(), ow=O.getComputedTextLength(), tw=T.getComputedTextLength();
+    const gap1=-14, gap2=26, total=vw+gap1+ow+gap2+tw;
+    const x0=960-total/2 + 1000*sk;                     // undo the skew's sideways shift at the baseline
+    V.setAttribute("x",x0); O.setAttribute("x",x0+vw+gap1); T.setAttribute("x",x0+vw+gap1+ow+gap2);
+    const left=960-total/2-30, right=960+total/2+10;
+    const R=document.getElementById("mR"); R.setAttribute("x",left); R.setAttribute("width",right-left-70);
+    let sl=""; for(let i=0;i<3;i++){ const x=right-58+i*20; sl+=`<polygon points="${x},1011 ${x+6},1004 ${x+16},1004 ${x+10},1011"/>`; }
+    document.getElementById("mS").innerHTML=sl;
+  }
+  (document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(lay); setTimeout(lay,1500);
+})();
+</script></body></html>"""
+
 COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover countdown</title>
 %(font)s<style>%(common)s
   :root{--led:#ff2a1a;--accent:#1DE9D6}
@@ -1596,6 +1668,7 @@ code{background:#2a2f3a;padding:3px 7px;border-radius:4px} a{color:#fff} .ok{col
 <tr><td>Ticker</td><td><code>http://localhost:%(port)d/ticker</code></td><td>1920 × 44</td><td>bottom edge, full width</td></tr>
 <tr><td>Sponsor card</td><td><code>http://localhost:%(port)d/sponsor</code></td><td>480 × 300</td><td>bottom right</td></tr>
 <tr><td>Featured ad</td><td><code>http://localhost:%(port)d/feature</code></td><td>1920 × 1080</td><td>full canvas, top of the stack</td></tr>
+<tr><td>Outro</td><td><code>http://localhost:%(port)d/outro</code></td><td>1920 × 1080</td><td>static: FORMULA AWESOME frame + the V1 Decision Speed Broadcasting band above the ticker; show it with the OBS scene</td></tr>
 <tr><td>Pre-show countdown</td><td><code>http://localhost:%(port)d/countdown</code></td><td>1920 × 1080</td><td>pre-show and between sessions: shows whenever Hoover's feed is idle, each clock leaves after its own start, alternates with a sponsor card every 10 s</td></tr>
 <tr><td>Final results</td><td><code>http://localhost:%(port)d/results</code></td><td>1920 × 1080</td><td>full canvas; fired from the dashboard after the podium</td></tr>
 <tr><td>Team radio</td><td><code>http://localhost:%(port)d/radio</code></td><td>420 × 90</td><td>top right</td></tr>
@@ -1678,6 +1751,8 @@ def make_handler(overlay, settings_path):
                 return self._send(200, page(FEATURE_PAGE), "text/html; charset=utf-8")
             if path == "/radio":
                 return self._send(200, page(RADIO_PAGE), "text/html; charset=utf-8")
+            if path == "/outro":
+                return self._send(200, page(OUTRO_PAGE), "text/html; charset=utf-8")
             if path == "/countdown":
                 return self._send(200, page(COUNTDOWN_PAGE), "text/html; charset=utf-8")
             if path == "/results":
