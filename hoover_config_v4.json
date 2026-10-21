@@ -514,7 +514,13 @@
           "hold_s": 7.0,
           "priority": 85
         },
-        "collision_human": {
+        "restart": {
+        "_about": "V9.23: the camera goes to the front when the safety car peels off and again at the green flag",
+        "priority": 94,
+        "hold_s": 14.0,
+        "hold_max_s": 24.0
+      },
+      "collision_human": {
           "hold_s": 5.0,
           "priority": 85,
           "requires_severe": true,
@@ -836,6 +842,16 @@
       "_about": "V8.7 (league night 09 OCT): a start-lights event inside stlg_after_lgot_s of lights out is the same start (the game repeats it; it put the booth back into the silent start sequence for whole races); a lights-out event inside lgot_repeat_s is a repeat, not a restart",
       "stlg_after_lgot_s": 30.0,
       "lgot_repeat_s": 30.0
+    },
+    "safety_car": {
+      "_about": "V9.23 (21 OCT): the safety car and VSC sequence. The deploy call cuts in (v3.preempt). SC_RETURNING on 'returning' (in this lap), SC_RETURNED on 'returned' (peels off; the camera goes to the front for protected.restart), RESTART kind sc_green on the 'resume race' event inside restart_window_s -- the green flag, called like a start with the leader, P2 and the laps left. quiet_kinds are not said behind the safety car (gap and pace talk about a bunched field). A race that finishes behind the safety car is a finish.",
+      "returning_call": true,
+      "returned_call": true,
+      "green_call": true,
+      "restart_window_s": 60.0,
+      "green_fallback_s": 25.0,
+      "finish_behind_sc": true,
+      "quiet_kinds": ["S_LULL_REVISIT", "S_PREDICT", "S_RELATE", "S_LULL_STATS", "LULL_GAP", "LULL_FASTEST", "S_BAT_06", "S_LEAD_03"]
     },
     "formation": {
       "_about": "V9.23 (21 OCT race test): the game sends LIGHTS OUT when the formation lap is released, with no start lights before it; it was called as the start. A race now starts only on start lights followed by lights out. A lights-out with no lights before it (lgot_without_lights), the formation safety car (SCAR type 3) or session safety-car status 3 opens the formation lap: the lead names it (FORMATION), the analyst explains it (FORMATION_WHY), our drivers' grid is read grid_after_s in (FORMATION_GRID), the field forming up is called inside lineup_m of the line (FORMATION_LINEUP). The lap offset makes the first racing lap lap one. A formation lap that never ends in start lights is taken as under way after max_s with the field at speed. enabled: false restores V9.21 (lights-out always starts the race).",

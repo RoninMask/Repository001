@@ -72,19 +72,96 @@
       "variants": [
         {
           "speaker": "LEAD",
+          "when": {
+            "kind": "restart"
+          },
           "present": "Racing resumes."
         },
         {
           "speaker": "LEAD",
+          "when": {
+            "kind": "restart"
+          },
           "present": "Green flag, and we go again."
         },
         {
           "speaker": "LEAD",
+          "when": {
+            "kind": "restart"
+          },
           "present": "And we are going again."
         },
         {
           "speaker": "ANALYST",
+          "when": {
+            "kind": "restart"
+          },
           "present": "Restart. Nobody wants to be the one who gets this wrong."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": false,
+            "has_leader": true,
+            "has_second": true
+          },
+          "present": "Green flag! Racing is back on, {a} leads them across the line with {b} right on his gearbox!"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": false,
+            "has_leader": true,
+            "has_second": true,
+            "has_laps": true
+          },
+          "present": "Green flag, and we go racing again! {a} from {b}, the whole field nose to tail, and {laps} laps to settle it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": false,
+            "has_leader": true
+          },
+          "present": "And they're racing! Green flag, {a} gets the jump, and the pack behind him is a brawl into turn one."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": false,
+            "has_leader": true,
+            "one_lap": true
+          },
+          "present": "Green flag, and it is a one-lap dash to the finish! {a} leads, and everything is on the line."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": false
+          },
+          "present": "Green flag! Racing resumes, the field bunched up like a second race start."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": true,
+            "has_leader": true
+          },
+          "present": "Green flag, racing resumes. {a} still leads, and the gaps are as they were."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "kind": "sc_green",
+            "vsc": true
+          },
+          "present": "Green flag. Racing speed again, and the gaps carry over."
         }
       ]
     },
@@ -92,19 +169,27 @@
       "variants": [
         {
           "speaker": "LEAD",
-          "present": "The safety car is deployed."
+          "present": "Safety car! The safety car is deployed, and the whole field will bunch up behind it."
         },
         {
           "speaker": "LEAD",
-          "present": "Safety car, and the field bunches up."
+          "present": "Safety car. No overtaking now, the field closes up into one line, and every gap we have been talking about is gone."
         },
         {
           "speaker": "LEAD",
-          "present": "Safety car. The field bunches up, and every gap we have been talking about is gone."
+          "present": "The safety car is out. Racing is paused, the pack forms a procession behind it, and the race restarts when it comes back in."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Safety car deployed. Everybody slows, everybody closes up, and the leaders lose every second they had built."
         },
         {
           "speaker": "ANALYST",
-          "present": "Safety car out, and that is a free pit stop for anyone who wants one."
+          "present": "Safety car out, and that is a cheap pit stop for anyone who wants one. Watch the pit lane."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Safety car, so the field queues up behind it at reduced speed. The leader's advantage is wiped out, and the restart will be a race start all over again."
         }
       ]
     },
@@ -112,11 +197,15 @@
       "variants": [
         {
           "speaker": "LEAD",
-          "present": "Virtual safety car, the field is neutralised."
+          "present": "Virtual safety car. Everyone slows to a set pace, the gaps are frozen, and nobody may overtake."
         },
         {
           "speaker": "LEAD",
-          "present": "It's a virtual safety car."
+          "present": "It's a virtual safety car. No safety car on track, but every driver has to slow down and hold his gap."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Virtual safety car. The field does not bunch up, the gaps stay as they are, but a pit stop now costs less than it would at racing speed."
         }
       ]
     },
@@ -6153,6 +6242,96 @@
         {
           "speaker": "LEAD",
           "present": "Here comes the field back to the grid. Stand by for the lights."
+        }
+      ]
+    },
+    "SC_RETURNING": {
+      "_about": "V9.23: the safety car is coming in this lap; the restart is on the way.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false
+          },
+          "present": "Safety car in this lap! The restart is on the way."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false
+          },
+          "present": "The safety car is coming in at the end of this lap. Racing is on the way back."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false
+          },
+          "present": "Lights off on the safety car. It comes in this lap, and we go racing again."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": true
+          },
+          "present": "Virtual safety car ending. Racing is about to resume."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": true
+          },
+          "present": "The virtual safety car period is ending. Stand by for racing."
+        }
+      ]
+    },
+    "SC_RETURNED": {
+      "_about": "V9.23: the safety car peels into the pits; the leader controls the pack to the line.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false,
+            "has_leader": true
+          },
+          "present": "The safety car peels off into the pits, and {a} controls the pack to the line."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false,
+            "has_leader": true
+          },
+          "present": "Safety car in, and it is {a} who dictates the pace now. The whole field is bunched up behind him."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false,
+            "has_leader": true
+          },
+          "present": "There goes the safety car, and {a} leads them round. Watch for the green."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": false
+          },
+          "present": "The safety car peels off. The leader controls the pack, and the green flag is seconds away."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": true
+          },
+          "present": "Virtual safety car over. Racing speed again."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "vsc": true
+          },
+          "present": "And the virtual safety car ends. Back up to speed, gaps as they were."
         }
       ]
     }

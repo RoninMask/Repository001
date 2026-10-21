@@ -12,6 +12,10 @@ modes:  formation      (default) LGOT, formation lap, STLG x5, LGOT, 5 laps, fin
         sc3            formation lap seen only through session safety-car status 3
         nolights       formation lap, then LGOT with NO start lights (lights missed)
         timeout        formation lap that never ends in lights (fallback after max_s)
+        sc             plain start, safety car on lap 2 (deployed, returning, returned,
+                       resume race), restart, finish
+        vsc            plain start, VSC on lap 2, ends, finish
+        sc_finish      plain start, safety car on the last lap, the race finishes behind it
 Deterministic.
 """
 import json, os, struct, sys
@@ -77,7 +81,9 @@ def lapdata_body(order, lap, lap_dist, grid, finished):
 def build(path, mode="formation"):
     order = list(range(20))
     grid = {idx: order.index(idx) + 1 for idx in order}
-    formation = mode != "plain"
+    formation = mode not in ("plain", "sc", "vsc", "sc_finish")
+    sc_mode = mode in ("sc", "vsc", "sc_finish")
+    sc_type = 2 if mode == "vsc" else 1
     FORM_TICKS = 200 if formation else 0          # 100 s formation lap
     with open(path, "wb") as fh:
         header = {"writer": "make_formation_race", "format_version": 1,
@@ -120,7 +126,26 @@ def build(path, mode="formation"):
                 if rl > LAPS:
                     lap = LAPS + (1 if formation else 0) + 1
                     ld = 50.0
+                    if not finished:
+                        rec(t, PID_EVENT, event("CHQF", b"\x00" * 12))
                     finished = set(order)
+            # the safety car script (mode sc / vsc / sc_finish)
+            if sc_mode and tick >= go:
+                rt = tick - go
+                if mode == "sc_finish":
+                    dep, ret1, ret2, res = (LAPS - 1) * TPL + 10, 10 ** 9, 10 ** 9, 10 ** 9
+                else:
+                    dep, ret1, ret2, res = TPL + 10, TPL * 3 + 10, TPL * 3 + 50, TPL * 3 + 66
+                if dep <= rt < ret2:
+                    safety = sc_type
+                if rt == dep:
+                    rec(t, PID_EVENT, event("SCAR", bytes([sc_type, 0]) + b"\x00" * 10))
+                if rt == ret1:
+                    rec(t, PID_EVENT, event("SCAR", bytes([sc_type, 1]) + b"\x00" * 10))
+                if rt == ret2:
+                    rec(t, PID_EVENT, event("SCAR", bytes([sc_type, 2]) + b"\x00" * 10))
+                if rt == res:
+                    rec(t, PID_EVENT, event("SCAR", bytes([0, 3]) + b"\x00" * 10))
             # events
             if formation and tick == form_start and mode != "sc3":
                 rec(t, PID_EVENT, event("LGOT", b"\x00" * 12))

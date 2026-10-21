@@ -6036,6 +6036,7 @@ class RaceModel:
         self._fc_ignored_logged = False
         self.humans_result_done = set()
         self.chqf_seen = False
+        self.rcwn_seen = False
         self.result_aired_pos = {}    # idx -> position aired on the road
         # A2-1: at most one correction per (car, position); capped per car.
         fin = v3.get("finish", {})
@@ -6131,6 +6132,7 @@ class RaceModel:
         self._fc_ignored_logged = False
         self.humans_result_done = set()
         self.chqf_seen = False
+        self.rcwn_seen = False
         self.result_aired_pos = {}
         self._corrected_pairs = set()
         self.new_races = getattr(self, "new_races", []) + [round(t, 6)]
@@ -6171,6 +6173,7 @@ class RaceModel:
         self.result_aired_pos = {}
         self.humans_result_done = set()
         self.chqf_seen = False
+        self.rcwn_seen = False
         self.log(">>> RESTART RESET: race state cleared for all cars "
                  "(%d retirement%s void)" % (n_ret, "" if n_ret == 1 else "s"))
 
@@ -6266,6 +6269,15 @@ class RaceModel:
         if s in ("safety_car", "vsc"):
             # context (filler) is legitimate under neutralisation; racing
             # action is not (Part E lull runs in green/safety_car/vsc).
+            # V9.23 (21 OCT: "locked in a fight", "edging away, five tenths"
+            # behind the safety car): gap and pace talk is not context here
+            quiet = (self.v3.get("safety_car", {}) or {}).get("quiet_kinds") or ()
+            if kind in quiet:
+                return False
+            # between the peel-off and the green flag only the state calls
+            # and a retirement: the restart is seconds away
+            if getattr(self, "_sc_restart_pending", None) is not None:
+                return content_class == CLASS_STATE or (content_class == CLASS_LIFECYCLE and retire)
             return content_class in (CLASS_LIFECYCLE, CLASS_STATE, CLASS_FILLER)
         if s in ("red_flag", "suspended", "restart_grid"):
             if content_class == CLASS_STATE:
@@ -6379,6 +6391,8 @@ class RaceModel:
             self._retire_signal(t, info.get("car"), "RTMT")
         elif code == "SPTP":
             self._on_sptp(t, info)
+        elif code == "RCWN":
+            self.rcwn_seen = True     # V9.23: corroborates a finish behind the safety car
         elif code == "CHQF":
             self.chqf_seen = True     # corroboration; also gates a finish when
             #                           the total-lap count is unknown (A2)
@@ -6547,22 +6561,84 @@ class RaceModel:
             if self.state == "pre_start":
                 self._enter_formation(t, "SCAR type 3")
             return
+        sccfg = self.v3.get("safety_car", {}) or {}
         if sc_type == 0 and event_type == 3:
-            # "resume race" with no safety car: recorded, never voiced.
+            # "resume race" with no safety car: recorded, never voiced --
+            # except (V9.23) within restart_window_s of a safety car or VSC
+            # period ending, when it is the green flag: the restart call.
             self.log("SCAR type 0 event 3 recorded (not voiced) at %.3f" % t)
             if self.state in ("safety_car", "vsc"):
                 self._set_state(t, "green", "SCAR resume")
+            pend = getattr(self, "_sc_restart_pending", None)
+            if pend is not None and (t - pend["t"]) <= float(sccfg.get("restart_window_s", 60.0)) \
+                    and sccfg.get("green_call", True):
+                self._sc_restart_pending = None
+                self._sc_green(t, pend, prov)
             return
         if event_type == 0 and sc_type in (1, 2):
             new = "safety_car" if sc_type == 1 else "vsc"
             self._set_state(t, new, "SCAR type %s" % sc_type)
             kind = "SAFETY_CAR" if sc_type == 1 else "VSC"
+            self._sc_restart_pending = None
+            self._sc_returning_said = False
             self.emit(Claim(kind, CLASS_STATE, [], [], t,
                             facts={"sc_type": sc_type}, provenance=prov,
                             priority=88.0, hard=True))
+        elif event_type == 1 and sc_type in (1, 2):
+            # V9.23: the safety car is coming in this lap -- the restart is
+            # on the way (VSC: ending)
+            if self.state in ("safety_car", "vsc") and sccfg.get("returning_call", True) \
+                    and not getattr(self, "_sc_returning_said", False):
+                self._sc_returning_said = True
+                self.emit(Claim("SC_RETURNING", CLASS_STATE, [], [], t,
+                                facts={"sc_type": sc_type, "vsc": sc_type == 2},
+                                provenance=prov, priority=86.0, hard=True,
+                                speaker="LEAD", max_age_key="state"))
         elif event_type in (2, 3) and sc_type in (1, 2):
             if self.state in ("safety_car", "vsc"):
-                self._set_state(t, "green", "SCAR event %s" % event_type)
+                # V9.23: the state stays neutralised until the green flag
+                # ("resume race") or green_fallback_s, so no racing talk
+                # fills the seconds between the peel-off and the green
+                if not sccfg.get("green_call", True):
+                    self._set_state(t, "green", "SCAR event %s" % event_type)
+                # V9.23: the safety car peels off / the VSC ends -- the field
+                # is released; the camera goes to the front (restart record),
+                # the lead calls it, and the green flag follows on "resume race"
+                self.restarts.append({"t_unix": round(t, 6), "t_rec": self._t_rec(t),
+                                      "kind": "sc_returned", "sc_type": sc_type})
+                self._sc_restart_pending = {"t": t, "sc_type": sc_type}
+                if sccfg.get("returned_call", True):
+                    li = self.leader_idx
+                    self.emit(Claim("SC_RETURNED", CLASS_STATE,
+                                    [li] if li is not None else [],
+                                    [self._name(li)] if li is not None else [], t,
+                                    facts={"sc_type": sc_type, "vsc": sc_type == 2,
+                                           "has_leader": li is not None},
+                                    provenance=prov, priority=92.0, hard=True,
+                                    speaker="LEAD", max_age_key="state"))
+                    self.log(">>> SAFETY CAR RETURNED (type %s): restart pending" % sc_type)
+
+    def _sc_green(self, t, pend, prov):
+        """V9.23: the green flag after a safety car or VSC: called like a
+        start -- the leader, the car behind him, the laps left."""
+        if self.state in ("safety_car", "vsc"):
+            self._set_state(t, "green", "green flag")
+        li = self.leader_idx
+        p2 = self.w.car_at_position(2)
+        total = self.w.total_laps or 0
+        rem = None
+        if li is not None and total > 0:
+            rem = max(0, total - self.racing_lap(self.w.cars[li]) + 1)
+        subs = [x for x in (li, p2.idx if p2 is not None else None) if x is not None]
+        self.restarts.append({"t_unix": round(t, 6), "t_rec": self._t_rec(t),
+                              "kind": "sc_green", "sc_type": pend.get("sc_type")})
+        self.emit(Claim("RESTART", CLASS_STATE, subs, [self._name(x) for x in subs], t,
+                        facts={"kind": "sc_green", "vsc": pend.get("sc_type") == 2,
+                               "has_leader": li is not None, "has_second": p2 is not None,
+                               "laps": _num_word(rem) if rem else None, "has_laps": bool(rem),
+                               "one_lap": rem == 1},
+                        provenance=prov, priority=97.0, hard=True, speaker="LEAD"))
+        self.log(">>> GREEN FLAG after the safety car at %.3f" % t)
 
     def _on_send(self, t):
         classified = self.final_classification is not None
@@ -6701,6 +6777,12 @@ class RaceModel:
         self._session_guard(t)
         self._maybe_fresh_grid(t)
         self._formation_tick(t)            # V9.23
+        pend = getattr(self, "_sc_restart_pending", None)
+        if pend is not None and self.state in ("safety_car", "vsc") \
+                and (t - pend["t"]) >= float((self.v3.get("safety_car", {}) or {}).get("green_fallback_s", 25.0)):
+            self._sc_restart_pending = None
+            self.log(">>> no resume-race event %.0f s after the safety car returned: green" % (t - pend["t"]))
+            self._sc_green(t, pend, [{"packet_id": PID_LAPDATA, "t_unix": round(t, 3)}])
         self._maybe_fallback_anchor(t)
         # sample positions and lifecycle from lap data
         leader = None
@@ -6735,8 +6817,16 @@ class RaceModel:
                 # race distance actually done (completed laps >= total laps
                 # when known; else a CHQF event). This stops a mass status
                 # flip at a stoppage (Baku) from reading as a finish.
+                # V9.23: a race can finish behind the safety car or under a
+                # VSC -- but only with the chequered flag (or race winner)
+                # event in hand: a session stopped under a VSC flips every
+                # status to finished and writes the distance complete (Baku),
+                # and that is not a finish
+                behind_sc = (self.state in ("safety_car", "vsc")
+                             and bool((self.v3.get("safety_car", {}) or {}).get("finish_behind_sc", False))
+                             and (self.chqf_seen or getattr(self, "rcwn_seen", False)))
                 if (self.leader_finish_t is None and c.position == 1
-                        and self.state in ("green", "final_lap")
+                        and (self.state in ("green", "final_lap") or behind_sc)
                         and self._race_distance_done(c)):
                     self._leader_finish(t, c.idx)
         self.leader_idx = leader
@@ -7545,7 +7635,7 @@ V3_WORDS_NAME = "hoover_words_v3.json"
 # Kinds the Booth can emit, and the placeholders each can supply. A template
 # referencing a placeholder outside its kind's set is a load-time error (B-2).
 KIND_PLACEHOLDERS = {
-    "START": set(), "RESTART": set(), "SAFETY_CAR": set(), "VSC": set(),
+    "START": set(), "RESTART": {"a", "b", "laps"}, "SAFETY_CAR": set(), "VSC": set(),
     "RED_FLAG": set(),
     "PASS": {"a", "b"}, "LEAD_CHANGE": {"a", "b"}, "LEAD_CONTEST": {"a"},
     "LEAD_SETTLED": {"a", "swaps"}, "CONTESTED": {"a", "b", "swaps"},
@@ -7564,13 +7654,15 @@ KIND_PLACEHOLDERS = {
     # V9.23 (21 OCT): the formation lap
     "FORMATION": {"laps"}, "FORMATION_WHY": {"laps"},
     "FORMATION_GRID": {"list", "a", "pos", "count"}, "FORMATION_LINEUP": set(),
+    "SC_RETURNING": set(), "SC_RETURNED": {"a"},
 }
 
 # F2: kinds allowed to consist only of fallback (subject-less) variants. A
 # race can end with no leader ever established, so RACE_END may fall back to a
 # subject-less line as its only satisfiable form.
 SUBJECT_OPTIONAL_KINDS = {"RACE_END", "LIGHTS_ON", "FORMATION", "FORMATION_WHY",
-                          "FORMATION_GRID", "FORMATION_LINEUP"}
+                          "FORMATION_GRID", "FORMATION_LINEUP", "SC_RETURNING", "SC_RETURNED",
+                          "RESTART"}
 
 # Minimum variant floors (B-3). Below the floor is a load-time error.
 MIN_VARIANTS = {
@@ -7605,7 +7697,8 @@ class WordsFile:
 
     # V9.23: kinds a words file may leave out (the V3 file predates them);
     # the model only emits them when the V4 file is loaded
-    OPTIONAL_KINDS = ("FORMATION", "FORMATION_WHY", "FORMATION_GRID", "FORMATION_LINEUP")
+    OPTIONAL_KINDS = ("FORMATION", "FORMATION_WHY", "FORMATION_GRID", "FORMATION_LINEUP",
+                      "SC_RETURNING", "SC_RETURNED")
 
     def _validate(self):
         required = dict(KIND_PLACEHOLDERS)
@@ -7863,7 +7956,9 @@ class V3Booth:
         # the repetition guard. A saturated subject must still get its winner,
         # result, correction and race-end lines; the race outcome is not chatter.
         self.rp_immune = ({"WINNER", "RESULT", "RACE_END", "CORRECTION",
-                           "WINNER_OFFICIAL"} | self.pc_hard)
+                           "WINNER_OFFICIAL", "SC_RETURNING", "SC_RETURNED", "RESTART",
+                           "FORMATION", "FORMATION_WHY", "FORMATION_GRID", "FORMATION_LINEUP"}
+                          | self.pc_hard)   # V9.23: state calls are never chatter
         self._recent_texts = []       # (air_end_t, text)
         self._recent_ks = []          # (t, kind, subjkey, material)
         self._recent_templates = []   # (t, template_key)
@@ -8509,6 +8604,20 @@ class V3Booth:
             ctx["b"] = nm[1]
         if k == "START":
             fv["kind"] = f.get("kind")
+        elif k == "RESTART":
+            # V9.23: a plain restart (red flag, LGOT again) has no kind; the
+            # green after a safety car carries the leader and the laps left
+            fv["kind"] = f.get("kind") or "restart"
+            fv["vsc"] = bool(f.get("vsc"))
+            fv["has_leader"] = bool(f.get("has_leader"))
+            fv["has_second"] = bool(f.get("has_second"))
+            fv["has_laps"] = bool(f.get("has_laps"))
+            fv["one_lap"] = bool(f.get("one_lap"))
+            if f.get("laps"):
+                ctx["laps"] = f.get("laps")
+        elif k in ("SC_RETURNING", "SC_RETURNED"):
+            fv["vsc"] = bool(f.get("vsc"))
+            fv["has_leader"] = bool(f.get("has_leader"))
         elif k == "WINNER":
             pen = f.get("pending_penalty_s")
             fv["penalty_pending"] = bool(pen)
@@ -8721,7 +8830,7 @@ class V3Booth:
             pass
 
     # ---- V9.23 (21 OCT): the state calls cut in -------------------------------
-    _PREEMPT_KINDS = ("SAFETY_CAR", "VSC", "RED_FLAG", "START", "RESTART")
+    _PREEMPT_KINDS = ("SAFETY_CAR", "VSC", "RED_FLAG", "START", "RESTART", "SC_RETURNED")
 
     def _preempt_for_state(self, t):
         """The 21 OCT race test: the safety car was called twelve seconds after
@@ -8846,6 +8955,13 @@ class V3Booth:
                 bp = (min(best.priority + self._on_screen_bonus(best), 98.0)
                       if best.kind.startswith(STORY_KIND_PREFIX) else best.priority) \
                     if best is not None else None
+                # V9.23: a state call (start, restart, safety car, red flag)
+                # outranks every story line, bonus or not (the green flag
+                # lost to a battle line on screen in the SC replay)
+                if c.kind in self._PREEMPT_KINDS and c.hard:
+                    pri = 1000.0 + c.priority
+                if best is not None and best.kind in self._PREEMPT_KINDS and best.hard:
+                    bp = 1000.0 + best.priority
                 if best is None or (pri, -c.t_create) > (bp, -best.t_create):
                     best = c
             else:
@@ -13345,6 +13461,9 @@ class V3Gallery:
             add("winner", m.leader_finish_t, m.road_winner, 95, 5.0)
         if m.state in ("safety_car", "vsc") and m.state_since is not None:
             add("safety_car", m.state_since, m.leader_idx, 90, 6.0)
+        # V9.23: the restart belongs to the front (the peel-off and the green)
+        if m.restarts and m.restarts[-1].get("kind") in ("sc_returned", "sc_green"):
+            add("restart", m.restarts[-1]["t_unix"], m.leader_idx, 94, 14.0)
         for idx, rt in m.retired_at.items():
             add("retirement", rt, idx, 85, 5.0)
         # G3-2: merge contacts within incident_merge_s that share a car into one
