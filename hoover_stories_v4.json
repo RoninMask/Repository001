@@ -164,7 +164,9 @@
    "BAT-05",
    "BAT-06"
   ],
-  "_v9_21": "20 OCT setup night (Dustin): the whole battle matrix on (enabled_rows), the battle lock, the pile-up call, the finish programme. Tune sheet: Hoover_Overnight_Build_Handback_V1_21OCT26.md"
+  "_v9_21": "20 OCT setup night (Dustin): the whole battle matrix on (enabled_rows), the battle lock, the pile-up call, the finish programme. Tune sheet: Hoover_Overnight_Build_Handback_V1_21OCT26.md",
+  "fast_events_template": true,
+  "_fast_events": "V9.21 (Dustin, 21 OCT morning): the instant calls -- the lunge, side by side and its pass, the pile-up -- are template lines so they air the moment they trigger; the model writes the defence, the detail and the reaction that follow. false sends them through the model lane like any other beat."
  },
  "params": {
   "BAT-01": {

@@ -5890,7 +5890,8 @@
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "alongside"
+            "beat": "alongside",
+            "lead": false
           },
           "present": "Side by side! {a} and {b} for {pos}!"
         },
@@ -5905,7 +5906,8 @@
           "speaker": "LEAD",
           "when": {
             "beat": "alongside",
-            "hh": true
+            "hh": true,
+            "lead": false
           },
           "present": "Two of ours side by side for {pos}, {a} and {b}, nobody lifting!"
         },
@@ -5948,6 +5950,14 @@
             "outcome": "held"
           },
           "present": "{a} keeps {pos}; {b} had the run but not the corner."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "alongside",
+            "lead": true
+          },
+          "present": "Side by side for the lead! {a} and {b}, and nobody is lifting!"
         }
       ]
     },

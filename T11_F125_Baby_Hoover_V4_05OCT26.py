@@ -10302,6 +10302,28 @@ class CompletionCache:
         self.dirty = False
 
 
+# V9.21: what each battle beat is, for the model's prompt (the template
+# writer has its own lines; the model is told the moment it is calling)
+_BEAT_MOMENTS = {
+    "lunge": "the car behind has just dived for the gap on the car ahead, right now; call the attempt, not the result",
+    "defended": "the attack a moment ago came to nothing; the car in front covered it and keeps the place",
+    "detail": "the fight is still on and nothing has resolved; a short line of texture about it, gap, lines, tyres, pressure",
+    "side_by_side": "the two cars are alongside each other at this instant, neither ahead",
+    "alongside": "the two cars are alongside each other at this instant, neither ahead; call it live",
+    "holding": "the car in front has been absorbing pressure for a while and holding the place; say how",
+    "still_holding": "the car in front is still holding off the car behind after laps of pressure",
+    "held": "the attack is over and the car in front kept the place",
+    "train": "several cars have bunched nose to tail in one queue; say who heads it and who is stuck in it",
+    "grows": "another car has joined the back of the queue",
+    "train_status": "the queue is still there, lap after lap",
+    "thins": "the queue has broken up",
+    "stalemate": "the two cars have sat the same gap apart for a long time; nothing is changing between them",
+    "pileup": "a crash with several cars in it has just happened; call it with urgency",
+    "reaction": "the fight has just ended; one line of reaction to it, then move on",
+    "lull_revisit": "a quiet moment; revisit a fight that has gone quiet with its current gap and trend",
+}
+
+
 class ModelWriter(Writer):
     """Part N. Writes a line with a small, fast language model, standard library
     only (http.client/urllib -- no SDK, no requests). The request is issued when
@@ -10744,6 +10766,11 @@ class ModelWriter(Writer):
         if facts.get("big_moment"):
             extra += ("\nThis is a big moment. Sound like you saw it: open with a short "
                       "exclamation, then the call. Still one sentence, still only the facts given.")
+        # V9.21: the battle moments, so the writer knows what it is calling
+        # (the beat name alone is a JSON value, not an instruction)
+        moment = _BEAT_MOMENTS.get(((b.get("story") or {}).get("beat")) or "")
+        if moment:
+            extra += "\nTHE MOMENT: %s" % moment
         return ("%s\n\nSTATE (use ONLY these facts):\n%s\n\nRECENT LINES "
                 "(most recent last):\n%s%s\n\nWrite the single next line for the "
                 "%s voice, at most %d words." %
@@ -16189,6 +16216,11 @@ class P_BAT_01(StoryProcessor):
             self.beat(t, rec, "threshold", "lunge", ctx,
                       view={"human": bool(rec.humans), "hh": len(rec.humans) >= 2},
                       numbers={"gap": gap}, must=bool(rec.humans), speaker="LEAD")
+            # V9.21 (Dustin): a fast event goes to the template -- the call
+            # airs the instant it triggers; the model writes what follows
+            c = self.last_claim(rec)
+            if c is not None and self.eng.scfg.e("fast_events_template", True):
+                c.facts["template_only"] = True
             return
         # the defence: a lunge that came to nothing -- the gap is back out
         # inside defended_window_s and the order is unchanged
@@ -16427,6 +16459,9 @@ class P_BAT_04(StoryProcessor):
                               must=human, speaker="LEAD")
                     if human:
                         self.mark_big(rec)
+                    c = self.last_claim(rec)
+                    if c is not None and eng.scfg.e("fast_events_template", True):
+                        c.facts["template_only"] = True      # V9.21: a fast event, said at once
                     # the fight it belongs to knows it had a side-by-side phase
                     for r in eng.store.live.values():
                         if r.row_id in ("BAT-01", "LEAD-02") and set(r.participants[:2]) == pair:
@@ -16468,6 +16503,9 @@ class P_BAT_04(StoryProcessor):
                       view={"outcome": "passed", "human": human, "hh": hh,
                             "passer_human": eng.is_human(behind)},
                       must=human, speaker="LEAD")
+            c = self.last_claim(rec)
+            if c is not None and eng.scfg.e("fast_events_template", True):
+                c.facts["template_only"] = True
         else:
             self.beat(t, rec, "transition", "resolved",
                       {"a": eng.name(ahead), "b": eng.name(behind), "pos": _ordinal(eng.pos(ahead))},
