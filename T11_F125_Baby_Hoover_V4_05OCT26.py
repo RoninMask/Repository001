@@ -5990,6 +5990,7 @@ class RaceModel:
         self.saw_stlg = False
         self.saw_lgot = False
         self._fallback_since = None
+        self._temp_at_start = None            # V9.24: the track temperature at lights out
         # V9.23 (21 OCT): the formation lap. formation_t is when it was seen
         # to start; lap_offset is 1 once a formation lap is known (the game
         # counts it as lap 1, so the first racing lap reads 2: capture pass
@@ -6119,6 +6120,7 @@ class RaceModel:
         self.saw_stlg = False
         self._start_lap = None
         self.formation_t = None               # V9.23
+        self._temp_at_start = None            # V9.24
         self.formation_source = None
         self.lap_offset = 0
         self._formation_grid_done = False
@@ -7426,11 +7428,33 @@ class RaceModel:
 
     def _lull_weather(self, t):
         # F14: a weather lull from the Session packet's track/air temperatures.
+        # V9.24 (21 OCT, Dustin): a temperature is said with what it means --
+        # against what is usual for this track at this time of day
+        # (v3.weather.typical_track_c, per track id), what it does to the
+        # tyres, and how far it has moved since the race began.
         tt, at = self.w.track_temp, self.w.air_temp
         if tt is None or at is None:
             return None
-        return Claim("LULL_WEATHER", CLASS_FILLER, [], [], t,
-                     facts={"temp_track": tt, "temp_air": at},
+        if tt <= 5 and (self.v3.get("weather") or {}):
+            return None                       # V9.24: not decoded yet (a zero is not a temperature)
+        wc = self.v3.get("weather", {}) or {}
+        if not wc:                            # the V3 config: the bare line, byte-identical
+            return Claim("LULL_WEATHER", CLASS_FILLER, [], [], t,
+                         facts={"temp_track": tt, "temp_air": at},
+                         priority=10.0, demotable=True)
+        typ = (wc.get("typical_track_c") or {}).get(str(self.w.track_id)) \
+            or wc.get("default_typical_track_c") or [25, 40]
+        lo, hi = float(typ[0]), float(typ[1])
+        band = "hot" if tt > hi else ("cool" if tt < lo else "normal")
+        if self.anchor_t is not None and getattr(self, "_temp_at_start", None) is None:
+            self._temp_at_start = tt
+        t0 = getattr(self, "_temp_at_start", None)
+        delta = (tt - t0) if t0 is not None else 0
+        step = int(wc.get("trend_c", 3))
+        trend = "falling" if delta <= -step else ("rising" if delta >= step else "steady")
+        facts = {"temp_track": tt, "temp_air": at, "band": band, "trend": trend,
+                 "change": _num_word(abs(int(delta))) if trend != "steady" else None}
+        return Claim("LULL_WEATHER", CLASS_FILLER, [], [], t, facts=facts,
                      priority=10.0, demotable=True)
 
     def _lull_progress(self, t):
@@ -7670,7 +7694,7 @@ KIND_PLACEHOLDERS = {
     "CORRECTION": {"a", "pos"}, "RACE_END": {"a"},
     "WINNER_OFFICIAL": {"a", "b", "pos", "penalty"},   # V8.14
     "LULL_GAP": {"a", "b", "gap"}, "LULL_HUMAN": {"a", "pos"},
-    "LULL_WEATHER": {"temp_track", "temp_air"},
+    "LULL_WEATHER": {"temp_track", "temp_air", "change"},
     "LULL_DISTANCE": {"laps", "remaining"}, "LULL_FASTEST": {"a", "time"},
     "LULL_PROGRESS": {"a", "places"},
     # 09 OCT: finished lines from the interview and lore ingests
@@ -8709,6 +8733,11 @@ class V3Booth:
             ctx["pos"] = _ordinal(pos) if pos else None
         elif k == "LULL_PROGRESS":
             ctx["places"] = _num_word(f.get("places", 0))
+        elif k == "LULL_WEATHER":
+            fv["band"] = f.get("band") or "normal"        # V9.24: what the number means
+            fv["trend"] = f.get("trend") or "steady"
+            if f.get("change"):
+                ctx["change"] = f["change"]
         # lull kinds carry pre-formatted display strings on their facts
         for key in ("gap", "temp_track", "temp_air", "laps", "remaining",
                     "time"):

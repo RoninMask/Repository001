@@ -844,6 +844,12 @@
       "stlg_after_lgot_s": 30.0,
       "lgot_repeat_s": 30.0
     },
+    "weather": {
+      "_about": "V9.24 (21 OCT): the temperature line says what the number means. typical_track_c per track id: the usual track temperature range at race time (Abu Dhabi 14 is a twilight race, about 28-36 C, falling after sunset). Above the range is 'hot', below is 'cool'. trend_c: a change since lights out of this many degrees or more is said.",
+      "typical_track_c": {"14": [28, 36], "17": [25, 42]},
+      "default_typical_track_c": [25, 40],
+      "trend_c": 3
+    },
     "safety_car": {
       "_about": "V9.23 (21 OCT): the safety car and VSC sequence. The deploy call cuts in (v3.preempt). SC_RETURNING on 'returning' (in this lap), SC_RETURNED on 'returned' (peels off; the camera goes to the front for protected.restart), RESTART kind sc_green on the 'resume race' event inside restart_window_s -- the green flag, called like a start with the leader, P2 and the laps left. quiet_kinds are not said behind the safety car (gap and pace talk about a bunched field). A race that finishes behind the safety car is a finish.",
       "returning_call": true,

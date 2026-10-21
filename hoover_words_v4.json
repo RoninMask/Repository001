@@ -779,22 +779,82 @@
       ]
     },
     "LULL_WEATHER": {
+      "_about": "V9.24 (21 OCT): a temperature with its meaning -- band (hot / normal / cool against what is usual for this track at this time of day, v3.weather.typical_track_c) and trend (falling / rising since lights out, by trend_c or more). Never a bare number.",
       "variants": [
         {
           "speaker": "ANALYST",
-          "present": "Track temperature {temp_track} degrees, air {temp_air}."
+          "when": {
+            "band": "normal",
+            "trend": "steady"
+          },
+          "present": "Track temperature {temp_track} degrees, air {temp_air}. That is right where you would expect it here, so the tyres are working in their normal window. No surprises from the conditions."
         },
         {
           "speaker": "ANALYST",
-          "present": "It's {temp_track} degrees on the track, {temp_air} in the air."
+          "when": {
+            "band": "normal",
+            "trend": "steady"
+          },
+          "present": "It's {temp_track} degrees on the track, which is normal for this circuit at this time of day. The tyres should behave exactly as the teams planned."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "normal",
+            "trend": "falling"
+          },
+          "present": "The track is down {change} degrees since the start, at {temp_track} now. Still a normal number for here, but cooler rubber means a little more grip and a little less wear."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "normal",
+            "trend": "rising"
+          },
+          "present": "The track has climbed {change} degrees since the start, to {temp_track}. Still in the normal range here, but the rear tyres will be working a bit harder."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "hot"
+          },
+          "present": "Track temperature {temp_track} degrees, hotter than usual for this circuit. That is hard on the rear tyres: they overheat, they slide, and the wear goes up. Managing the tyres matters more tonight."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "hot"
+          },
+          "present": "It's a hot track, {temp_track} degrees, above what we normally see here. Expect the tyres to fade sooner, and the drivers who look after them to come good late on."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "cool"
+          },
+          "present": "Track temperature only {temp_track} degrees, cooler than usual for this circuit. The tyres are harder to switch on, so watch the out-laps after a stop: cold rubber is when mistakes happen."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "band": "cool"
+          },
+          "present": "A cool track tonight, {temp_track} degrees, below normal for here. Less wear, but less grip until the tyres come in, and the front tyres can grain."
         },
         {
           "speaker": "LEAD",
-          "present": "Conditions steady, track at {temp_track} degrees."
+          "when": {
+            "band": "normal",
+            "trend": "falling"
+          },
+          "present": "The track is cooling as the evening goes on, {temp_track} degrees now. A normal number for here, and slightly kinder to the tyres."
         },
         {
-          "speaker": "ANALYST",
-          "present": "The track is reading {temp_track} degrees."
+          "speaker": "LEAD",
+          "when": {
+            "band": "normal"
+          },
+          "present": "Conditions steady, track at {temp_track} degrees, normal for this place, so the tyres are where everybody expected."
         }
       ]
     },
