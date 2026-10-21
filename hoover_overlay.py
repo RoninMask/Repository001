@@ -87,7 +87,7 @@ DEFAULT_SETTINGS = {
             "tyre": True, "tyre_age": False, "pit_stops": False, "pit_tag": True,
             "penalties": False, "gained": False, "camera": True, "fastest": True
         },
-        "expand": {"enabled": True, "period_s": 60, "hold_s": 8,
+        "expand": {"enabled": True, "period_s": 60, "hold_s": 6, "row_every_s": 10,
                    "offsets_s": {"name": 0, "team": 20, "charity": 40}},
         "camera_row_expand_s": 5,
         "expand_extra_px": 170,
@@ -1057,21 +1057,21 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   #sc{display:none;height:calc(22px*var(--fs));line-height:calc(22px*var(--fs));background:var(--gold);color:#181c25;font-weight:700;font-size:calc(11px*var(--fs));
       letter-spacing:.14em;text-align:center;text-transform:uppercase}
   #sc.on{display:block}
-  #rows{position:relative;background:rgba(16,19,26,.86);border-radius:0 0 6px 6px;overflow:hidden}
+  #rows{position:relative;background:rgba(16,19,26,.86);border-radius:0 0 6px 6px;overflow:visible}
   .row{position:absolute;left:0;right:0;height:var(--row);display:flex;align-items:center;
        transition:transform .5s cubic-bezier(.2,.7,.2,1), background .3s;border-bottom:1px solid rgba(255,255,255,.05);box-sizing:border-box}
   .row.cam{background:rgba(225,6,0,.18)}
   .row.flash{animation:purple 1.2s ease-out 1}
   @keyframes purple{0%%{background:rgba(176,92,255,.55)}100%%{background:transparent}}
-  .pos{width:calc(34px*var(--fs));text-align:center;font-weight:700;font-size:calc(14px*var(--fs));background:rgba(255,255,255,.06);height:100%%;
+  .pos{width:34px;text-align:center;font-weight:700;font-size:calc(14px*var(--fs));background:rgba(255,255,255,.06);height:100%%;
        line-height:var(--row);flex:none}
   .row.human .pos{background:var(--red)}
   .bar{width:5px;height:22px;margin:0 8px 0 6px;border-radius:2px;flex:none}
   .cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:width .45s cubic-bezier(.2,.7,.2,1), opacity .3s;
         box-sizing:border-box}
-  .name{font-weight:600;font-size:calc(14px*var(--fs));letter-spacing:.02em;width:calc(56px*var(--fs));flex:none}
+  .name{font-weight:600;font-size:calc(14px*var(--fs));letter-spacing:.02em;width:56px;flex:none}
   .row:not(.human) .name{color:rgba(255,255,255,.72);font-weight:500}
-  .team,.charity{font-size:calc(11.5px*var(--fs));font-weight:600;letter-spacing:.06em;color:rgba(255,255,255,.6);width:calc(46px*var(--fs));flex:none;text-transform:uppercase}
+  .team,.charity{font-size:calc(11.5px*min(var(--fs),1.1));font-weight:600;letter-spacing:.04em;color:rgba(255,255,255,.6);width:46px;flex:none;text-transform:uppercase}
   .charity{color:rgba(255,255,255,.5)}
   .cell.wide{width:var(--wide)}
   .spacer{flex:1}
@@ -1082,11 +1082,11 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   .tag{font-size:calc(9px*var(--fs));font-weight:700;letter-spacing:.1em;padding:2px 5px;border-radius:3px;margin-right:6px;flex:none}
   .tag.PIT{background:var(--gold);color:#181c25}.tag.OUT,.tag.DSQ,.tag.NC{background:#555;color:#ddd}
   .tag.FIN{background:#fff;color:#181c25}.tag.GAR{background:#444;color:#bbb}
-  .gained{font-size:calc(10.5px*var(--fs));font-weight:700;width:calc(28px*var(--fs));text-align:right;flex:none;margin-right:6px}
+  .gained{font-size:calc(10.5px*var(--fs));font-weight:700;width:28px;text-align:right;flex:none;margin-right:6px}
   .gained.up{color:#52e252}.gained.down{color:#ff6a6a}
   .num{font-size:calc(12px*var(--fs));font-weight:600;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.85);flex:none;text-align:right;padding-right:8px}
-  .gap{width:calc(78px*var(--fs));padding-right:10px}
-  .lapt{width:calc(70px*var(--fs));color:rgba(255,255,255,.65)}
+  .gap{width:78px;padding-right:10px}
+  .lapt{width:70px;color:rgba(255,255,255,.65)}
   .fl{width:16px;height:16px;border-radius:50%%;background:var(--purple);flex:none;margin-right:6px;
       display:none;align-items:center;justify-content:center}
   .fl svg{width:10px;height:10px}
@@ -1105,6 +1105,8 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   #tower.compact #cols{height:16px}
   .row.camopen .num,.row.camopen .tyre,.row.camopen .gained,.row.camopen .tag{display:none!important}
   .row.camopen .cell{width:auto!important;flex:none;padding-right:12px;overflow:visible}
+  .row.camopen{z-index:5;background:rgba(24,28,37,.97);border-radius:0 6px 6px 0;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+  .row.cam.camopen{background:linear-gradient(90deg,rgba(120,10,10,.97),rgba(60,14,18,.97))}
   .row.camopen .team::before,.row.camopen .charity::before{content:"\00b7";margin-right:12px;opacity:.5}
 </style></head><body>
 <div id="tower"><div id="head"><div><div id="session">Waiting</div><div id="sub">for Hoover</div></div><div id="lap"></div></div>
@@ -1121,9 +1123,9 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   function fmtTime(s){s=Math.max(0,s|0);return Math.floor(s/60)+":"+String(s%%60).padStart(2,"0");}
   function render(d){
     const S=d.settings.tower, C=S.columns, on=d.settings.surfaces.tower;
-    const fs=Number(S.font_scale||1.3); root.setProperty("--fs",String(fs)); root.setProperty("--w",Math.round(S.width*fs)+"px"); root.setProperty("--row",S.row_height+"px");
+    const fs=Number(S.font_scale||1.3); root.setProperty("--fs",String(fs)); root.setProperty("--w",S.width+"px"); root.setProperty("--row",S.row_height+"px");
     // one column open: 62%% of the base width; all three open (after the flag): 48%% each
-    const wideOne=Math.round(S.width*fs*0.62), wideAll=Math.round(S.width*fs*0.48);
+    const wideOne=Math.round(S.width*0.62), wideAll=Math.round(S.width*0.48);
     const rowH=S.row_height;
     if(!on||(!d.rows.length&&S.hide_when_idle)){tower.classList.remove("on");return;} tower.classList.add("on");
     const state=S.states_from_hoover?(d.tower_state||"normal"):"normal";
@@ -1143,14 +1145,21 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     // expansion schedule
     const now=Date.now()/1000; const E=S.expand||{}; let wide=null;
     if(state==="expanded"){ wide="all"; }
-    else if(state==="normal"&&E.enabled){
-      const p=E.period_s||60, h=E.hold_s||8, off=E.offsets_s||{};
-      const ph=now%%p;
-      for(const col of ["name","team","charity"]){ const o=off[col]||0; if(ph>=o&&ph<o+h&&C[col]!==false){wide=col;} }
+    // V9.24 (21 OCT, Dustin: the tower was too wide): the tower keeps its
+    // width; ONE row at a time opens to the full name, team and charity and
+    // runs past the right edge -- the camera car's row when the camera cuts,
+    // otherwise the next row in order every row_every_s, open for hold_s
+    let rotIdx=null;
+    if(state==="normal"&&E.enabled&&d.rows.length){
+      const every=E.row_every_s||10, h=Math.min(E.hold_s||6, every);
+      const k=Math.floor(now/every), shownRows=d.rows.slice(0,S.max_rows||22);
+      if(now-k*every<h) rotIdx=shownRows[k%%shownRows.length].idx;
     }
     // camera row expansion
     if(d.camera_idx!==lastCam){ lastCam=d.camera_idx; camRowIdx=d.camera_idx; camRowUntil=now+(S.camera_row_expand_s||5); }
-    const camRowOpen = state!=="compact" && camRowIdx!==null && now<camRowUntil;
+    const camOpen = state!=="compact" && camRowIdx!==null && now<camRowUntil;
+    const openIdx = camOpen ? camRowIdx : rotIdx;
+    const camRowOpen = openIdx!==null && openIdx!==undefined;
     // the tower widens while anything is open, so nothing is pushed off the edge
     // width is the base without the team and charity columns; each adds its own room
     const compact = state==="compact";
@@ -1165,8 +1174,7 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
     const wideW = wide==="all" ? wideAll : wideOne; root.setProperty("--wide", wideW+"px");
     const baseW = {name:56, team:46, charity:46}; let opened=0;
     for(const k of ["name","team","charity"]){ if(C[k]!==false && (wide==="all"||wide===k)) opened += wideW-baseW[k]; }
-    const extra = camRowOpen ? (S.camera_row_extra_px||300) : Math.round(opened/fs);
-    tower.style.width=Math.round((S.width+colsExtra+extra)*fs)+"px";   // V9.23: the whole tower scales with the text
+    tower.style.width=(S.width+colsExtra)+"px";   // V9.24: fixed width; the open row overhangs
     const shown=d.rows.slice(0,S.max_rows||22); const seen=new Set();
     rowsEl.style.height=(shown.length*rowH)+"px";
     shown.forEach((r,i)=>{
@@ -1179,7 +1187,9 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
       if(r.fastest&&d.moments.new_fastest&&lastFastest!==r.idx){ el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); lastFastest=r.idx; }
       el.querySelector(".pos").textContent=r.pos; el.querySelector(".pos").style.display=C.position?"":"none";
       const bar=el.querySelector(".bar"); bar.style.background=r.colour; bar.style.display=C.colour?"":"none";
-      const rowWide = camRowOpen && r.idx===camRowIdx;
+      const rowWide = camRowOpen && r.idx===openIdx;
+      if(rowWide){ el.style.right="auto"; el.style.width="max-content"; el.style.minWidth="100%%"; el.style.paddingRight="14px"; }
+      else { el.style.right="0px"; el.style.width=""; el.style.minWidth=""; el.style.paddingRight=""; }
       el.classList.toggle("camopen", rowWide);
       const nm=el.querySelector(".name"); const mode=S.name_mode||"code";
       const nameWide = wide==="all"||wide==="name"||rowWide;
