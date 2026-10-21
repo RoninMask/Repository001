@@ -875,10 +875,12 @@
       "practice_interview": {
         "_about": "V9.12 (19 OCT): in practice the colour slot alternates one interview line and one lore card. per_driver lines per driver from his Sienna card (facts 2 and 3; reserve_headline keeps fact 1 for the grid intro before the lights), then up to extra more from whoever has spare, least recently featured first. interval_s replaces session_colour.interval_s in practice. The race keeps everything not spent here.",
         "enabled": true,
-        "per_driver": 2,
-        "extra": 2,
+        "per_driver": 4,
+        "extra": 4,
         "reserve_headline": 1,
         "interval_s": 75.0,
+        "per_lore": 2,
+        "_per_lore": "V9.22 (21 OCT, Dustin: double the interviews): two interview slots for every lore slot; per_driver 2 -> 4, extra 2 -> 4. The race keeps each driver's headline line and his podium / win / retire lines.",
         "kinds": ["PRACTICE"],
         "_v9_22": "V9.22 (21 OCT): kinds: the sessions that air interview lines (practice). mix (off for 21 OCT, Dustin: interviews only need to get in): when enabled, a charity card airs only while charities <= interviews aired this session and a sponsor read only while sponsors < interviews; hold_when_dry keeps them waiting once the interviews run out.",
         "mix": {"enabled": false, "hold_when_dry": true}

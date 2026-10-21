@@ -8827,9 +8827,14 @@ class V3Booth:
         behind = self._mix_cfg().get("enabled", True) and m["iv"] <= max(m["ad"] + 1, m["ch"])
         if kind in self._iv_kinds() and pi.get("enabled", True) and self.stories is not None \
                 and (behind or getattr(self, "_colour_alt", "interview") == "interview"):
-            self._colour_alt = "lore"
+            # V9.22: per_lore interview slots before each lore slot (1 = alternate)
+            run = getattr(self, "_colour_iv_run", 0) + 1
+            if run >= int(pi.get("per_lore", 1)):
+                self._colour_alt, run = "lore", 0
+            self._colour_iv_run = run
             if self._practice_interview(t, mat, pi, kind):
                 return True
+            self._colour_alt, self._colour_iv_run = "lore", 0
         else:
             self._colour_alt = "interview"
         tid = None if w.track_id is None else str(w.track_id)
