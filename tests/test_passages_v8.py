@@ -194,6 +194,7 @@ def _booth():
     import test_baby_hoover_v3 as T3
     m = T3.make_model()
     m.cfg = v.Config(os.path.join(REPO, "hoover_config_v4.json"))
+    m.on_event(1008.0, {"code": "STLG", "lights": 5})   # V9.23: lights, then lights out
     m.on_event(1010.6, {"code": "LGOT"})
     T3.grid(m.w, 4)
     m.w.last_lapdata_t = 1100.0

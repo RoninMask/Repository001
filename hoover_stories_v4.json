@@ -248,7 +248,7 @@
    "max_age_s": 30.0
   },
   "INC-06": {
-   "first_racing_lap": 2,
+   "first_racing_lap": 1,
    "min_cars": 3,
    "_v9_21": "min_cars 2 -> 3; template-written; silent when INC-01 already called the pile-up"
   },
@@ -320,7 +320,7 @@
    "launch_settle_s": 6.0
   },
   "SF-04": {
-   "first_racing_lap": 2,
+   "first_racing_lap": 1,
    "max_named": 2,
    "max_age_s": 45.0,
    "_about_max_age": "V9.20 (19 OCT): the lap-one ledger ('After the opening lap, X is down N places') aired four minutes late on 09 OCT; a net-places line older than 45 s is stale and is dropped."

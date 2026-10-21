@@ -29,13 +29,13 @@ CFG = v.Config(os.path.join(REPO, "hoover_config_v4.json"))
 
 class Tether(unittest.TestCase):
     def test_curve_five_laps(self):
-        # five laps: lap 2 (first racing lap) at start, lap 3 full
-        self.assertAlmostEqual(v.human_tether(CFG, 2, 5), 0.5)
+        # V9.23: lap numbers are racing laps. five laps: lap 1 at start, lap 3 full
+        self.assertAlmostEqual(v.human_tether(CFG, 1, 5), 0.5)
         self.assertAlmostEqual(v.human_tether(CFG, 3, 5), 1.0)
         self.assertAlmostEqual(v.human_tether(CFG, 5, 5), 1.0)
 
     def test_curve_thirty_laps(self):
-        self.assertAlmostEqual(v.human_tether(CFG, 2, 30), 0.5)
+        self.assertAlmostEqual(v.human_tether(CFG, 1, 30), 0.5)
         f8 = v.human_tether(CFG, 8, 30)
         self.assertTrue(0.5 < f8 < 1.0)
         self.assertAlmostEqual(v.human_tether(CFG, 15, 30), 1.0)
@@ -53,7 +53,7 @@ class Tether(unittest.TestCase):
 
     def test_gallery_multiplier_eased_then_full(self):
         import test_baby_hoover_v4 as T4
-        w = T4._world(n=6, humans=(2, 4), laps_total=5, lap=2)
+        w = T4._world(n=6, humans=(2, 4), laps_total=5, lap=1)
         cfg = CFG
         model = v.RaceModel(w, cfg, v.Roster(None), lambda m: None)
         model.leader_idx = 0
@@ -71,7 +71,7 @@ class Tether(unittest.TestCase):
 
     def test_story_score_interrupt_rows_untethered(self):
         import test_baby_hoover_v4 as T4
-        w = T4._world(n=6, humans=(2, 4), laps_total=5, lap=2)
+        w = T4._world(n=6, humans=(2, 4), laps_total=5, lap=1)
         model = v.RaceModel(w, CFG, v.Roster(None), lambda m: None)
         model.leader_idx = 0
         scfg = v.StoriesConfig(os.path.join(REPO, "hoover_stories_v4.json"))

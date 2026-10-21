@@ -5990,6 +5990,15 @@ class RaceModel:
         self.saw_stlg = False
         self.saw_lgot = False
         self._fallback_since = None
+        # V9.23 (21 OCT): the formation lap. formation_t is when it was seen
+        # to start; lap_offset is 1 once a formation lap is known (the game
+        # counts it as lap 1, so the first racing lap reads 2: capture pass
+        # 0.4.6 R3), else 0.
+        self.formation_t = None
+        self.formation_source = None
+        self.lap_offset = 0
+        self._formation_grid_done = False
+        self._formation_lineup_done = False
 
         # state machine
         self.state = "pre_start"
@@ -6107,6 +6116,11 @@ class RaceModel:
         self.saw_lgot = False
         self.saw_stlg = False
         self._start_lap = None
+        self.formation_t = None               # V9.23
+        self.formation_source = None
+        self.lap_offset = 0
+        self._formation_grid_done = False
+        self._formation_lineup_done = False
         self.leader_finish_t = None
         self.road_winner = None
         self.winner_call = None       # V8.14: what the WINNER line said at the flag
@@ -6240,6 +6254,8 @@ class RaceModel:
         # dropped, never said late.
         if kind == "LIGHTS_ON" and s != "start_sequence":
             return False
+        if kind is not None and kind.startswith("FORMATION") and s != "formation":
+            return False                         # V9.23: never said after the lights
         if s == "start_sequence":
             return kind == "LIGHTS_ON"           # V8.3: one line as the lights come on
         if s in ("pre_start", "formation"):
@@ -6313,6 +6329,28 @@ class RaceModel:
                     and (t - self.anchor_t) < float(self.v3.get("start_guard", {}).get("lgot_repeat_s", 30.0)):
                 self.log("LGOT %.1f s after lights out ignored (repeat)" % (t - self.anchor_t))
                 return
+            # V9.23 (21 OCT race test): the game sends LIGHTS OUT when the
+            # formation lap is released, with no start lights before it. That
+            # one was called "Lights out and away we go", the real start three
+            # minutes later became "Racing resumes", and every lap was counted
+            # from the wrong place. A race starts only on start lights followed
+            # by lights out; a lights-out with no lights before it is the
+            # formation lap. A second lights-out while the formation lap is
+            # running (the lights event missed) is the start.
+            fcfg = self.v3.get("formation", {}) or {}
+            if self.anchor_t is None and fcfg.get("enabled", True) and not self.saw_stlg:
+                if self.state == "formation":
+                    self.log(">>> LGOT on the formation lap with no lights seen: taken as the start")
+                    self._on_lgot(t)
+                    return
+                # the lobby's formation-lap setting decides when it is known:
+                # off means this lights-out IS the start (the lights were
+                # missed); on or unknown means the formation lap
+                setting = self._formation_setting()
+                if self.state == "pre_start" and fcfg.get("lgot_without_lights", True) \
+                        and (self.w.safety_car == 3 or setting is None or setting):
+                    self._enter_formation(t, "LGOT without lights")
+                    return
             self._on_lgot(t)
         elif code == "SCAR":
             self._on_scar(t, info)
@@ -6373,16 +6411,141 @@ class RaceModel:
                             priority=95.0, hard=True))
             self.log(">>> RESTART LIGHTS OUT at %.3f" % t)
 
+    # ---- V9.23 (21 OCT): the formation lap ----------------------------------
+    def _formation_setting(self):
+        """The lobby's formation-lap setting from the session packet (1 = on),
+        or None when not decoded."""
+        ext = getattr(self.w, "ext", None)
+        s = getattr(ext, "session", None) if ext is not None else None
+        try:
+            v = (s or {}).get("formation_lap")
+            return None if v is None else int(v) == 1
+        except (TypeError, ValueError):
+            return None
+
+    def racing_lap(self, c):
+        """The lap number as a booth would say it: the game's counter less
+        the formation lap when one ran."""
+        return max(0, int(c.lap or 0) - self.lap_offset)
+
+    def _enter_formation(self, t, why):
+        """The formation lap has started: state formation (the booth may say
+        state lines only), the lap offset, and the two-line call -- the lead
+        names it, the analyst says what it is for -- then the grid line for
+        our drivers a few seconds later (_formation_tick)."""
+        if self.formation_t is not None and self.state == "formation":
+            return
+        self.formation_t = t
+        self.formation_source = why
+        self.lap_offset = 1
+        self._set_state(t, "formation", why)
+        fcfg = self.v3.get("formation", {}) or {}
+        if not fcfg.get("voiced", True):
+            return
+        prov = [{"code": "LGOT" if why.startswith("LGOT") else "SCAR", "t_unix": round(t, 6)}]
+        total = self.w.total_laps or 0
+        facts = {"kind": "formation", "laps": _num_word(total) if total else None,
+                 "has_laps": bool(total)}
+        self.emit(Claim("FORMATION", CLASS_STATE, [], [], t, facts=dict(facts),
+                        provenance=prov, priority=96.0, hard=True, speaker="LEAD",
+                        max_age_key="state"))
+        self.emit(Claim("FORMATION_WHY", CLASS_STATE, [], [], t, facts=dict(facts),
+                        provenance=prov, priority=94.0, hard=True, speaker="ANALYST",
+                        max_age_key="state"))
+        self.log(">>> FORMATION LAP (%s) at %.3f" % (why, t))
+
+    def _formation_tick(self, t):
+        """Per lap-data tick: the session packet's formation flag (safety car
+        status 3) as a third way in; our drivers' grid once the field is
+        rolling; and the last resort -- a formation lap that never ends in
+        start lights (max_s) is taken as under way once the field has been at
+        racing speed, so the race is never missed."""
+        fcfg = self.v3.get("formation", {}) or {}
+        if not fcfg.get("enabled", True) or self.anchor_t is not None:
+            return
+        if self.state == "pre_start" and self.w.safety_car == 3 and not self.saw_stlg:
+            self._enter_formation(t, "session safety car status 3")
+            return
+        if self.state != "formation" or self.formation_t is None:
+            return
+        if not self._formation_grid_done and (t - self.formation_t) >= float(fcfg.get("grid_after_s", 14.0)):
+            self._formation_grid_done = True
+            self._formation_grid_line(t)
+        # the field forming up: the leader inside lineup_m of the line on the
+        # formation lap (lap distance runs up to zero at the grid), once,
+        # after the grid line, never in the first minute
+        if self._formation_grid_done and not getattr(self, "_formation_lineup_done", False) \
+                and (t - self.formation_t) >= 60.0:
+            li = self.leader_idx
+            if li is None:
+                bp = self.w.by_position()
+                li = bp[0].idx if bp else None
+            if li is not None:
+                ld = self.w.cars[li].lap_distance
+                if ld is not None and -float(fcfg.get("lineup_m", 500.0)) <= ld < 0:
+                    self._formation_lineup_done = True
+                    self.emit(Claim("FORMATION_LINEUP", CLASS_STATE, [], [], t,
+                                    facts={"kind": "formation_lineup"}, priority=90.0,
+                                    hard=True, speaker="ANALYST", max_age_key="state"))
+        # the last resort, two ways: the leader is on his second lap and well
+        # past the line (the counter cannot advance on the formation lap; on
+        # the grid after it the field sits within metres of the line), or the
+        # formation lap has run max_s with the field at racing speed
+        running = [c for c in self.w.cars if c.seen and c.position > 0 and c.result_status in (0, 2)]
+        lead = next((c for c in running if c.position == 1), None)
+        moved = (lead is not None and (t - self.formation_t) >= 30.0 and int(lead.lap or 0) >= 2
+                 and (lead.lap_distance or 0.0) > float(fcfg.get("under_way_m", 400.0))
+                 and self.w.safety_car != 3)
+        timed = False
+        if (t - self.formation_t) >= float(fcfg.get("max_s", 420.0)) and self.w.safety_car != 3:
+            over = [c for c in running if self.speeds.get(c.idx, 0) >= 120.0]
+            timed = bool(running) and len(over) >= max(1, int(round(0.5 * len(running))))
+        if moved or timed:
+            if True:
+                self.log(">>> formation lap ran %.0f s with no start lights: the race is under way (%s)"
+                         % (t - self.formation_t, "leader on lap two" if moved else "time and speed"))
+                self.anchor_t = t
+                self.anchor_source = "fallback_formation"
+                self.saw_lgot = True
+                self._set_state(t, "green", "formation fallback")
+                self.emit(Claim("START", CLASS_STATE, [], [], t, facts={"kind": "under_way"},
+                                provenance=[{"packet_id": PID_LAPDATA, "t_unix": round(t, 3)}],
+                                priority=100.0, hard=True))
+
+    def _formation_grid_line(self, t):
+        """'Our drivers on the grid: Dustin third, Mike fifth, Alex ninth.'
+        Humans with a grid or current position, in grid order, up to four."""
+        rows = []
+        for c in self.w.cars:
+            if not (c.seen and c.is_human and c.name_resolved):
+                continue
+            g = c.grid if (c.grid or 0) > 0 else c.position
+            if g and g > 0:
+                rows.append((g, c.idx))
+        if not rows:
+            return
+        rows.sort()
+        rows = rows[:4]
+        names = [self._name(i) for _g, i in rows]
+        parts = ["%s %s" % (self._name(i), _ordinal_word(g)) for g, i in rows]
+        facts = {"kind": "formation_grid", "list": _join_words(parts),
+                 "count": len(rows), "one": len(rows) == 1,
+                 "a": names[0], "pos": _ordinal_word(rows[0][0])}
+        self.emit(Claim("FORMATION_GRID", CLASS_STATE, [i for _g, i in rows], names, t,
+                        facts=facts, priority=90.0, hard=True, speaker="LEAD",
+                        max_age_key="state"))
+
     def _on_scar(self, t, info):
         sc_type = info.get("sc_type")
         event_type = info.get("event_type")
         prov = [{"code": "SCAR", "t_unix": round(t, 6)}]
         if sc_type == 3:
-            # formation safety car: state only, never voiced.
+            # formation safety car: the formation lap (V9.23: now voiced once,
+            # through _enter_formation, whichever signal arrives first).
             if self.state in self._DONE_STATES:
                 self._new_race(t, "formation lap")
             if self.state == "pre_start":
-                self._set_state(t, "formation", "SCAR type 3")
+                self._enter_formation(t, "SCAR type 3")
             return
         if sc_type == 0 and event_type == 3:
             # "resume race" with no safety car: recorded, never voiced.
@@ -6537,6 +6700,7 @@ class RaceModel:
             self.first_lapdata_t = t
         self._session_guard(t)
         self._maybe_fresh_grid(t)
+        self._formation_tick(t)            # V9.23
         self._maybe_fallback_anchor(t)
         # sample positions and lifecycle from lap data
         leader = None
@@ -6889,7 +7053,7 @@ class RaceModel:
         # night. A final lap needs a race of at least two laps, and if the
         # lap count grows after the latch, the race is green again.
         if self.state == "final_lap" and leader is not None and tl >= 2 \
-                and self.w.cars[leader].lap < tl and self.leader_finish_t is None:
+                and self.racing_lap(self.w.cars[leader]) < tl and self.leader_finish_t is None:
             self._set_state(t, "green", "lap count grew to %d" % tl)
             return
         if self.state != "green":
@@ -6899,8 +7063,10 @@ class RaceModel:
         if getattr(self.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
             return
         c = self.w.cars[leader]
-        # racing laps counted from the anchor lap; approximate with lap number
-        if c.lap >= tl:
+        # V9.23: racing laps, not the game's counter (the formation lap is
+        # lap 1 to the game, so the final lap would have been called a lap
+        # early)
+        if self.racing_lap(c) >= tl:
             self._set_state(t, "final_lap", "leader last lap")
 
     def _leader_finish(self, t, idx):
@@ -7120,7 +7286,7 @@ class RaceModel:
         lead = self.w.car_at_position(1)
         if total <= 0 or lead is None or lead.lap <= 0:
             return None
-        done = max(0, min(total, lead.lap))
+        done = max(0, min(total, self.racing_lap(lead)))
         return Claim("LULL_DISTANCE", CLASS_FILLER, [], [], t,
                      facts={"laps": _num_word(done),
                             "remaining": _num_word(max(0, total - done))},
@@ -7395,12 +7561,16 @@ KIND_PLACEHOLDERS = {
     "LULL_PROGRESS": {"a", "places"},
     # 09 OCT: finished lines from the interview and lore ingests
     "LULL_INTERVIEW": {"a", "line"}, "LULL_LORE": {"line"},
+    # V9.23 (21 OCT): the formation lap
+    "FORMATION": {"laps"}, "FORMATION_WHY": {"laps"},
+    "FORMATION_GRID": {"list", "a", "pos", "count"}, "FORMATION_LINEUP": set(),
 }
 
 # F2: kinds allowed to consist only of fallback (subject-less) variants. A
 # race can end with no leader ever established, so RACE_END may fall back to a
 # subject-less line as its only satisfiable form.
-SUBJECT_OPTIONAL_KINDS = {"RACE_END", "LIGHTS_ON"}
+SUBJECT_OPTIONAL_KINDS = {"RACE_END", "LIGHTS_ON", "FORMATION", "FORMATION_WHY",
+                          "FORMATION_GRID", "FORMATION_LINEUP"}
 
 # Minimum variant floors (B-3). Below the floor is a load-time error.
 MIN_VARIANTS = {
@@ -7433,8 +7603,15 @@ class WordsFile:
         self._rot = {}
         self._validate()
 
+    # V9.23: kinds a words file may leave out (the V3 file predates them);
+    # the model only emits them when the V4 file is loaded
+    OPTIONAL_KINDS = ("FORMATION", "FORMATION_WHY", "FORMATION_GRID", "FORMATION_LINEUP")
+
     def _validate(self):
         required = dict(KIND_PLACEHOLDERS)
+        for k in self.OPTIONAL_KINDS:
+            if k not in self.kinds:
+                required.pop(k, None)
         # V4: a words file that declares "stories" carries one kind per story
         # row plus S_RELATE; each may use the story placeholder superset.
         if self.kinds and any(k.startswith(STORY_KIND_PREFIX) for k in self.kinds):
@@ -8351,6 +8528,12 @@ class V3Booth:
                 ctx["pos"] = _ordinal_word(rp)
         elif k in ("LULL_INTERVIEW", "LULL_LORE"):
             ctx["line"] = f.get("line")
+        elif k.startswith("FORMATION"):
+            # V9.23: the formation lap lines carry their own fill
+            ctx.update({kk: vv for kk, vv in f.items()
+                        if kk in ("laps", "list", "a", "pos", "count") and vv is not None})
+            fv["has_laps"] = bool(f.get("has_laps"))
+            fv["one"] = bool(f.get("one"))
         elif k.startswith("LOBBY_") or k.startswith("TS_") or k == "GIVERS_ROLL":
             # V8.24: the lobby lines carry their own fill and facts view
             ctx.update({kk: vv for kk, vv in (f.get("display") or {}).items() if vv is not None})
@@ -8537,6 +8720,43 @@ class V3Booth:
         except Exception:
             pass
 
+    # ---- V9.23 (21 OCT): the state calls cut in -------------------------------
+    _PREEMPT_KINDS = ("SAFETY_CAR", "VSC", "RED_FLAG", "START", "RESTART")
+
+    def _preempt_for_state(self, t):
+        """The 21 OCT race test: the safety car was called twelve seconds after
+        it was deployed because a retirement passage was still playing. A
+        state call (safety car, VSC, red flag, the start, a restart) waiting
+        in the queue while a line that is not itself a state call has more
+        than preempt_min_left_s to run hushes that line and takes the
+        channel. v3.preempt.enabled turns it off."""
+        pc = self.cfg.get("v3", "preempt", default=None)
+        if pc is None:
+            pc = {}
+        if not pc.get("enabled", True):
+            return
+        if self.channel_busy_until <= t + 1e-9:
+            return
+        waiting = [c for c in self.queue if c.kind in self._PREEMPT_KINDS and c.hard]
+        if not waiting:
+            return
+        last = self.emitted[-1] if self.emitted else None
+        if last is not None and last.get("kind") in self._PREEMPT_KINDS:
+            return                           # never cut one state call for another
+        left = self.channel_busy_until - t
+        if left < float(pc.get("min_left_s", 1.5)):
+            return
+        if self.speech is not None:
+            try:
+                self.speech.hush()
+            except Exception:
+                pass
+        self.channel_busy_until = t
+        self._last_air_end = t
+        self.counter_preempts = getattr(self, "counter_preempts", 0) + 1
+        self.model.log(">>> %s cuts in: %.1f s of %r hushed" % (
+            waiting[0].kind, left, (last or {}).get("kind")))
+
     # ---- per-tick scheduling ------------------------------------------------
     def _new_race_check(self, t):
         n = len(getattr(self.model, "new_races", []) or [])
@@ -8583,6 +8803,7 @@ class V3Booth:
         self._submit_sweep(t)          # V8.13: requests for the front of the queue
         if self._session_colour(t):    # V8.17: the quiet sessions get colour
             return
+        self._preempt_for_state(t)     # V9.23: a safety car call does not queue
         while True:
             if self.channel_busy_until > t + 1e-9:
                 return
@@ -12973,12 +13194,14 @@ class V3Gallery:
         return m
 
     def _lap_now(self):
+        """The leader's racing lap (V9.23: less the formation lap when one ran)."""
         li = self.model.leader_idx
         w = self.model.w
+        off = getattr(self.model, "lap_offset", 0)
         if li is not None:
-            return w.cars[li].lap
+            return max(0, w.cars[li].lap - off)
         bp = w.by_position()
-        return bp[0].lap if bp else 0
+        return max(0, bp[0].lap - off) if bp else 0
 
     def _score(self, c):
         """Standing score for one running on-track car, ported from the tuned
@@ -14795,11 +15018,13 @@ class StoryEngine:
         return total
 
     def lap_now(self):
+        """The leader's racing lap (V9.23: less the formation lap when one ran)."""
         li = self.model.leader_idx
+        off = getattr(self.model, "lap_offset", 0)
         if li is not None:
-            return self.w.cars[li].lap
+            return max(0, self.w.cars[li].lap - off)
         bp = self.w.by_position()
-        return bp[0].lap if bp else 0
+        return max(0, bp[0].lap - off) if bp else 0
 
     def laps_total(self):
         return self.w.total_laps or 0

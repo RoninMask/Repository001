@@ -6038,6 +6038,123 @@
           "present": "{a} cannot get closer to {b}, and {b} cannot get away. {gap}, lap after lap."
         }
       ]
+    },
+    "FORMATION": {
+      "_about": "V9.23 (21 OCT): the formation lap is released. Never a race start.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_laps": true
+          },
+          "present": "Away on the formation lap. This is not the start. {laps} laps of racing begin when the lights go out."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "has_laps": true
+          },
+          "present": "The field rolls away on the formation lap. One lap at reduced speed, then back to the grid for the start proper, {laps} laps."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Formation lap under way. Nobody is racing yet. They come round once, line up on the grid, and then it is lights out."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "And they are rolling, but this is the formation lap, not the race. One lap, back to the grid, and then the real thing."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Here they go on the formation lap. Hold the excitement for a minute or two, the start comes when they are back on the grid."
+        }
+      ]
+    },
+    "FORMATION_WHY": {
+      "_about": "V9.23: the analyst explains the formation lap for the viewer.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "present": "The formation lap is a warm-up lap. The drivers weave to get heat into the tyres and brake hard to get temperature into the brakes, because a cold car off the line is a slow car, and a slow car at turn one gets swallowed."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "What they are doing out there is building temperature. Weaving for the tyres, hard on the brakes for the discs, and a final check of the clutch. Then they file back onto their grid slots and wait for five red lights."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "This lap is about the tyres. A warm tyre grips, a cold one skates, so they weave and brake all the way round. The order cannot change on a formation lap. They line up exactly as they qualified."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Think of it as the sighting lap. Tyres and brakes up to temperature, a look at the track, and no overtaking allowed. The race starts from a standing start once everyone is back in position."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "No positions change here. They warm the tyres and brakes, form up on the grid in qualifying order, and then the lights sequence begins. Five reds, lights out, race."
+        }
+      ]
+    },
+    "FORMATION_GRID": {
+      "_about": "V9.23: our drivers' grid slots, read during the formation lap.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": false
+          },
+          "present": "Our drivers on the grid tonight: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": false
+          },
+          "present": "Where our drivers start: {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": false
+          },
+          "present": "The grid for the league drivers reads {list}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true
+          },
+          "present": "{a} is our driver in this one, and he starts {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "one": true
+          },
+          "present": "One league driver on the grid tonight, {a}, starting {pos}."
+        }
+      ]
+    },
+    "FORMATION_LINEUP": {
+      "_about": "V9.23: the field forming up on the grid at the end of the formation lap.",
+      "variants": [
+        {
+          "speaker": "ANALYST",
+          "present": "They are forming up on the grid now. Into the slots, engines held, and the lights come next."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "Back to the grid, and the field files into position. Watch for the five red lights."
+        },
+        {
+          "speaker": "ANALYST",
+          "present": "The formation lap is nearly done. Everyone into their grid box, and then it is the start for real."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Here comes the field back to the grid. Stand by for the lights."
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."

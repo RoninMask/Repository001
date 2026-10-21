@@ -784,7 +784,8 @@
       "enabled": true,
       "start": 0.5,
       "laps_frac": 0.5,
-      "first_racing_lap": 2
+      "first_racing_lap": 1,
+      "_v9_23": "first_racing_lap 2 -> 1: lap numbers are racing laps now (the formation lap is subtracted by the model), in every lobby"
     },
     "start_window": {
       "_about": "V8.3 (09 OCT): from lights out until the leader is frac of the way round his first racing lap (or max_s), the camera stays with the lead group (cuts only inside the top three) and the booth speaks only the lead, the podium, the humans' launch, and a crash as one line; contact and penalties off the front are held and expire. fallback_s applies when the track length is unknown.",
@@ -835,6 +836,15 @@
       "_about": "V8.7 (league night 09 OCT): a start-lights event inside stlg_after_lgot_s of lights out is the same start (the game repeats it; it put the booth back into the silent start sequence for whole races); a lights-out event inside lgot_repeat_s is a repeat, not a restart",
       "stlg_after_lgot_s": 30.0,
       "lgot_repeat_s": 30.0
+    },
+    "formation": {
+      "_about": "V9.23 (21 OCT race test): the game sends LIGHTS OUT when the formation lap is released, with no start lights before it; it was called as the start. A race now starts only on start lights followed by lights out. A lights-out with no lights before it (lgot_without_lights), the formation safety car (SCAR type 3) or session safety-car status 3 opens the formation lap: the lead names it (FORMATION), the analyst explains it (FORMATION_WHY), our drivers' grid is read grid_after_s in (FORMATION_GRID), the field forming up is called inside lineup_m of the line (FORMATION_LINEUP). The lap offset makes the first racing lap lap one. A formation lap that never ends in start lights is taken as under way after max_s with the field at speed. enabled: false restores V9.21 (lights-out always starts the race).",
+      "enabled": true,
+      "voiced": true,
+      "lgot_without_lights": true,
+      "grid_after_s": 14.0,
+      "lineup_m": 500.0,
+      "max_s": 420.0
     },
     "session_gate": {
       "_about": "V8.7: outside a race session the booth is quiet (practice at 21:36 on league night was called as a race's final lap for 21 minutes)",
