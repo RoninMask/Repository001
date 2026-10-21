@@ -352,7 +352,7 @@
   },
   "REL-01": {
    "serious_pct": 30.0,
-   "heavy_pct": 60.0,
+   "heavy_pct": 80.0,
    "slow_s": 0.8,
    "slow_max_s": 4.0,
    "humans_only": true,
@@ -2656,7 +2656,7 @@
    "anchor": "relate",
    "base": 40,
    "build": "V3-P1",
-   "camera": "optional",
+   "camera": "request",
    "cause_required": "yes",
    "cluster": false,
    "decay_per_lap": 0.05,

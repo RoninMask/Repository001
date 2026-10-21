@@ -559,7 +559,8 @@
         "finish_cycle": {
           "enabled": true,
           "laps": 2,
-          "priority": 79,
+          "priority": 82,
+          "_v9_23": "priority 79 -> 82: V9.21 raised booth_focus to 80, which silently beat the finish cycle on 21 OCT (it never ran). Above booth_focus (80) and the pit stop (78), below collision_human (85) and the podium shots (93+).",
           "base_front_s": 14.0,
           "base_mid_s": 10.0,
           "base_back_s": 6.0,
@@ -870,6 +871,7 @@
         "TIMETRIAL"
       ],
       "allow_in_quiet": [
+        "S_REL_01",
         "S_INC_01",
         "S_INC_02",
         "S_INC_05",

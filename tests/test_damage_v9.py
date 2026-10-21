@@ -94,7 +94,8 @@ class Damage(unittest.TestCase):
         self.assertNotIn("%", str(c.facts["display"]))
         words = v.WordsFile(os.path.join(REPO, "hoover_words_v4.json"))
         sp, text, key = words.select("S_REL_01", {"a": "Dustin", "pos": "second"},
-                                     {"beat": "damaged", "heavy": False, "human": True}, past=False)
+                                     {"beat": "damaged", "heavy": False, "human": True,
+                                      "session": "RACE"}, past=False)   # V9.23: wording per session
         self.assertNotIn("percent", text.lower())
         self.assertIn("front wing", text.lower())
 

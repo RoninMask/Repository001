@@ -1537,7 +1537,7 @@
           "when": {
             "beat": "reaction"
           },
-          "present": "Kenny, you've gone very quiet.",
+          "present": "Helen, you've gone very quiet.",
           "once": true,
           "register": "humor",
           "then": {
@@ -2311,7 +2311,7 @@
           "when": {
             "beat": "reaction"
           },
-          "present": "Kenny, you've gone very quiet.",
+          "present": "Helen, you've gone very quiet.",
           "once": true,
           "register": "humor",
           "then": {
@@ -5831,7 +5831,56 @@
           "speaker": "LEAD",
           "when": {
             "beat": "damaged",
-            "heavy": true
+            "heavy": true,
+            "session": "RACE"
+          },
+          "present": "{a} has lost the front wing! The whole nose is gone, and that car is going to be a handful until he can change it.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "No front wing means no front grip. He will be understeering into every corner, and the lap time is going to fall off a cliff. The only real fix is a stop for a new nose."
+            }
+          ]
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "damaged",
+            "heavy": true,
+            "session": "RACE"
+          },
+          "present": "Big damage for {a}: the front wing is gone. That is a new nose or a very long afternoon.",
+          "then": [
+            {
+              "speaker": "ANALYST",
+              "text": "He can try to carry it, but every lap on a broken front end costs seconds and eats the front tyres. Watch for him to dive into the pits."
+            }
+          ]
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "damaged",
+            "heavy": true,
+            "session": "PRACTICE"
+          },
+          "present": "{a} has taken the front wing off. In practice that is a trip to the garage, and a reset of whatever he was working on."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "damaged",
+            "heavy": true,
+            "session": "QUALI"
+          },
+          "present": "{a} has lost the front wing in qualifying. That is the lap gone, and the clock is running while they fit a new nose."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "damaged",
+            "heavy": true,
+            "session": "RACE"
           },
           "present": "{a} has lost most of the front wing. That is a pit stop, or slow laps, or both.",
           "then": [
@@ -5845,7 +5894,8 @@
           "speaker": "LEAD",
           "when": {
             "beat": "damaged",
-            "heavy": false
+            "heavy": false,
+            "session": "RACE"
           },
           "present": "Front wing damage for {a}, and it is a proper chunk. That is a pit stop, or slow laps, or both.",
           "then": [
@@ -5858,42 +5908,48 @@
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "damaged"
+            "beat": "damaged",
+            "session": "RACE"
           },
           "present": "{a} is carrying front wing damage, and plenty of it. Watch his lap times from here."
         },
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "slow"
+            "beat": "slow",
+            "session": "RACE"
           },
           "present": "And it is costing {a}: {delta} a lap slower than he was before the damage."
         },
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "slow"
+            "beat": "slow",
+            "session": "RACE"
           },
           "present": "The damage is showing now. {a} is {delta} a lap off his own pace."
         },
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "in_for_nose"
+            "beat": "in_for_nose",
+            "session": "RACE"
           },
           "present": "{a} is in for a new front wing."
         },
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "in_for_nose"
+            "beat": "in_for_nose",
+            "session": "RACE"
           },
           "present": "{a} comes in. New nose, fresh tyres, and a lot of track position to win back."
         },
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "new_nose"
+            "beat": "new_nose",
+            "session": "RACE"
           },
           "present": "{a} is back out on a new front wing."
         },
@@ -5908,9 +5964,68 @@
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "new_nose"
+            "beat": "new_nose",
+            "session": "RACE"
           },
           "present": "{a} on the new wing now. The car should feel like a different thing."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "damaged",
+            "heavy": false,
+            "session": "PRACTICE"
+          },
+          "present": "Front wing damage for {a}. In practice that is a trip back to the garage and a lost run."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "damaged",
+            "heavy": false,
+            "session": "QUALI"
+          },
+          "present": "{a} has damaged the front wing, and in qualifying that is time he cannot get back while they fix it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "in_for_nose",
+            "session": "PRACTICE"
+          },
+          "present": "{a} is in for a new front wing. Practice time ticking away while they fit it."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "in_for_nose",
+            "session": "QUALI"
+          },
+          "present": "{a} is in for a new nose, and every second in the garage is a second off the clock."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "new_nose",
+            "session": "QUALI"
+          },
+          "present": "{a} is back out on a new front wing. Now he needs a clean lap, fast."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "slow",
+            "session": "PRACTICE"
+          },
+          "present": "{a} is {delta} a lap off his own pace with that damage. Not much to learn from laps like that."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "slow",
+            "session": "QUALI"
+          },
+          "present": "The damage is costing {a} {delta} a lap, and in qualifying that is the difference between rows."
         }
       ]
     },
