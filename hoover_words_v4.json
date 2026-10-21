@@ -6601,7 +6601,7 @@
             "stopped": false,
             "quiet": true
           },
-          "present": "{a} has hit the wall! A heavy impact, and that run is over."
+          "present": "{a} has hit the wall! A heavy impact. Let us see if the car is still in one piece."
         },
         {
           "speaker": "LEAD",

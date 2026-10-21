@@ -6239,8 +6239,13 @@ class RaceModel:
         # start lights and lights out and flips to "race" only afterwards
         # (12:43 capture), so a start-lights event declares the race.
         quiet = (self.v3.get("session_gate", {}) or {}).get("quiet_kinds")
+        # V9.24 (21 OCT test): the formation lap's lights-out arrived 0.3 s
+        # before the session packet turned from QUALI to RACE; the formation
+        # call and its explainer were dropped as 'quiet session'. A formation
+        # lap is a race whatever the session packet says yet.
         if quiet and getattr(self.w, "session_kind", "RACE") in quiet \
-                and not self.saw_stlg and not self.saw_lgot:
+                and not self.saw_stlg and not self.saw_lgot \
+                and s not in ("formation", "start_sequence"):
             # V9.14 (19 OCT): a human's incident is news in any session. The
             # rows in session_gate.allow_in_quiet (contact, off, crash,
             # pile-up) pass when a human is in them; the race-state logic
@@ -6363,6 +6368,8 @@ class RaceModel:
                 # off means this lights-out IS the start (the lights were
                 # missed); on or unknown means the formation lap
                 setting = self._formation_setting()
+                if getattr(self.w, "session_kind", None) != "RACE":
+                    setting = None   # V9.24: the last session's packet is not the race's setting
                 if self.state == "pre_start" and fcfg.get("lgot_without_lights", True) \
                         and (self.w.safety_car == 3 or setting is None or setting):
                     self._enter_formation(t, "LGOT without lights")
@@ -9883,10 +9890,14 @@ class V3Booth:
         # 07 OCT: a per-kind minimum interval that even a forced coverage lull
         # honours (v3.lull.kind_min_s), so a short floor does not read the
         # weather every repetition window. The 3 C swing below still bypasses.
-        if not desperate:
-            for k, mn in (self.lull_kind_min or {}).items():
-                if k in self._lull_kind_times and (t - self._lull_kind_times[k]) < mn:
-                    avoid.add(k)
+        for k, mn in (self.lull_kind_min or {}).items():
+            # V9.24 (21 OCT test: '29 degrees' four times in four minutes
+            # behind the safety car): the weather's minimum holds even past
+            # hard_silence_s -- the same number again is worse than silence
+            if desperate and k != "LULL_WEATHER":
+                continue
+            if k in self._lull_kind_times and (t - self._lull_kind_times[k]) < mn:
+                avoid.add(k)
             # V8.1 (09 OCT live run): the first thing the booth said was the
             # track temperature. Some fillers have no place in the opening
             # minutes of a race, whatever the silence.
