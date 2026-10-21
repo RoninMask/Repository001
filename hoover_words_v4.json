@@ -3590,16 +3590,34 @@
         {
           "speaker": "LEAD",
           "when": {
-            "beat": "rolling"
+            "beat": "rolling",
+            "formation": true
           },
           "present": "Away on the formation lap."
         },
         {
           "speaker": "ANALYST",
           "when": {
-            "beat": "rolling"
+            "beat": "rolling",
+            "formation": true
           },
           "present": "Formation lap. Tyres and brakes up to temperature, and then it is on."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "rolling",
+            "formation": false
+          },
+          "present": "The field is on the grid. No formation lap this time, so the lights are next."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "rolling",
+            "formation": false
+          },
+          "present": "Everyone in their grid box, engines up. A standing start from here, and the first corner decides a lot."
         }
       ]
     },

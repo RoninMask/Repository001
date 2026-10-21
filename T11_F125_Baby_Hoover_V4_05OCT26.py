@@ -6031,6 +6031,7 @@ class RaceModel:
         self.winner_call = None       # V8.14: what the WINNER line said at the flag
         self.ended_without_finish_t = None
         self.final_classification = None
+        self.final_classification_kind = None
         self.final_classification_t = None
         self._fc_first_t = None
         self._fc_ignored_logged = False
@@ -6127,6 +6128,7 @@ class RaceModel:
         self.winner_call = None       # V8.14: what the WINNER line said at the flag
         self.ended_without_finish_t = None
         self.final_classification = None
+        self.final_classification_kind = None
         self.final_classification_t = None
         self._fc_first_t = None
         self._fc_ignored_logged = False
@@ -6775,6 +6777,7 @@ class RaceModel:
         if self.first_lapdata_t is None:
             self.first_lapdata_t = t
         self._session_guard(t)
+        self._maybe_session_change(t)      # V9.24
         self._maybe_fresh_grid(t)
         self._formation_tick(t)            # V9.23
         pend = getattr(self, "_sc_restart_pending", None)
@@ -6906,6 +6909,26 @@ class RaceModel:
 
     def _session_guard(self, t):
         pass   # single-session replay: guard handled by the run loop's opener
+
+    def _maybe_session_change(self, t):
+        """V9.24 (21 OCT, qualifying into the race in one run): when the
+        session packet turns from a classified qualifying (or practice) to the
+        race, the race is a new race at once -- not when its grid is seen
+        standing or its lights fire. Until then the model sat in 'classified'
+        with the session reading RACE, and the race finish programme read the
+        qualifying classification as a podium ('Your podium: ... wins it')."""
+        kind = getattr(self.w, "session_kind", None)
+        prev = getattr(self, "_session_kind_seen", None)
+        if kind and kind != "UNKNOWN":
+            self._session_kind_seen = kind
+        if prev and kind and kind != "UNKNOWN" and kind != prev:
+            self.session_changes = getattr(self, "session_changes", []) + [
+                {"t_unix": round(t, 6), "from": prev, "to": kind}]
+            self.log(">>> SESSION CHANGE %s -> %s at %.3f" % (prev, kind, t))
+            self.speeds = {}            # the last session's speeds are not this one's grid
+            self._fallback_since = None
+            if kind == "RACE" and self.state in self._DONE_STATES:
+                self._new_race(t, "session change %s -> RACE" % prev)
 
     def _maybe_fresh_grid(self, t):
         """V8.1: after a classification the next race's grid appears on the
@@ -7246,6 +7269,7 @@ class RaceModel:
             self.result_aired_pos.clear()
             return
         self.final_classification = fc
+        self.final_classification_kind = getattr(self.w, "session_kind", "RACE") or "RACE"   # V9.24
         self.final_classification_t = t
         if first_t is None:
             self._fc_first_t = t
@@ -8888,6 +8912,12 @@ class V3Booth:
             self._new_races_seen = n
             self._winner_named = False
             self._lights_cleared = False
+            # V9.24: nothing queued in the session that ended airs in the new
+            # one (a qualifying winner / result line still inside its 60 s life)
+            nr = self.model.new_races[-1]
+            for c in list(self.queue):
+                if c.t_create < nr - 1e-6:
+                    self._drop(c, "new_race", t)
 
     def _lights(self, t):
         """V8: from the first start light to lights out the booth is silent.
@@ -18569,7 +18599,14 @@ class P_SF_02(StoryProcessor):
                 rec = self.open(t, humans, fields={"grid": grid, "notes": notes,
                                                    "pos_at_open": _pos_map(eng, humans)},
                                 phase="rolling")
-                self.beat(t, rec, "transition", "rolling", ctx={})
+                # V9.24: on the formation lap the FORMATION lines speak (V9.23);
+                # on a standing grid (no formation lap) the line says the grid,
+                # never "away on the formation lap"
+                fvoiced = ((m.v3.get("formation", {}) or {}).get("voiced", True)
+                           and (m.v3.get("formation", {}) or {}).get("enabled", True))
+                if not (m.state == "formation" and fvoiced):
+                    self.beat(t, rec, "transition", "rolling", ctx={},
+                              view={"formation": m.state == "formation"})
         elif rec is not None:
             self.close(t, rec, "lights")
 
@@ -18795,6 +18832,9 @@ class P_SF_07(StoryProcessor):
             return
         if getattr(m.w, "session_kind", "RACE") not in ("RACE", "UNKNOWN"):
             return                      # V9.21: a qualifying classification is a grid, not a result
+        if m.final_classification is not None and \
+                (getattr(m, "final_classification_kind", None) or "RACE") not in ("RACE", "UNKNOWN"):
+            return                      # V9.24: nor when the session has since turned to RACE
         self._podium(t)
         # best human: once every human has a finish position (or the field is
         # classified). V3's WINNER/RESULT/CORRECTION keep their own lines.
