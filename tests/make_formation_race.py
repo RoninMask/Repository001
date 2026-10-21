@@ -16,6 +16,9 @@ modes:  formation      (default) LGOT, formation lap, STLG x5, LGOT, 5 laps, fin
                        resume race), restart, finish
         vsc            plain start, VSC on lap 2, ends, finish
         sc_finish      plain start, safety car on the last lap, the race finishes behind it
+        wall           plain start with car telemetry; Ronin (car 7) hits a wall on lap 2
+                       (250 -> 5 kph in a second, stopped 3 s, going again), PuRe (car 11)
+                       stops dead on lap 3 and stays stopped
 Deterministic.
 """
 import json, os, struct, sys
@@ -81,7 +84,8 @@ def lapdata_body(order, lap, lap_dist, grid, finished):
 def build(path, mode="formation"):
     order = list(range(20))
     grid = {idx: order.index(idx) + 1 for idx in order}
-    formation = mode not in ("plain", "sc", "vsc", "sc_finish")
+    formation = mode not in ("plain", "sc", "vsc", "sc_finish", "wall")
+    telem = mode == "wall"
     sc_mode = mode in ("sc", "vsc", "sc_finish")
     sc_type = 2 if mode == "vsc" else 1
     FORM_TICKS = 200 if formation else 0          # 100 s formation lap
@@ -146,6 +150,23 @@ def build(path, mode="formation"):
                     rec(t, PID_EVENT, event("SCAR", bytes([sc_type, 2]) + b"\x00" * 10))
                 if rt == res:
                     rec(t, PID_EVENT, event("SCAR", bytes([0, 3]) + b"\x00" * 10))
+            # car telemetry (mode wall): everyone at 250 kph once racing; the crashes
+            if telem:
+                body = bytearray(1352 - HEADER_SIZE)
+                for i in range(20):
+                    v = 250 if tick >= go else (0 if tick < form_start else 180)
+                    rt = tick - go
+                    if i == 7 and tick >= go:                 # Ronin: wall on lap 2
+                        if TPL + 20 <= rt < TPL + 22:
+                            v = 120
+                        elif TPL + 22 <= rt < TPL + 28:
+                            v = 5
+                        elif TPL + 28 <= rt < TPL + 40:
+                            v = 80
+                    if i == 11 and tick >= go and rt >= TPL * 2 + 10:   # PuRe: stops for good
+                        v = 0 if rt >= TPL * 2 + 12 else 60
+                    struct.pack_into("<H", body, i * 60, int(v))
+                rec(t, 6, bytes(body))
             # events
             if formation and tick == form_start and mode != "sc3":
                 rec(t, PID_EVENT, event("LGOT", b"\x00" * 12))

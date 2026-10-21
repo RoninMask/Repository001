@@ -871,6 +871,7 @@
         "TIMETRIAL"
       ],
       "allow_in_quiet": [
+        "S_INC_07",
         "S_REL_01",
         "S_INC_01",
         "S_INC_02",

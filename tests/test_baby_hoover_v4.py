@@ -148,7 +148,7 @@ class TestEngineOnFixtures(unittest.TestCase):
                 self.assertTrue(os.path.exists(p + "_story_timeline.txt"))
                 m = json.load(open(p + "_manifest.json"))
                 st = m["stories"]
-                self.assertEqual(len(st["processors"]), 38)   # V9.21: BAT-02/04/05/06 joined (engine.enabled_rows)
+                self.assertEqual(len(st["processors"]), 39)   # V9.21: BAT-02/04/05/06 joined; V9.23: INC-07 (impact)
                 self.assertIn("hold_time_on_humans_pct", st["metrics"])
                 self.assertIn("story_lines_with_human_subject_or_anchor_pct", st["metrics"])
                 # every stories-file line parses and carries the schema keys

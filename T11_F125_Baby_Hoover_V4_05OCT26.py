@@ -14253,7 +14253,7 @@ STORY_GROUP_CLASS = {
 
 # Rows whose beats need a content class other than their group's default:
 # HUM-08 speaks pre-start (state class passes the start gate); SF-07 is result.
-STORY_CLASS_OVERRIDE = {"HUM-08": CLASS_STATE, "SF-07": CLASS_RESULT,
+STORY_CLASS_OVERRIDE = {"HUM-08": CLASS_STATE, "SF-07": CLASS_RESULT, "INC-07": CLASS_LIFECYCLE,
                         "SF-01": CLASS_STATE, "DEV-06": CLASS_LIFECYCLE}
 
 
@@ -17849,6 +17849,137 @@ class P_INC_02(StoryProcessor):
 
 
 @story_processor
+class P_INC_07(StoryProcessor):
+    """INC-07 Impact (V9.23, 21 OCT). The game sends no event for a car
+    hitting a wall on its own, and the off-track row needs the wheels on
+    gravel; Dustin's wall in qualifying was never called, Mike's late and
+    light. A human's car losing a lot of speed in a moment, or its damage
+    jumping while it slows, or sitting stopped out on the road, is an
+    impact: the lead snaps to it at once (must-call, the camera on him, a
+    big-moment voice), the analyst follows with the consequence a few
+    seconds later -- going again and what it cost, or still stopped. Any
+    session. v3 story row INC-07; params below. Restricted drivers (private
+    telemetry) read no speed and are skipped. enabled: false turns it off."""
+    ID = "INC-07"
+
+    def __init__(self, engine):
+        StoryProcessor.__init__(self, engine)
+        self._hist = {}        # idx -> [(t, kph)]
+        self._dmg = {}         # idx -> [(t, damage sum)]
+        self._last = {}        # idx -> t of the last impact call
+        self._pending = {}     # idx -> (rec, t_impact, pos_before)
+
+    def _damage_sum(self, idx):
+        ext = getattr(self.eng.w, "ext", None)
+        if ext is None:
+            return None
+        d = ext.car_field("damage", idx)
+        if not d:
+            return None
+        try:
+            return float(sum(float(d.get(k) or 0) for k in
+                             ("fl_wing", "fr_wing", "rear_wing", "floor", "diffuser", "sidepod")))
+        except (TypeError, ValueError):
+            return None
+
+    def observe(self, t):
+        eng = self.eng
+        m = eng.model
+        if not self.p("enabled", True):
+            return
+        kind = getattr(eng.w, "session_kind", "RACE") or "RACE"
+        quiet = kind in ("PRACTICE", "QUALI", "TIMETRIAL")
+        if not quiet and m.state not in ("green", "final_lap", "safety_car", "vsc"):
+            return
+        ext = getattr(eng.w, "ext", None)
+        win = float(self.p("window_s", 1.5))
+        drop_kph = float(self.p("drop_kph", 100.0))
+        low = float(self.p("low_kph", 40.0))
+        dmg_jump = float(self.p("dmg_jump", 15.0))
+        dmg_drop = float(self.p("dmg_drop_kph", 40.0))
+        stopped_kph = float(self.p("stopped_kph", 15.0))
+        stopped_s = float(self.p("stopped_s", 2.0))
+        prior = float(self.p("prior_kph", 100.0))
+        conseq = float(self.p("conseq_s", 4.0))
+        cooldown = float(self.p("cooldown_s", 20.0))
+        for c in eng.w.cars:
+            if not c.seen or c.position <= 0 or not c.is_human or not c.name_resolved:
+                continue
+            if ext is not None and ext.restricted(c.idx):
+                continue
+            sp = float((m.speeds or {}).get(c.idx, 0.0) or 0.0)
+            h = self._hist.setdefault(c.idx, [])
+            h.append((t, sp))
+            while h and t - h[0][0] > 8.0:
+                h.pop(0)
+            ds = self._damage_sum(c.idx)
+            dh = self._dmg.setdefault(c.idx, [])
+            if ds is not None:
+                dh.append((t, ds))
+                while dh and t - dh[0][0] > 4.0:
+                    dh.pop(0)
+            # the consequence of a call already made
+            pend = self._pending.get(c.idx)
+            if pend is not None:
+                rec, t0, pos0 = pend
+                if t - t0 >= conseq:
+                    self._pending.pop(c.idx, None)
+                    moving = sp >= float(self.p("going_kph", 30.0))
+                    lost = max(0, (c.position or pos0) - pos0) if pos0 else 0
+                    out = m.is_retired(c.idx)
+                    if out:
+                        self.close(t, rec, "out")
+                        continue
+                    rec.phase = "going" if moving else "stopped"
+                    rec.fields["places"] = lost
+                    self.beat(t, rec, "transition", rec.phase,
+                              ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position),
+                                   "places": _places_word(lost) if lost else None},
+                              view={"human": True, "lost": lost > 0, "quiet": quiet},
+                              numbers={"places": lost}, must=True, speaker="ANALYST")
+                    self.close(t, rec, rec.phase)
+                continue
+            if c.pit_status or m.is_retired(c.idx) or c.idx in m.finish_t:
+                continue
+            if t - self._last.get(c.idx, -1e9) < cooldown:
+                continue
+            if any(r.row_id in ("INC-01", "INC-06") and c.idx in r.participants
+                   and (t - r.opened_t) < 3.0 for r in eng.store.live.values()):
+                continue                       # contact: INC-01 owns the call
+            # the three signatures
+            before = [v for (tt, v) in h if t - win <= tt < t - 0.2]
+            peak = max(before) if before else sp
+            fast_drop = bool(before) and (peak - sp) >= drop_kph and sp <= low
+            jump = False
+            if len(dh) >= 2:
+                old = min(v for (tt, v) in dh if t - 2.0 <= tt)
+                jump = (dh[-1][1] - old) >= dmg_jump and (peak - sp) >= dmg_drop
+            recent_fast = any(v >= prior for (tt, v) in h if t - 8.0 <= tt <= t - stopped_s)
+            still = all(v <= stopped_kph for (tt, v) in h if tt >= t - stopped_s) \
+                and (t - h[0][0]) >= stopped_s and recent_fast
+            if not (fast_drop or jump or still):
+                continue
+            how = "fast_drop" if fast_drop else ("damage" if jump else "stopped")
+            self._last[c.idx] = t
+            stopped = sp <= stopped_kph
+            rec = self.open(t, [c.idx],
+                            fields={"t_impact": t, "how": how, "speed_before": round(peak),
+                                    "speed_after": round(sp), "pos_at_open": _pos_map(eng, [c.idx])},
+                            cause={"text": "a heavy impact", "known": True}, phase="impact")
+            self.beat(t, rec, "transition", "impact",
+                      ctx={"a": eng.name(c.idx), "pos": _ordinal(c.position)},
+                      view={"human": True, "stopped": stopped, "quiet": quiet},
+                      must=True, speaker="LEAD")
+            claim = eng.claims_out[-1] if eng.claims_out else None
+            if claim is not None and getattr(claim, "story", None) is rec:
+                claim.facts["template_only"] = True
+                claim.facts["big_moment"] = True
+                claim.priority = max(claim.priority, 97.0)
+            self._pending[c.idx] = (rec, t, c.position)
+            eng.log("[stories] IMPACT: %s (%s, %d -> %d kph)" % (eng.name(c.idx), how, peak, sp))
+
+
+@story_processor
 class P_INC_05(StoryProcessor):
     ID = "INC-05"
 
@@ -17873,10 +18004,14 @@ class P_INC_05(StoryProcessor):
                                 "known": True}
                     break
             if incident is None:
-                for rec in eng.store.closed[::-1]:
+                for rec in list(eng.store.live.values()) + eng.store.closed[::-1]:
                     if idx in rec.participants and rec.row_id == "INC-02" \
                             and rt - (rec.closed_t or rt) <= look:
                         incident = {"text": "after going off", "known": True}
+                        break
+                    if idx in rec.participants and rec.row_id == "INC-07" \
+                            and rt - (rec.opened_t or rt) <= look:
+                        incident = {"text": "after that heavy impact", "known": True}   # V9.23
                         break
             if incident is None:
                 continue                      # REL-02's case
@@ -18248,10 +18383,11 @@ class P_REL_02(StoryProcessor):
             if any(idx in (a, b) and rt - ct <= look for (ct, a, b) in m.colls):
                 self._done.add(idx)
                 continue                      # INC-05's case
-            if any(r.row_id == "INC-02" and idx in r.participants
-                   and rt - (r.closed_t or rt) <= look for r in eng.store.closed[-20:]):
+            if any(r.row_id in ("INC-02", "INC-07") and idx in r.participants
+                   and rt - (r.closed_t or rt) <= look for r in eng.store.closed[-20:]) \
+                    or any(r.row_id == "INC-07" and idx in r.participants for r in eng.store.live.values()):
                 self._done.add(idx)
-                continue
+                continue                      # V9.23: an impact story explains it (INC-05 names it)
             if t - rt < self.p("settle_s", 1.0):
                 continue
             self._done.add(idx)

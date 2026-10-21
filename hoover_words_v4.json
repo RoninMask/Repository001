@@ -6449,6 +6449,142 @@
           "present": "And the virtual safety car ends. Back up to speed, gaps as they were."
         }
       ]
+    },
+    "S_INC_07": {
+      "_about": "V9.23: INC-07 impact. Beats: impact (stopped: not moving at the call), going (places lost), stopped. view.quiet: practice / qualifying.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": true,
+            "quiet": false
+          },
+          "present": "{a} is in the wall! A big impact, and he has stopped."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": true,
+            "quiet": false
+          },
+          "present": "Oh no, {a} has hit the wall hard, and the car is not moving."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": true,
+            "quiet": false
+          },
+          "present": "Crash for {a}! That was a heavy one, and he is stationary."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": false,
+            "quiet": false
+          },
+          "present": "{a} has hit something hard! A big loss of speed, from {pos}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": false,
+            "quiet": false
+          },
+          "present": "Contact with the wall for {a}! He is still moving, but that was a proper hit."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": false,
+            "quiet": false
+          },
+          "present": "Big moment for {a}, he has clattered the wall. Is the car all right?"
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": true,
+            "quiet": true
+          },
+          "present": "{a} is in the wall! That is a big one, and the car has stopped."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": false,
+            "quiet": true
+          },
+          "present": "{a} has hit the wall! A heavy impact, and that run is over."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "impact",
+            "stopped": false,
+            "quiet": true
+          },
+          "present": "Crash for {a}. He clipped the wall hard. The car is moving, but that will have hurt it."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "going",
+            "lost": true,
+            "quiet": false
+          },
+          "present": "He is going again, but that has cost {a} {places}. He is {pos} now, and the car may be carrying damage."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "going",
+            "lost": false,
+            "quiet": false
+          },
+          "present": "{a} is moving again and has somehow held {pos}. Watch the lap times, that car will not be right."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "going",
+            "quiet": true
+          },
+          "present": "{a} is going again. The question is how much of that car is still straight, and whether he brings it in."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stopped",
+            "quiet": false
+          },
+          "present": "{a} is still stationary. That looks like the end of his race unless the car fires up."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stopped",
+            "quiet": false
+          },
+          "present": "No movement from {a}. Terminal, by the look of it, and a sad way for his night to end."
+        },
+        {
+          "speaker": "ANALYST",
+          "when": {
+            "beat": "stopped",
+            "quiet": true
+          },
+          "present": "{a} is still stopped out there. That is the session over for him unless the car gets going."
+        }
+      ]
     }
   },
   "_about_v4": "V4: the V3 words file plus one kind per Story Matrix row in the Pass 1 set (S_<ROW>) and S_RELATE. Variants are gated per beat with when.beat and optional view keys. Placeholders come from the story superset; select() skips variants the context cannot fill."
