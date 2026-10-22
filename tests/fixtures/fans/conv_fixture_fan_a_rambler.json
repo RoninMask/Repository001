@@ -1,0 +1,78 @@
+{
+ "conversation_id": "conv_fixture_fan_a_rambler",
+ "agent_id": "agent_8201m5gf1st6fpcvh4b9w58td0cp",
+ "status": "done",
+ "metadata": {
+  "start_time_unix_secs": 1792628656
+ },
+ "analysis": {
+  "data_collection_results": {
+   "fan_name": {
+    "data_collection_id": "fan_name",
+    "value": "Pat"
+   },
+   "on_air_mention": {
+    "data_collection_id": "on_air_mention",
+    "value": "a friend of Dustin's"
+   },
+   "consent_on_air": {
+    "data_collection_id": "consent_on_air",
+    "value": true
+   },
+   "chosen_cause": {
+    "data_collection_id": "chosen_cause",
+    "value": "Mental health"
+   },
+   "underdog_or_favourite": {
+    "data_collection_id": "underdog_or_favourite",
+    "value": "underdog"
+   },
+   "shout_out": {
+    "data_collection_id": "shout_out",
+    "value": "just to have fun, and it's a really cool thing they're doing, and, uh, really interesting to, to follow the, um, technology and stuff that Dustin's been doing with this. It's been really fun."
+   }
+  }
+ },
+ "transcript": [
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Sure."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Uh, you can say a friend of Dustin's."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Let's do mental health."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Oh, I root for the underdog."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Uh, just to have fun, and it's a really cool thing they're doing, and, uh, really interesting to, to follow the, um, technology and stuff that Dustin's been doing with this. It's been really fun."
+  }
+ ]
+}

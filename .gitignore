@@ -13,6 +13,9 @@ hoover_archive.json.tmp
 
 # interview ingest: raw calls hold drivers' own words; keep them on the PC
 ingest/interviews/raw/
+ingest/fans/raw/
+ingest/fans/fan_cards.json
+ingest/fans/holds.json
 
 # OKC PC leftovers (14 OCT)
 hoover_v3_out/

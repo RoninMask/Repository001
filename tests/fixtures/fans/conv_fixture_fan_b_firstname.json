@@ -1,0 +1,78 @@
+{
+ "conversation_id": "conv_fixture_fan_b_firstname",
+ "agent_id": "agent_8201m5gf1st6fpcvh4b9w58td0cp",
+ "status": "done",
+ "metadata": {
+  "start_time_unix_secs": 1792628700
+ },
+ "analysis": {
+  "data_collection_results": {
+   "fan_name": {
+    "data_collection_id": "fan_name",
+    "value": "Robin Example"
+   },
+   "on_air_mention": {
+    "data_collection_id": "on_air_mention",
+    "value": "Robin Example"
+   },
+   "consent_on_air": {
+    "data_collection_id": "consent_on_air",
+    "value": true
+   },
+   "chosen_cause": {
+    "data_collection_id": "chosen_cause",
+    "value": "St. Jude Children's Research Hospital"
+   },
+   "underdog_or_favourite": {
+    "data_collection_id": "underdog_or_favourite",
+    "value": "favourite"
+   },
+   "shout_out": {
+    "data_collection_id": "shout_out",
+    "value": "Drive safe and bring home a trophy!"
+   }
+  }
+ },
+ "transcript": [
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Yes of course."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Robin is fine."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "St. Jude, definitely."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "The favourite, always."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Drive safe and bring home a trophy!"
+  }
+ ]
+}

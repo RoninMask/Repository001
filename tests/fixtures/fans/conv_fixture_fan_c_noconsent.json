@@ -1,0 +1,78 @@
+{
+ "conversation_id": "conv_fixture_fan_c_noconsent",
+ "agent_id": "agent_8201m5gf1st6fpcvh4b9w58td0cp",
+ "status": "done",
+ "metadata": {
+  "start_time_unix_secs": 1792628800
+ },
+ "analysis": {
+  "data_collection_results": {
+   "fan_name": {
+    "data_collection_id": "fan_name",
+    "value": "Casey"
+   },
+   "on_air_mention": {
+    "data_collection_id": "on_air_mention",
+    "value": "none"
+   },
+   "consent_on_air": {
+    "data_collection_id": "consent_on_air",
+    "value": false
+   },
+   "chosen_cause": {
+    "data_collection_id": "chosen_cause",
+    "value": "animal rescue"
+   },
+   "underdog_or_favourite": {
+    "data_collection_id": "underdog_or_favourite",
+    "value": "underdog"
+   },
+   "shout_out": {
+    "data_collection_id": "shout_out",
+    "value": "Good luck everyone out there tonight."
+   }
+  }
+ },
+ "transcript": [
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "No thanks, I'd rather not be on air."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Skip the name."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Animal rescue I suppose."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Underdog."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Good luck everyone out there tonight."
+  }
+ ]
+}

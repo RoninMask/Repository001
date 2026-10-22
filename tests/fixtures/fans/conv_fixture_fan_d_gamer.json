@@ -1,0 +1,78 @@
+{
+ "conversation_id": "conv_fixture_fan_d_gamer",
+ "agent_id": "agent_8201m5gf1st6fpcvh4b9w58td0cp",
+ "status": "done",
+ "metadata": {
+  "start_time_unix_secs": 1792628900
+ },
+ "analysis": {
+  "data_collection_results": {
+   "fan_name": {
+    "data_collection_id": "fan_name",
+    "value": "Jo"
+   },
+   "on_air_mention": {
+    "data_collection_id": "on_air_mention",
+    "value": "Dustin's neighbour"
+   },
+   "consent_on_air": {
+    "data_collection_id": "consent_on_air",
+    "value": true
+   },
+   "chosen_cause": {
+    "data_collection_id": "chosen_cause",
+    "value": ""
+   },
+   "underdog_or_favourite": {
+    "data_collection_id": "underdog_or_favourite",
+    "value": "unclear"
+   },
+   "shout_out": {
+    "data_collection_id": "shout_out",
+    "value": "Don't drop your controller, mash those buttons."
+   }
+  }
+ },
+ "transcript": [
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Sure thing, go for it."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Dustin's neighbour."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "No idea honestly."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Not sure really."
+  },
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Don't drop your controller, mash those buttons."
+  }
+ ]
+}

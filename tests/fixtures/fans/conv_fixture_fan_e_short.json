@@ -1,0 +1,21 @@
+{
+ "conversation_id": "conv_fixture_fan_e_short",
+ "agent_id": "agent_8201m5gf1st6fpcvh4b9w58td0cp",
+ "status": "done",
+ "metadata": {
+  "start_time_unix_secs": 1792629000
+ },
+ "analysis": {
+  "data_collection_results": {}
+ },
+ "transcript": [
+  {
+   "role": "agent",
+   "message": "[warm] Lovely."
+  },
+  {
+   "role": "user",
+   "message": "Hi."
+  }
+ ]
+}
