@@ -245,6 +245,7 @@ Return ONLY a JSON object, no prose, with these keys:
 Rules:
 - Use ONLY what the driver actually said. Sienna's own remarks are not facts (she has no track or league knowledge; ignore her guesses).
 - The speech-to-text mishears names. Match mentions to the roster by on-air name, gamertag or real first name, allowing for mishearing. If a first name matches two drivers, or you are unsure, do not guess: put it in unresolved_names and leave it out of facts.
+- Every fact and armed line starts with THIS DRIVER's on-air name (never "He", "She" or "They"); a line that does not is thrown away. Never add a surname to an on-air first name.
 - Use each driver's ON-AIR name exactly as the roster's "on air" column gives it (since 14 October that IS his real first name; "Sholly" is the exception). Never a gamertag, never a surname on its own, never a name that is not in the roster.
 - Leave out anything the driver said was off the record, and anything personal they did not volunteer.
 - No digits in facts or armed lines: write numbers as words ("second", "five laps").
@@ -333,7 +334,7 @@ ORDINAL_WORDS = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth", 6
 
 # ---- the checker --------------------------------------------------------------
 
-def check_lines(lines, roster, did):
+def check_lines(lines, roster, did, lead=True):
     """Drop any line that would put a real name, a digit or an overlong
     sentence on air. Returns (kept, dropped[(line, reason)])."""
     private = set()
@@ -341,16 +342,38 @@ def check_lines(lines, roster, did):
         rn = d.get("real_name")
         if rn and norm(rn) not in {norm(x["spoken"]["short"]) for x in roster.drivers}:
             private.add(rn.lower())
+    # Truth Lock RN-08 (21 OCT: 10 of 16 interview lines began "He...", and
+    # "Kate Osterman", "Evan Charley" went to air). A card sentence must start
+    # with the driver's spoken name, and a roster first name may only be
+    # followed by a capitalised word when that pair is someone's full on-air name.
+    on_air = roster.on_air(did) if did in getattr(roster, "by_id", {}) else None
+    firsts = {norm(x["spoken"]["short"]) for x in roster.drivers}
+    fulls = {norm(x["spoken"].get("full") or "") for x in roster.drivers} - {""}
     kept, dropped = [], []
     for s in lines:
         s = (s or "").strip()
         if not s:
             continue
         words = re.findall(r"[A-Za-z']+", s)
+        bad_pair = None
+        for a, b in zip(words, words[1:]):
+            if norm(a) in firsts and b[:1].isupper() and norm(b) not in firsts \
+                    and norm(a + " " + b) not in fulls:
+                bad_pair = "%s %s" % (a, b)
+                break
+        lead_ok = True
+        if on_air and lead:
+            low = s.lower()
+            lead_ok = low.startswith(on_air.lower() + " ") or low.startswith(on_air.lower() + "'") \
+                or low.startswith(on_air.lower() + ",")
         if re.search(r"\d", s):
             dropped.append((s, "digit"))
         elif any(w.lower() in private for w in words):
             dropped.append((s, "real name"))
+        elif not lead_ok:
+            dropped.append((s, "does not start with %s" % on_air))
+        elif bad_pair:
+            dropped.append((s, "invented surname: %s" % bad_pair))
         elif len(s.split()) > MAX_FACT_WORDS:
             dropped.append((s, "too long"))
         else:

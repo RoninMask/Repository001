@@ -71,9 +71,10 @@ class Ingest(unittest.TestCase):
         self.assertNotIn("Ronin told us", iv.SYSTEM)
 
     def test_check_lines_keeps_real_first_names_that_are_on_air(self):
+        # Truth Lock RN-08: every card line starts with the driver's spoken name
         roster = iv.Roster(ROSTER)
         kept, dropped = iv.check_lines(["Dustin told Sienna he would settle for second.",
-                                        "Mike named Dustin as the man to beat."], roster, "d_ronin")
+                                        "Dustin is the man Mike named to beat."], roster, "d_ronin")
         self.assertEqual(len(kept), 2, dropped)
 
 
