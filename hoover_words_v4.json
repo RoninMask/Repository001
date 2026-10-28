@@ -3471,13 +3471,42 @@
       "variants": [
         {
           "speaker": "LEAD",
+          "present": "{a} has been disqualified, {cause}. That is his race over.",
+          "when": {
+            "beat": "issued",
+            "dsq": true,
+            "cause_known": true
+          }
+        },
+        {
+          "speaker": "LEAD",
+          "present": "Disqualified! {a}'s race is over before it really started.",
+          "when": {
+            "beat": "issued",
+            "dsq": true,
+            "early": true
+          }
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} has been disqualified. That is his race over.",
+          "when": {
+            "beat": "issued",
+            "dsq": true
+          }
+        },
+        {
+          "speaker": "LEAD",
           "when": {
             "beat": "issued",
             "cause_known": true,
             "effect_known": true
           },
           "present": "A {seconds} second penalty for {a}, {cause}. And {effect}.",
-          "past": "{a} was given a penalty, {cause}, and {effect}."
+          "past": "{a} was given a penalty, {cause}, and {effect}.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "ANALYST",
@@ -3485,7 +3514,10 @@
             "beat": "issued",
             "effect_known": true
           },
-          "present": "{a} has a penalty to carry. Here is what it means: {effect}."
+          "present": "{a} has a penalty to carry. Here is what it means: {effect}.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "LEAD",
@@ -3494,7 +3526,10 @@
             "effect_known": true
           },
           "present": "Penalty for {a}, and {effect}.",
-          "past": "{a} was given a penalty, and {effect}."
+          "past": "{a} was given a penalty, and {effect}.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "LEAD",
@@ -3504,7 +3539,10 @@
             "effect_known": false
           },
           "present": "A {seconds} second penalty for {a}, {cause}.",
-          "past": "{a} was given a penalty."
+          "past": "{a} was given a penalty.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "LEAD",
@@ -3513,7 +3551,10 @@
             "effect_known": false
           },
           "present": "Penalty for {a}, {seconds} seconds.",
-          "past": "{a} was given a penalty."
+          "past": "{a} was given a penalty.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "ANALYST",
@@ -3522,7 +3563,10 @@
             "cause_known": true,
             "effect_known": false
           },
-          "present": "{a} has a penalty to carry, {cause}."
+          "present": "{a} has a penalty to carry, {cause}.",
+          "not_when": {
+            "dsq": true
+          }
         },
         {
           "speaker": "ANALYST",
@@ -3530,7 +3574,10 @@
             "beat": "issued",
             "effect_known": false
           },
-          "present": "That is a penalty for {a}."
+          "present": "That is a penalty for {a}.",
+          "not_when": {
+            "dsq": true
+          }
         }
       ]
     },

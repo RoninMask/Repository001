@@ -6418,6 +6418,8 @@ class V3Booth:
         beat = f.get("beat")
         leaving = f.get("story_type") in ("INC-05", "REL-02", "HUM-08", "INC-01",
                                           "DEV-06", "SF-07")
+        # 28 OCT: the disqualification is the car's exit line, not a line about a retired car
+        leaving = leaving or (f.get("story_type") == "RC-05" and (f.get("view") or {}).get("dsq"))
         if not leaving and claim.subjects:
             idx = claim.subjects[0]
             if idx is not None and m.is_retired(idx):
@@ -16785,8 +16787,9 @@ class P_RC_05(StoryProcessor):
                            "seconds": _num_word(int(secs)) if secs else None,
                            "effect": effect},
                       view={"human": human, "cause_known": cause is not None,
-                            "effect_known": effect is not None},
-                      numbers={"seconds": int(secs)} if secs else {}, must=human)
+                            "effect_known": effect is not None,
+                            "dsq": pt == 6, "early": pt == 6 and (eng.lap_now() or 0) <= 1},
+                      numbers={"seconds": int(secs)} if secs else {}, must=(human or pt == 6))
             # V4 cannot see 'served'; the story closes on its own idle timeout.
 
 
@@ -16826,6 +16829,9 @@ class P_REL_02(StoryProcessor):
             self.close(t, rec, "left")
         for idx, rt in list(m.retired_at.items()):
             if idx in self._done:
+                continue
+            if idx in getattr(m, "disqualified", ()):
+                self._done.add(idx)           # 28 OCT: RC-05 says "disqualified"; no guessed cause
                 continue
             if any(idx in (a, b) and rt - ct <= look for (ct, a, b) in m.colls):
                 self._done.add(idx)
