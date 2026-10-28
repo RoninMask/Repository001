@@ -184,6 +184,16 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
 <!-- PRE-FLIGHT -->
 <section id="pre" class="on">
   <h2>Pre-flight</h2>
+  <div class="card" id="eventcard">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Tonight's event</h3>
+      <div class="row">
+        <span class="note">Charity</span><label class="switch" title="Off: nothing about charity is said or shown -- no charity on the tower, no charity cards, no prize money, no givers on the ticker, points only on the results"><input type="checkbox" id="ev_charity"><i></i></label>
+        <span class="note" style="margin-left:14px">Sponsors</span><label class="switch" title="Off: no sponsor reads, no sponsor card, no full-screen ad, no ads between the countdown clocks"><input type="checkbox" id="ev_sponsors"><i></i></label>
+      </div>
+    </div>
+    <div class="note" id="evnote" style="margin-top:6px">Loading…</div>
+  </div>
   <div class="card">
     <div class="row" style="justify-content:space-between"><h3 style="margin:0">This PC</h3>
       <button class="btn" id="btnchecks">Run checks</button></div>
@@ -493,6 +503,18 @@ async function api(path, body) {
   return r.json();
 }
 function toast(msg, ms=4500){ const t=$("#toast"); t.innerHTML=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", ms); }
+
+// ---------- 28 OCT: tonight's event switches (hoover_event.json; Hoover and the overlays read them live)
+function evShow(d){
+  $("#ev_charity").checked = d.charity !== false; $("#ev_sponsors").checked = d.sponsors !== false;
+  $("#evnote").innerHTML = !d.available ? `<span class="bad">hoover_event.py is not beside the dashboard; both stay on.</span>`
+    : (d.error ? `<span class="bad">${esc(d.error)}</span>` :
+      `Charity <b>${d.charity!==false?"ON":"OFF"}</b>, sponsors <b>${d.sponsors!==false?"ON":"OFF"}</b>. Takes effect at once, even mid-session: the next line Hoover says and the next overlay frame follow it. Your saved overlay settings are not changed.`);
+}
+async function evLoad(){ try{ evShow(await api("/api/event")); }catch(e){} }
+async function evSave(){ try{ const d = await api("/api/event", {charity:$("#ev_charity").checked, sponsors:$("#ev_sponsors").checked});
+  evShow(d); toast(d.ok ? "Saved: " + esc(d.summary||"") : "Not saved: " + esc(d.msg||"")); }catch(e){ toast("Not saved"); } }
+$("#ev_charity").onchange = evSave; $("#ev_sponsors").onchange = evSave; evLoad();
 
 // ---------- tabs
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));

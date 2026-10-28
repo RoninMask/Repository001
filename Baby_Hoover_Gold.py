@@ -3117,7 +3117,7 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                 if ident is not None and ident.team_name:
                     s["team"] = ident.team_spoken or ident.team_name
                     allow(*_caps_words(s["team"]))
-                    if ident.charity_name:
+                    if ident.charity_name and _charity_on():
                         s["charity"] = ident.charity_spoken or ident.charity_name
                         allow(*_caps_words(s["charity"]))
                         note("%s races for %s, racing for %s" % (s["say"], s["team"], s["charity"]),
@@ -5632,6 +5632,12 @@ class WordsFile:
             if any(ctx.get(ph) is None
                    for ph in _PLACEHOLDER_RE.findall(v["present"])):
                 continue
+            # 28 OCT: charity or sponsors off for this event -- skip the
+            # variant (and its reaction) that talks about them
+            if _event_blocks(v["present"]) or _event_blocks(
+                    " ".join(x.get("text", "") for x in ([v["then"]] if isinstance(v.get("then"), dict)
+                                                          else (v.get("then") or [])))):
+                continue
             # V9.15 (19 OCT): a line marked once is said once a night; a
             # humor line asks the booth's gate (caps per session, spacing)
             if v.get("once") and v["present"] in spent:
@@ -7912,6 +7918,13 @@ class V3Booth:
                     if mine and theirs and len(mine & theirs) / float(len(mine | theirs)) >= self.rp_near_jaccard:
                         self._drop(claim, "repeat:near", t)
                         return
+        # 28 OCT: the event switches -- a line about charity or a sponsor on
+        # a night without them (an interview card, a model line) never airs
+        why = _event_blocks(text)
+        if why:
+            self.counter_event_blocked = getattr(self, "counter_event_blocked", 0) + 1
+            self._drop(claim, "event:" + why, t)
+            return
         speech_text = _cap_first_alpha(speech_normalise(text, self._abbrevs))
         wc = max(1, len(text.split()))
         duration = wc / self.rate
@@ -8436,6 +8449,9 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
     # a digit means a number we did not give, or a bypass of normalisation
     if any(ch.isdigit() for ch in text):
         return (False, "digit")
+    why = _event_blocks(text)          # 28 OCT: charity / sponsors off tonight
+    if why:
+        return (False, "event:" + why)
 
     allowed = set()
     for w in (blob or {}).get("allowed_words", []):
@@ -14012,7 +14028,7 @@ class StoryEngine:
         if ident is None or not ident.team_name:
             return None
         team = ident.team_spoken or ident.team_name
-        charity = ident.charity_spoken or ident.charity_name
+        charity = (ident.charity_spoken or ident.charity_name) if _charity_on() else None
         return (team, charity)
 
     # ---- V9.13 (19 OCT): the charity card --------------------------------------
@@ -14080,7 +14096,7 @@ class StoryEngine:
             return []
         mt, _p, cached = StoryEngine._sponsor_cache
         if m == mt:
-            return cached
+            return StoryEngine._sponsor_gate(cached)
         out = []
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -14093,7 +14109,17 @@ class StoryEngine:
         except Exception:
             out = []
         StoryEngine._sponsor_cache = (m, path, out)
-        return out
+        return StoryEngine._sponsor_gate(out)
+
+    @staticmethod
+    def _sponsor_gate(sponsors):
+        """28 OCT: sponsors off in hoover_event.json -> no sponsor to read. The
+        names go to the event guard so a stray line naming one never airs."""
+        ev = _event()
+        if ev is None:
+            return sponsors
+        ev.add_names("sponsors", [x["name"] for x in sponsors] + [x["spoken"] for x in sponsors])
+        return sponsors if ev.sponsors else []
 
     def _lull_sponsor(self, t, cfg, forced):
         """'This broadcast is brought to you by ...': the sponsor(s) read
@@ -17697,6 +17723,34 @@ try:
 except Exception:
     _season_mod = None
 
+
+# ---- 28 OCT 26: the event switches (hoover_event.json beside the tool) -------
+try:
+    import hoover_event as _event_mod
+except Exception:
+    _event_mod = None
+
+
+def _event():
+    """Tonight's event switches (charity, sponsors), re-read live; None when
+    hoover_event.py is not beside the tool (both on, as before)."""
+    if _event_mod is None:
+        return None
+    try:
+        return _event_mod.current(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        return None
+
+
+def _event_blocks(text):
+    ev = _event()
+    return ev.blocks(text) if ev is not None else None
+
+
+def _charity_on():
+    ev = _event()
+    return True if ev is None else ev.charity
+
 PUBLISH_PORT_DEFAULT = 8781
 TOWER_COMPACT_START_LAPS = 2      # compact from lights out to the end of lap two
 TOWER_COMPACT_LAST_LAPS = 2       # ... and for the last two laps
@@ -18180,6 +18234,16 @@ class BabyHooverV3:
         self.season = SeasonBridge(season_path, names_on, self._log) if season_path else None
         if self.season is not None and not self.season.on:
             self.season = None
+        ev = _event()
+        if ev is not None:
+            if self.season is not None:
+                try:
+                    ev.add_names("charity", self.season.season.charity_names_all())
+                except Exception:
+                    pass
+            self._log("[event] %s (hoover_event.json; read live)" % ev.summary())
+            if ev.error:
+                self._log("[event] ! %s" % ev.error)
         if self.season is not None and not self.event_stamp.get("league"):
             self.event_stamp["league"] = self.season.season.league_id
         if self.season is not None and names_on and args.roster is None:

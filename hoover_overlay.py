@@ -882,7 +882,8 @@ class Overlay(object):
 
     def state(self):
         self.settings.reload()
-        cfg = self.settings.get()
+        sw = event_switches()
+        cfg = apply_switches(self.settings.get(), sw)
         snap = self.source.snapshot()
         now = time.time()
         # ticker slot text
@@ -892,6 +893,8 @@ class Overlay(object):
             if sl.get("auto") == "racing_info" and snap.get("season"):
                 sep = cfg["ticker"].get("separator") or snap["season"].get("separator") or "  ◆  "
                 text = sep.join(snap["season"].get("racing_info") or [])
+            if not sw["charity"] and (sl.get("label") or "").strip().upper() in sw["charity_labels"]:
+                text = ""                      # 28 OCT: no charity tonight -- the givers slot stays dark
             slots[k] = {"label": sl.get("label", ""), "text": text}
         with self.lock:
             cmds = {k: (v if (v is None or v.get("until") is None or v.get("until") > now) else None)
@@ -899,6 +902,8 @@ class Overlay(object):
             if cmds["ticker_slot"] is None and self.commands["ticker_slot"] is not None:
                 cmds["ticker_slot"] = self.commands["ticker_slot"]
         hold = snap.get("sponsor_hold") or cmds.get("sponsor_hold")
+        if not sw["sponsors"]:
+            hold = None
         # view rows: text already formatted, so every page draws the same thing
         rows = []
         for r in snap.get("rows", []):
@@ -928,7 +933,8 @@ class Overlay(object):
                 "code": r.get("code") or "", "short": r.get("name") or "",
                 "full": (" ".join(x for x in (r.get("first"), r.get("last")) if x) or r.get("name") or ""),
                 "team": r.get("team") or "", "team_code": r.get("team_code") or "",
-                "charity": r.get("charity") or "", "charity_code": r.get("charity_code") or "",
+                "charity": (r.get("charity") or "") if sw["charity"] else "",
+                "charity_code": (r.get("charity_code") or "") if sw["charity"] else "",
                 "colour": r.get("colour") or "#8A8F98", "status": r.get("status") or "",
                 "gap": gap, "leader_gap": ("+%s" % _ms(r["gap_leader_ms"])) if r.get("gap_leader_ms") else "",
                 "last": _ms(r.get("last_lap_ms")), "best": _ms(r.get("best_lap_ms")),
@@ -1024,10 +1030,57 @@ class Overlay(object):
             "rows": rows,
             "settings": {k: cfg[k] for k in ("surfaces", "tower", "ticker", "sponsor", "feature", "radio", "prizes", "countdown")},
             "ticker_slots": slots,
-            "sponsors": self.sponsors(),
+            "switches": {"charity": sw["charity"], "sponsors": sw["sponsors"]},
+            "sponsors": self.sponsors() if sw["sponsors"] else [],
             "sponsor_hold": hold,
             "commands": cmds,
         }
+
+
+# ---- 28 OCT 26: the event switches (hoover_event.json beside the tool) -------
+def event_switches():
+    """{charity, sponsors, top_line, charity_labels}; both on when the event
+    module or file is missing, as before."""
+    out = {"charity": True, "sponsors": True, "top_line": "", "charity_labels": {"GIVERS", "RELIEF"}}
+    try:
+        import hoover_event
+        ev = hoover_event.current(HERE)
+        d = ev.get()
+        out["charity"], out["sponsors"] = ev.charity, ev.sponsors
+        out["top_line"] = d.get("top_line_without_charity") or ""
+        out["charity_labels"] = {str(x).strip().upper() for x in (d.get("charity_ticker_labels") or [])}
+    except Exception:
+        pass
+    return out
+
+
+def apply_switches(cfg, sw):
+    """The settings as the pages must draw them tonight. The saved settings
+    are never changed: turn the switch back on and everything returns."""
+    if sw["charity"] and sw["sponsors"]:
+        return cfg
+    import copy as _copy
+    c = _copy.deepcopy(cfg)
+    if not sw["sponsors"]:
+        c["surfaces"]["sponsor"] = False
+        c["surfaces"]["feature"] = False
+        c.setdefault("countdown", {})["ads_alternate"] = False
+    if not sw["charity"]:
+        tw = c.setdefault("tower", {})
+        tw.setdefault("columns", {})["charity"] = False
+        offs = (tw.get("expand") or {}).get("offsets_s")
+        if isinstance(offs, dict):
+            offs.pop("charity", None)
+        cd = c.setdefault("countdown", {})
+        if "charit" in str(cd.get("top_line", "")).lower():
+            cd["top_line"] = sw["top_line"]
+        pz = c.setdefault("prizes", {})
+        pz["charity_off"] = True                # the results page draws points only, no money
+        pz["auto_show"] = pz.get("auto_show", True)
+        for k in ("subtitle", "headline", "donor"):
+            if "charit" in str(pz.get(k, "")).lower() or "$" in str(pz.get(k, "")) or k == "donor":
+                pz[k] = ""
+    return c
 
 
 # ============================================================================
@@ -1368,7 +1421,7 @@ OUTRO_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
         textLength="522" lengthAdjust="spacing" fill="#1DE9D6">AWESOME</text>
   <text transform="translate(59,556) rotate(-90)" font-family="Poppins,Arial Black,Arial,sans-serif" font-weight="800" font-size="60"
         textLength="452" lengthAdjust="spacing" fill="#050505">FORMUL</text>
-  <text x="92" y="94" font-family="Poppins,Arial,sans-serif" font-weight="700" font-size="17" letter-spacing="7"
+  <text id="chline" x="92" y="94" font-family="Poppins,Arial,sans-serif" font-weight="700" font-size="17" letter-spacing="7"
         fill="#ffffff">A CHARITY RACE</text>
 
   <!-- the V1 band: long, slim, centred, just above the 44 px ticker -->
@@ -1404,6 +1457,10 @@ OUTRO_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   }
   (document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(lay); setTimeout(lay,1500);
 })();
+// 28 OCT: no charity tonight -> no "A CHARITY RACE" under the badge
+(function(){ async function sw(){ try{ const d=await (await fetch("/state.json",{cache:"no-store"})).json();
+  const el=document.getElementById("chline"); if(el) el.style.display=(d.switches&&d.switches.charity===false)?"none":""; }catch(e){} }
+  sw(); setInterval(sw,3000); })();
 </script></body></html>"""
 
 COUNTDOWN_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover countdown</title>
@@ -1583,12 +1640,13 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
   #full.prov #hd{border-bottom-color:var(--gold)}
   #full.nomoney td.prize,#full.nomoney th.prz,#full.nomoney #hd .money,#full.nomoney .b .m,#full.nomoney #chrp,
   #full.nomoney #cons td.prize,#full.nomoney #bty{visibility:hidden}
+  #full.nocharity td.chr,#full.nocharity th.chrh,#full.nocharity td.prize,#full.nocharity th.prz{display:none}
 </style></head><body>
 <div id="full"><div id="prov"></div>
   <div id="hd"><div class="t"><span id="title">Final results</span><small id="sub"></small></div><div class="money"><span id="total">$0</span><small id="totl">raised for charity tonight</small></div></div>
   <div id="body">
     <div class="panel"><div class="ph"><b>Classification</b> driver · team · charity · points · prize</div>
-      <table id="cls"><thead><tr><th style="width:3vw">P</th><th style="width:.5vw"></th><th>Driver</th><th style="width:12.5vw">Team</th><th style="width:13.5vw">Charity</th><th style="width:4vw;text-align:right">Pts</th><th class="prz" style="width:11vw;text-align:right">Prize</th></tr></thead><tbody></tbody></table></div>
+      <table id="cls"><thead><tr><th style="width:3vw">P</th><th style="width:.5vw"></th><th>Driver</th><th style="width:12.5vw">Team</th><th class="chrh" style="width:13.5vw">Charity</th><th style="width:4vw;text-align:right">Pts</th><th class="prz" style="width:11vw;text-align:right">Prize</th></tr></thead><tbody></tbody></table></div>
     <div id="right">
       <div class="panel"><div class="ph"><b>Constructors' Cup</b> both cars' points</div>
         <table id="cons"><colgroup><col style="width:2.4vw"><col style="width:.5vw"><col><col style="width:5vw"><col style="width:3vw"><col style="width:4.5vw"></colgroup><tbody></tbody></table></div>
@@ -1613,7 +1671,8 @@ RESULTS_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoove
     if(!on){full.classList.remove("on");return;}
     const R=d.results||{}; const ev=R.event||{}; const mode=R.mode||"empty";
     const prov=mode!=="final"; full.classList.toggle("prov",prov);
-    full.classList.toggle("nomoney",prov&&P.provisional_money===false);
+    full.classList.toggle("nomoney",(prov&&P.provisional_money===false)||!!P.charity_off);
+    full.classList.toggle("nocharity",!!P.charity_off);       // 28 OCT: not a charity event
     $("totl").textContent=mode==="final"?"raised for charity tonight":"if the race ended now";
     if(mode==="final"){
       $("title").textContent=P.title||"FINAL RESULTS";

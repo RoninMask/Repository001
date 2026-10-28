@@ -829,6 +829,20 @@ class OverlayProc:
         return True
 
 
+def _event_doc(tool_dir):
+    """28 OCT 26: the event switches for the Pre-flight page."""
+    try:
+        if tool_dir not in sys.path:
+            sys.path.insert(0, tool_dir)
+        import hoover_event as he
+        ev = he.current(tool_dir)
+        d = ev.get()
+        return {"available": True, "name": d.get("name") or "", "charity": ev.charity,
+                "sponsors": ev.sponsors, "error": ev.error, "summary": ev.summary()}
+    except Exception as e:
+        return {"available": False, "charity": True, "sponsors": True, "error": str(e)}
+
+
 def _read_json(path, default=None):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -944,6 +958,8 @@ def make_handler(app):
             if u.path == "/api/names":
                 return self._send(200, names_read(app.tool_dir()))
             # ---- V1.1: season, overlays, event ------------------------------
+            if u.path == "/api/event":
+                return self._send(200, _event_doc(app.tool_dir()))
             if u.path == "/api/season":
                 path = app.season_path(q.get("file"))
                 doc = _read_json(path, None) if path else None
@@ -1081,6 +1097,16 @@ def make_handler(app):
                 finally:
                     app.listen_lock.release()
             # ---- V1.1: season, overlays -------------------------------------
+            if u.path == "/api/event":
+                try:
+                    d = app.tool_dir()
+                    if d not in sys.path:
+                        sys.path.insert(0, d)
+                    import hoover_event as he
+                    he.save(d, charity=b.get("charity"), sponsors=b.get("sponsors"), name=b.get("name"))
+                except Exception as e:
+                    return self._send(500, {"ok": False, "msg": str(e)})
+                return self._send(200, dict(_event_doc(app.tool_dir()), ok=True))
             if u.path == "/api/season":
                 path = app.season_path(b.get("file"))
                 if not path:

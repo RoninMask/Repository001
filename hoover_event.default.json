@@ -1,0 +1,7 @@
+{
+  "_about": "Tonight's event switches. The dashboard's Pre-flight page edits the PC's copy (hoover_event.json); both are read live. charity false: nothing about charity is said or shown. sponsors false: no sponsor reads, cards or ads.",
+  "name": "",
+  "charity": true,
+  "sponsors": true,
+  "top_line_without_charity": ""
+}

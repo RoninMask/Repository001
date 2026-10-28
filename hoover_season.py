@@ -105,6 +105,16 @@ def _norm(s):
     return (s or "").strip().lower()
 
 
+def _charity_on():
+    """28 OCT 26: hoover_event.json beside this file decides whether tonight
+    is a charity event. Missing module or file: on, as before."""
+    try:
+        import hoover_event
+        return hoover_event.current(os.path.dirname(os.path.abspath(__file__))).charity
+    except Exception:
+        return True
+
+
 def today_iso():
     return date.today().isoformat()
 
@@ -219,6 +229,8 @@ class Season(object):
     def charity_for(self, team, on=None):
         """The charity record a team races for on a date (ISO), newest 'from'
         not after that date. A team may carry a list of {id, from} or one id."""
+        if not _charity_on():          # 28 OCT: the event switch -- no charity tonight
+            return None
         on = on or today_iso()
         ch = team.get("charity")
         if isinstance(ch, str):
@@ -423,6 +435,16 @@ class Season(object):
                 "drivers": drivers}
 
     # -- ticker and export ---------------------------------------------------
+    def charity_names_all(self):
+        """Every charity name and spoken name in the file, whatever the event
+        switch says: what the event guard listens for when charity is off."""
+        out = []
+        for ch in (self.charities or {}).values():
+            for k in ("name", "spoken"):
+                if ch.get(k):
+                    out.append(str(ch[k]))
+        return out
+
     def charity_cards(self, on=None):
         """V9.13 (19 OCT): one card per team whose charity carries an `about`
         sentence (the Season page's About box): what the booth may say about

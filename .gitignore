@@ -37,3 +37,7 @@ hoover_overlay_settings.json.tmp
 hoover_night.json
 hoover_night.json.tmp
 results/
+
+# 28 OCT: the event switches are the PC's own; the repo ships hoover_event.default.json
+hoover_event.json
+hoover_event.json.tmp
