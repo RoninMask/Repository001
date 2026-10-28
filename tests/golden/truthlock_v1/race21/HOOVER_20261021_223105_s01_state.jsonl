@@ -1,0 +1,7 @@
+{"from": "pre_start", "t_rec": 0.434719, "t_unix": 1792639865.757099, "to": "formation", "trigger": "session safety car status 3"}
+{"from": "formation", "t_rec": 115.378014, "t_unix": 1792639980.700394, "to": "start_sequence", "trigger": "STLG"}
+{"from": "start_sequence", "t_rec": 121.895571, "t_unix": 1792639987.217951, "to": "green", "trigger": "LGOT"}
+{"from": "green", "t_rec": 165.96497, "t_unix": 1792640031.28735, "to": "vsc", "trigger": "session status 2"}
+{"from": "vsc", "t_rec": 249.139951, "t_unix": 1792640114.462331, "to": "green", "trigger": "green flag"}
+{"from": "green", "t_rec": 1547.707822, "t_unix": 1792641413.030202, "to": "finishing", "trigger": "leader finish"}
+{"from": "finishing", "t_rec": 1574.135165, "t_unix": 1792641439.457545, "to": "classified", "trigger": "every running car finished (provisional until Final Classification)"}

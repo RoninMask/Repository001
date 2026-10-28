@@ -1,0 +1,2 @@
+{"from": "pre_start", "t_rec": 83.967625, "t_unix": 1792638750.902401, "to": "green", "trigger": "fallback anchor"}
+{"from": "green", "t_rec": 790.030791, "t_unix": 1792639456.965567, "to": "finishing", "trigger": "leader finish"}

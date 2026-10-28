@@ -1,0 +1,8 @@
+Truth Lock gates -- HOOVER_20261021_221056_s01 (quali21)
+G7   PASS Practice and qualifying: no re-open, no race register, no parked impacts.
+           - session re-open / new-race lines in the log: 0
+           - race-only lines aired (WINNER, RESULT, START, CORRECTION): 0
+           - model lines with race words: 0 of 0
+K1   PASS No two race lines on air at once.
+           - overlapping lines after lights out: 0 (cut-ins that hushed a line: 1)
+2 of 2 gates pass

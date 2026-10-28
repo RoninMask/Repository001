@@ -1,0 +1,32 @@
+Truth Lock gates -- HOOVER_20261021_223105_s01 (race21)
+G1   PASS Formation lap and un-retire (RN-01, RN-10).
+           - claims about Cade/Mike/Evan dropped as 'retired': 0
+           - Antonelli (car 3) still retires: True (retirement raised after lights: 1, aired: 0)
+           - lap-one pile-up claims (INC-06, first 60 s): 1, not dropped as retired: 1
+           - Evan's lap-one penalty claims: 1, not dropped as retired: 1
+           - longest silence on the formation lap: 21 s (limit 30)
+G2   PASS Virtual safety car from the session status (+43 s in, +128 s out).
+           - VSC entered at 44.1 s, left at 127.2 s (expected about +43 and +128)
+           - battle lines aired under the VSC: 0
+           - VSC called on air: yes at 45.7 s
+G3   PASS DRS state and laps remaining (RN-09).
+           - blobs after +180 s that still say 'DRS is disabled': 0 of 183
+           - race blobs with laps_remaining empty: 0
+G4   PASS Must-calls get through; no flash cuts (RN-06).
+           - camera cuts under 0.2 s after lights out: 0
+           - human incident/penalty claims that expired unsaid: 0
+G5a  PASS Yellow flag called before the first penalty for ignoring it (+56.5 s).
+           - first yellow-flag line on air: +51.3 s
+G5b  PASS Winner on the flag; nothing classified early; finish banner traced.
+           - WINNER aired 2.9 s after the leader's flag, subjects [18]
+           - classified at 1452.2 s: every running car finished (provisional until Final Classification)
+           - finish banner trace: 17 entries, home [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+K1   PASS No two race lines on air at once.
+           - overlapping lines after lights out: 0 (cut-ins that hushed a line: 2)
+K2   PASS Crash calls on air fast (21 OCT: 1.8 s median).
+           - crash calls: 22, median 1.6 s after detection
+K3   PASS Camera holds and humans on screen.
+           - median hold 22.6 s, humans on screen 99%
+K5   PASS Predictions still planted and paid off.
+           - prediction lines aired: 2
+10 of 10 gates pass
