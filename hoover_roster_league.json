@@ -132,8 +132,8 @@
       },
       "level": "A",
       "spoken": {
-        "short": "Alan",
-        "full": "Alan Meadows",
+        "short": "Zac",
+        "full": "Zac Meadows",
         "rung": 1,
         "possessive_ok": true
       },
@@ -144,8 +144,8 @@
       "platform": "PlayStation",
       "names": {
         "real": {
-          "short": "Alan",
-          "full": "Alan Meadows"
+          "short": "Zac",
+          "full": "Zac Meadows"
         },
         "gamertag": {
           "short": "Raider",
@@ -192,8 +192,8 @@
       },
       "level": "A",
       "spoken": {
-        "short": "Sholly",
-        "full": "Evan Sholly",
+        "short": "Shokin",
+        "full": "Evan Shokin Sholly",
         "rung": 1,
         "possessive_ok": true
       },
@@ -208,8 +208,8 @@
       ],
       "names": {
         "real": {
-          "short": "Sholly",
-          "full": "Evan Sholly"
+          "short": "Shokin",
+          "full": "Evan Shokin Sholly"
         },
         "gamertag": {
           "short": "Shockin",

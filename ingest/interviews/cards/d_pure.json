@@ -1,0 +1,65 @@
+{
+  "format": "hoover_card_v1",
+  "layer": "interview",
+  "driver_id": "d_pure",
+  "on_air": "Alex",
+  "gamertag": "PuRe R3Z",
+  "source": {
+    "kind": "elevenlabs_conversation",
+    "conversation_id": "conv_7501m5b1hms5ec2v5j523nxj95yb",
+    "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
+    "started": "2026-10-19T21:37:09Z",
+    "race_day": "Wednesday the twenty-first of October",
+    "track": "Yas Marina in Abu Dhabi"
+  },
+  "built_by": {
+    "tool": "interviews_v1_2_19OCT26",
+    "pass": "claude-sonnet-4-5-20250929"
+  },
+  "facts": [
+    "Alex told us he expects a battle if he ends up side by side with Dustin after their contact last race.",
+    "Alex is racing for the NASCAR Foundation tonight because he thinks it's cool that it relates to cars.",
+    "Alex plans to save his tyres in qualifying and keep the car clean for consistency.",
+    "Alex predicts Mike, Cade and Dustin will take the top three spots.",
+    "Alex said if he's fourth in the final laps with charity money on the line, he'll go for it."
+  ],
+  "manager": null,
+  "armed": {
+    "on_podium": "He told Sienna he'd go for it if charity money was on the line, and here he is."
+  },
+  "interview": {
+    "predicted_finish": null,
+    "rival_id": "d_ronin",
+    "rival": "Dustin"
+  },
+  "dropped": [],
+  "fields": {
+    "predicted_finish": null,
+    "rival": "Dustin",
+    "rival_reason": "They had contact in the last race and both received warnings",
+    "favourite_named": "Mike",
+    "dark_horse": null,
+    "crash_pick": null,
+    "fear_spot": null,
+    "setup": "Keep the car clean, be consistent, and save tyres for the race",
+    "strategy": "Save tyres in qualifying and take fresh rubber at the pit stop",
+    "colour": "His team name Apex GP came from AI",
+    "spoken_name_note": null
+  },
+  "quotes": [
+    "Battle.",
+    "Go for it.",
+    "Just keeping the car clean, being consistent."
+  ],
+  "off_record": [],
+  "unresolved_names": [],
+  "sienna_fields": {
+    "spoken_name": "Alex",
+    "rival": "Dustin",
+    "rival_reason": "They had contact in the last race and received warnings.",
+    "setup": "The driver plans to keep the car clean, be consistent, and save tires for the race.",
+    "driver_prediction": "Mike, Cade, Dustin",
+    "best_quotes": "Just Alex. | Battle. | Go for it.",
+    "interview_complete": "True"
+  }
+}

@@ -2,64 +2,70 @@
   "format": "hoover_card_v1",
   "layer": "interview",
   "driver_id": "d_ronin",
-  "on_air": "Ronin",
+  "on_air": "Dustin",
   "gamertag": "Ronin0700VII",
   "source": {
     "kind": "elevenlabs_conversation",
-    "conversation_id": "conv_5801m4hgdz4xe2qtwcsegbwfpm4m",
+    "conversation_id": "conv_8501m5eab3ykewftsxk555c2nvg7",
     "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
-    "started": "2026-10-09T23:37:02Z",
+    "started": "2026-10-21T04:08:36Z",
     "race_day": "21 October",
     "track": "Abu Dhabi"
   },
   "built_by": {
-    "tool": "interviews_v1_09OCT26",
+    "tool": "interviews_v1_2_19OCT26",
     "pass": "claude-sonnet-4-5-20250929"
   },
   "facts": [
-    "Ronin told us before the race he'd settle for second place, and he's named Valor as the man he most wants to beat.",
-    "He's running softs for the entire race, a bold call for Abu Dhabi's long straights.",
-    "Ronin is a pilot in real life."
+    "Dustin told Sienna he's targeting third place tonight, dialing back the aggression to bring the car home clean for Autism Center OK.",
+    "He's pushing for pole in qualifying to avoid having to fight through the pack in the race.",
+    "He named Flying Pickles as the team standing between DC-Racing-Team and the Constructors' Cup.",
+    "Dustin races for Autism Center OK because family members are affected by autism, and he's sending a shout-out to Asher.",
+    "He predicted Mike would take pole position, with Cade, Mike and himself filling the podium."
   ],
+  "manager": null,
   "armed": {
-    "on_podium": "He told Sienna second was the realistic target, and here he is.",
-    "on_win": "He came in predicting second, but Ronin has gone one better.",
-    "on_retire": "He feared that ninety-degree turn onto the long straight, and it may have caught him out."
+    "on_podium": "He told Sienna third was the target, and here he is.",
+    "on_win": "He told Sienna he'd settle for third, but he's brought it home in first.",
+    "on_retire": "He told Sienna if it went wrong early he'd pull up the stream on his big screen and cheer for the human drivers."
+  },
+  "interview": {
+    "predicted_finish": 3,
+    "rival_id": null,
+    "rival": null
   },
   "dropped": [],
   "fields": {
-    "predicted_finish": 2,
-    "rival": "Valor",
-    "rival_reason": "He's closest in position",
-    "favourite_named": null,
-    "dark_horse": "Shockin",
+    "predicted_finish": 3,
+    "rival": null,
+    "rival_reason": null,
+    "favourite_named": "Mike",
+    "dark_horse": null,
     "crash_pick": null,
-    "fear_spot": "that ninety-ninety turn off to a straightaway",
-    "setup": "Balanced car with higher tyre pressures and some lowering, built for straight-line speed and corner confidence.",
-    "strategy": "Running softs for the entire race.",
-    "colour": "He's a pilot in real life.",
-    "spoken_name_note": "Ronan"
+    "fear_spot": null,
+    "setup": "Pushing for pole in qualifying to secure track position and avoid aggression in the race.",
+    "strategy": "Starting on mediums and pitting late in the window to take advantage of a potential yellow flag or safety car.",
+    "colour": "His sister is watching tonight.",
+    "spoken_name_note": null
   },
   "quotes": [
-    "Second place.",
-    "Mike LaBarbera. I think he's closest in position.",
-    "I'm a pilot in real life."
+    "We're gonna bring it home clean.",
+    "I think Valor is gonna nab pole.",
+    "It's all fair game."
   ],
   "off_record": [],
   "unresolved_names": [
-    "Charlie",
-    "Evan Kennedy"
+    "Flying Pickles"
   ],
   "sienna_fields": {
-    "spoken_name": "Ronan",
-    "predicted_finish": "2",
-    "rival": "Mike LaBarbera",
-    "rival_reason": "He's closest in position.",
-    "fear_corner": "90, 90 turn off to a straightaway, because I slip out a lot and spin out.",
-    "setup": "The car has a lot of balance for straight-line speed and corner confidence, with higher tire pressures and some lowering; the strategy is to run on softs all day.",
-    "driver_prediction": "Charlie will surprise everybody; Evan Kennedy will surprise everybody.",
-    "personal_colour": "I'm a pilot in real life.",
-    "best_quotes": "Second place. | Mike LaBarbera. | I'm a pilot in real life.",
+    "spoken_name": "Dustin",
+    "predicted_finish": "3",
+    "rival": "Flying Pickles",
+    "rival_reason": "They might stop DC-Racing-Team from taking the top prize.",
+    "setup": "The driver plans to bring the car home clean, push for pole in qualifying to avoid aggression in the race, pit late for potential yellow flags, start on medium tires, and defend during the race.",
+    "driver_prediction": "Valor will nab pole.",
+    "personal_colour": "Family members affected by autism.",
+    "best_quotes": "We're gonna bring it home clean. | I think Valor is gonna nab pole. | It's all fair game.",
     "interview_complete": "True"
   }
 }

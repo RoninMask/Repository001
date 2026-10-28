@@ -2,7 +2,7 @@
   "format": "hoover_card_v1",
   "layer": "interview",
   "driver_id": "d_ecx",
-  "on_air": "ECX",
+  "on_air": "Evan",
   "gamertag": "ECxR6",
   "source": {
     "kind": "elevenlabs_conversation",
@@ -13,39 +13,43 @@
     "track": "Abu Dhabi"
   },
   "built_by": {
-    "tool": "interviews_v1_09OCT26",
+    "tool": "interviews_v1_2_19OCT26",
     "pass": "claude-sonnet-4-5-20250929"
   },
   "facts": [
-    "ECX told us he's targeting first place in his league debut.",
-    "He's named Valor as the driver he most wants to beat today."
+    "Evan told us he's coming for the win in his first league race.",
+    "He's named Kate Osterman as the driver he most wants to beat.",
+    "He's running a setup with extra downforce, leaning towards grip over speed.",
+    "He told Sienna that Evan Charley will surprise people with a top ten finish."
   ],
+  "manager": null,
   "armed": {
-    "on_podium": "He told Sienna nothing less than first would do, and here he is on the podium.",
-    "on_win": "He called first place before the race, and he's delivered."
+    "on_podium": "He told Sienna he was aiming for the win in his first league race, and here he is.",
+    "on_win": "He told Sienna he was coming for first, and he meant it."
   },
   "interview": {
     "predicted_finish": 1,
-    "rival_id": "d_valor",
-    "rival": "Valor"
+    "rival_id": null,
+    "rival": null
   },
   "dropped": [],
   "fields": {
     "predicted_finish": 1,
-    "rival": "Valor",
-    "rival_reason": "Named as the driver he most wants to beat",
+    "rival": null,
+    "rival_reason": null,
     "favourite_named": null,
     "dark_horse": null,
     "crash_pick": null,
-    "fear_spot": "the sharp left turn, maybe turn three or four",
-    "setup": "Running a little more downforce, in between maximum downforce and balance.",
+    "fear_spot": "the sharp left turn early in the lap",
+    "setup": "Running a setup with a little more downforce, in between maximum downforce and balance.",
     "strategy": null,
-    "colour": null,
+    "colour": "He likes to eat a lot of food before a race.",
     "spoken_name_note": "E-C-X-R-six"
   },
   "quotes": [
+    "E-C-X-R-6.",
     "First.",
-    "I'm here to shake things up. I've been practicing and I'm ready."
+    "I like to eat a lot of food."
   ],
   "off_record": [],
   "unresolved_names": [

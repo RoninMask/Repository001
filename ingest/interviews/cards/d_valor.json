@@ -2,60 +2,68 @@
   "format": "hoover_card_v1",
   "layer": "interview",
   "driver_id": "d_valor",
-  "on_air": "Valor",
+  "on_air": "Mike",
   "gamertag": "VaLoR",
   "source": {
     "kind": "elevenlabs_conversation",
-    "conversation_id": "conv_9301m4hhacsreasbqw5f79ss8btg",
+    "conversation_id": "conv_8201m57j44m1ezav2px66v8mcz4a",
     "agent_id": "agent_3701m4h2w4dpeva9j4hszehzq3zp",
-    "started": "2026-10-09T23:52:34Z",
-    "race_day": "21 October",
-    "track": "Abu Dhabi"
+    "started": "2026-10-18T13:09:55Z",
+    "race_day": "Wednesday the twenty-first of October",
+    "track": "Yas Marina in Abu Dhabi"
   },
   "built_by": {
-    "tool": "interviews_v1_09OCT26",
+    "tool": "interviews_v1_2_19OCT26",
     "pass": "claude-sonnet-4-5-20250929"
   },
   "facts": [
-    "Valor told us he'll finish first today, and he's named Ronin as the man he most wants to beat.",
-    "There's history between Valor and Ronin: Valor says Ronin blocked him in the last race.",
-    "Valor predicts Ronin will end up in the wall during this five-lap sprint."
+    "Mike told us he's taking pole and the win, and he's named Dustin as the driver he expects to end up in the wall.",
+    "Mike races for Saint Jude Children's Research Hospital tonight, a cause close to his heart as a father of three daughters.",
+    "Hyde Grand Prix Engineer takes its name from Mike's Air Force call sign, honoring his military service.",
+    "Mike delivered on his exact prediction last time out: pole position and the race three win.",
+    "Mike says Dustin doesn't concern him, despite Dustin naming Mike as the man he most wants to beat."
   ],
+  "manager": null,
   "armed": {
-    "on_podium": "He told Sienna first place was the target, and here he is.",
-    "on_lead": "Valor said he'd qualify on pole and lead this race, and that's exactly where he is.",
-    "on_win": "He called pole position and the win before the race, and he's delivered."
+    "on_podium": "He told Sienna he was taking pole and attacking from the front, and here he is.",
+    "on_lead": "He told Sienna he'd qualify on pole and attack right away, and he meant every word.",
+    "on_win": "He told Sienna he was taking pole and the win, and he's delivered exactly that."
+  },
+  "interview": {
+    "predicted_finish": 1,
+    "rival_id": "d_ronin",
+    "rival": "Dustin"
   },
   "dropped": [],
   "fields": {
     "predicted_finish": 1,
-    "rival": "Ronin",
-    "rival_reason": "blocked him in the last race",
+    "rival": "Dustin",
+    "rival_reason": "Dustin is closest in position",
     "favourite_named": null,
     "dark_horse": null,
-    "crash_pick": "Ronin",
+    "crash_pick": "Dustin",
     "fear_spot": null,
-    "setup": "Set up for corner grip",
+    "setup": null,
     "strategy": null,
-    "colour": "Cooked steaks before the race",
+    "colour": "Air Force veteran who goes by the call sign Hyde, father of three daughters",
     "spoken_name_note": null
   },
   "quotes": [
-    "One. Pole position.",
-    "I'm gonna qualify in pole position today.",
-    "Ronan's gonna end up in the wall."
+    "Uh, he doesn't concern me.",
+    "Watch and find out.",
+    "Thanks for tuning in."
   ],
   "off_record": [],
   "unresolved_names": [],
   "sienna_fields": {
-    "spoken_name": "Valor",
+    "spoken_name": "Mike",
+    "nickname": "Hyde",
     "predicted_finish": "1",
-    "rival": "Ronan",
-    "rival_reason": "He blocked me in the last race, which is a past grudge.",
-    "setup": "The car is set up for corner grip.",
-    "driver_prediction": "Ronan's gonna end up in the wall.",
-    "personal_colour": "Cooked steaks today.",
-    "best_quotes": "One. Pole position. | I'm gonna qualify in pole position today. | You'll find me in, uh, pole position.",
+    "rival": "Dustin",
+    "rival_reason": "Because he is closest in position.",
+    "driver_prediction": "Dustin will end up in the wall.",
+    "personal_colour": "Air Force veteran",
+    "best_quotes": "Uh, he doesn't concern me. | Watch and find out. | Thanks for tuning in.",
     "interview_complete": "True"
   }
 }
