@@ -4032,9 +4032,23 @@ class RaceModel:
             return c.lap >= total
         return self.chqf_seen
 
+    def _drop_stale_classification(self, t, why):
+        """28 OCT (Monaco test): a Final Classification held when this race
+        starts is another session's (the run opened on qualifying's results
+        screen); it named a disqualified car "nineteenth at the flag", gave a
+        retirement qualifying's red-flag reason, and fired the results
+        programme at the flag. Dropped at the start."""
+        if self.final_classification is not None:
+            self.log(">>> dropped a Final Classification held at the %s: another session's" % why)
+            self.final_classification = None
+            self.final_classification_kind = None
+            self.final_classification_t = None
+            self._fc_first_t = None
+
     def _on_lgot(self, t):
         self.saw_lgot = True
         if self.anchor_t is None:
+            self._drop_stale_classification(t, "start")
             self.anchor_t = t
             self.anchor_source = "event"
             self._set_state(t, "green", "LGOT")
@@ -4081,6 +4095,7 @@ class RaceModel:
         self.lap_offset = 1
         self._grid_stopped_t = None          # 28 OCT: the launch start
         self._formation_released_t = None
+        self._drop_stale_classification(t, "formation lap")
         self._set_state(t, "formation", why)
         fcfg = self.v3.get("formation", {}) or {}
         if not fcfg.get("voiced", True):
@@ -6010,9 +6025,26 @@ class V3Booth:
                 age = min(age, self.must_fresh_cap_s)
             elif self.must_floor_s is not None:
                 age = max(age, self.must_floor_s)
+        elif self._human_incident(claim):
+            # an incident, penalty or retirement of one of ours is owed even
+            # when the game did not mark it a must-call
+            if self.must_floor_s is not None:
+                age = max(age, min(self.must_floor_s, 12.0))
         elif self.fresh_cap_s is not None and claim.max_age_key in ("story", "story_relate"):
             age = min(age, self.fresh_cap_s)
         return age
+
+    _HUMAN_INCIDENT_KINDS = ("S_INC", "S_RC_05", "S_REL", "PENALTY", "RETIREMENT")
+
+    def _human_incident(self, claim):
+        k = claim.kind or ""
+        if not k.startswith(self._HUMAN_INCIDENT_KINDS):
+            return False
+        try:
+            cars = self.model.w.cars
+            return any(0 <= i < len(cars) and cars[i].is_human for i in (claim.subjects or []))
+        except Exception:
+            return False
 
     def _max_age_base(self, claim):
         ov = getattr(claim, "max_age_override", None)
