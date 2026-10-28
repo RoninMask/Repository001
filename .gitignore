@@ -37,3 +37,7 @@ hoover_overlay_settings.json.tmp
 hoover_night.json
 hoover_night.json.tmp
 results/
+
+# T13 bench results are the PC's own
+hoover_bench_out/
+*.bak
