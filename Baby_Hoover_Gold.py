@@ -4128,7 +4128,7 @@ class RaceModel:
                 self.log(">>> field stopped on the grid at %.3f" % t)
             gst = getattr(self, "_grid_stopped_t", None)
             rel = getattr(self, "_formation_released_t", None)
-            launched = sum(1 for v in sp if v >= float(fcfg.get("launch_kph", 40.0))) >= max(1, int(0.5 * len(sp)))
+            launched = sum(1 for v in sp if v >= float(fcfg.get("launch_kph", 15.0))) >= max(1, int(float(fcfg.get("launch_frac", 0.3)) * len(sp)))
             if (gst is not None or rel is not None) and launched and not self.saw_stlg:
                 self.log(">>> START from the launch (no start lights): field away at %.3f%s"
                          % (t, " after the formation release" if rel is not None else ""))
@@ -4405,13 +4405,17 @@ class RaceModel:
             if cause is None and why:
                 cause = {"text": why[4:] if why.startswith("for ") else why,
                          "known": True, "source": "infringement"}
-            self.emit(Claim("PENALTY", CLASS_LIFECYCLE, [car], [self._name(car)],
-                            t, facts={"pena_type": pt,
-                                      "seconds": info.get("time"),
-                                      "cause": cause,
-                                      **({"infringement": info.get("infringement")} if why else {})},
-                            provenance=prov, priority=50.0, demotable=True,
-                            max_age_key="penalty"))
+            dq = (pt == 6)       # 28 OCT: a disqualification is a must-call, and outlives the formation lap
+            cl = Claim("PENALTY", CLASS_LIFECYCLE, [car], [self._name(car)],
+                       t, facts={"pena_type": pt,
+                                 "seconds": info.get("time"),
+                                 "cause": cause,
+                                 **({"infringement": info.get("infringement")} if why else {})},
+                       provenance=prov, priority=(88.0 if dq else 50.0), demotable=not dq,
+                       max_age_key="penalty", hard=dq)
+            if dq:
+                cl.max_age_override = float(self.v3.get("dsq_max_age_s", 240.0))
+            self.emit(cl)
             if pt == 6:
                 self.disqualified.add(car)
                 self.car_state[car] = "disqualified"
@@ -5092,6 +5096,20 @@ class RaceModel:
         # practice or qualifying session is still recorded (the qualifying
         # programme turns "pole held" into the grid off it) but never
         # corrects anything.
+        # 28 OCT (Monaco test): the race run opened on the qualifying results
+        # screen, and qualifying's Final Classification (six packets in the
+        # first 25 s) was taken as the race's. At the flag the results
+        # programme fired at once on qualifying's order: "Pure Rez nineteenth
+        # at the flag" for a car disqualified on the formation lap, and the
+        # winner call was buried. In a race, a classification before the
+        # leader has finished belongs to another session.
+        if (getattr(self.w, "session_kind", None) == "RACE" and self.leader_finish_t is None
+                and self.state not in ("finishing", "classified", "closed")):
+            if not getattr(self, "_fc_early_logged", False):
+                self._fc_early_logged = True
+                self.log(">>> Final Classification before the race finished (state %s): "
+                         "another session's, ignored" % self.state)
+            return
         first_t = getattr(self, "_fc_first_t", None)
         window = float(self.v3.get("classification_window_s", 90.0))
         if self.state == "classified" and first_t is not None and (t - first_t) > window:
@@ -11412,6 +11430,10 @@ class V3Gallery:
             pass
 
     # ---- shared helpers ----------------------------------------------------
+    def speeds_of(self, idx):
+        sp = getattr(self.model, "speeds", None) or {}
+        return sp.get(idx)
+
     def _is_human(self, idx):
         return bool(self.model.w.cars[idx].is_human)
 
@@ -12011,6 +12033,7 @@ class V3Gallery:
     def observe(self, t):
         m = self.model
         self.flush_cut(t)                   # Truth Lock RN-06: settled cuts go on air
+        self.readback(t)                    # 28 OCT: is the game showing what we asked for?
         if self._first_seen_t is None and any(
                 c.seen and c.position > 0 for c in m.w.cars):
             self._first_seen_t = t
@@ -12026,6 +12049,27 @@ class V3Gallery:
                 reason = "red_flag" if m.state == "red_flag" else m.state
                 self._cut_if_new_reason(t, m.leader_idx, "protected", reason)
             self._trace(t, "stopped_state")
+            return
+
+        # 28 OCT (Monaco test): on the formation lap the camera sat 45 s on a
+        # human who had not moved off the grid. The formation lap is the front
+        # of the field: the leader, and the front-most human, in turns of
+        # formation_turn_s.
+        if m.state == "formation":
+            cfgc = self.cfg_cam_v10() or {}
+            turn = float(cfgc.get("formation_turn_s", 20.0))
+            front_h = None
+            for c in sorted((c for c in m.w.cars if c.seen and c.position > 0 and c.is_human),
+                            key=lambda c: c.position):
+                if (self.speeds_of(c.idx) or 0) > 20.0:
+                    front_h = c.idx
+                    break
+            want = m.leader_idx
+            if front_h is not None and front_h != want and int((t - (m.formation_t or t)) // turn) % 2 == 1:
+                want = front_h
+            if want is not None and want != self.current and (self.hold_since is None or t - self.hold_since >= 8.0):
+                self._cut(t, want, "protected", "formation_front", None)
+            self._trace(t, "formation")
             return
 
         # A2-3: no cut before the roster resolves (or the wait elapses)
@@ -12382,6 +12426,59 @@ class V3Gallery:
         elif self._away_since is None:
             self._away_since = t
         self._actuate(car)
+
+    def readback(self, t):
+        """28 OCT (Monaco test): on 21 and 28 OCT the game's camera showed a
+        different car from the one Hoover had cut to for about half the race
+        (the position key lands after the order changed, or is lost), and the
+        tower and the booth followed Hoover's belief, not the screen. Now the
+        game's spectated car (m_spectatorCarIndex) is checked after every cut:
+        a wrong car gets the key again with the car's position now, up to
+        readback_retries times, readback_s apart; after that Hoover follows
+        the game (a cut row, layer 'readback') so what it says and shows is
+        what viewers see. Live actuation only; replays are untouched."""
+        if self.source != "live" or self.actuation_state != "live" or self.current is None:
+            return
+        w = getattr(self.model.w, "spectator_car_idx", None)
+        if w is None:
+            return
+        if w == self.current:
+            self._rb_tries = 0
+            return
+        cfg = self.cfg_cam_v10() or {}
+        wait = float(cfg.get("readback_s", 1.2))
+        last = max(self.hold_since or 0.0, getattr(self, "_rb_last", 0.0) or 0.0)
+        if t - last < wait:
+            return
+        tries = getattr(self, "_rb_tries", 0)
+        if tries < int(cfg.get("readback_retries", 2)):
+            self._rb_tries = tries + 1
+            self._rb_last = t
+            self.readback_retries_sent = getattr(self, "readback_retries_sent", 0) + 1
+            self._actuate(self.model.w.cars[self.current])
+            return
+        self._rb_tries = 0
+        self._rb_last = t
+        self.readback_adopted = getattr(self, "readback_adopted", 0) + 1
+        want = self.current
+        car = self.model.w.cars[w]
+        if self.cuts and self.cuts[-1]["_end"] is None:
+            self.cuts[-1]["_end"] = t
+            self.cuts[-1]["held_s"] = round(t - self.cuts[-1]["_t"], 2)
+        self.cuts.append({
+            "t_unix": round(t, 6), "t_rec": self.model._t_rec(t),
+            "t_race": self.model.t_race(t), "car_idx": w,
+            "spoken": car.spoken, "position": car.position, "method": "readback",
+            "held_s": "", "race_state": self.model.state, "source": self.source,
+            "actuation_state": self.actuation_state, "layer": "readback",
+            "reason": "game_shows_%d_not_%d" % (w, want), "score": "",
+            "_t": t, "_end": None})
+        self.current = w
+        self.hold_since = t
+        if self._is_human(w):
+            self._away_since = None
+        elif self._away_since is None:
+            self._away_since = t
 
     def close(self, t):
         self.flush_cut(t, force=True)       # Truth Lock RN-06
@@ -18076,9 +18173,11 @@ class SnapshotPublisher:
                 leader = c
         leader_lap = leader.lap if leader is not None else 0
         leader_best = self.best_lap.get(leader.idx) if leader is not None else None
-        camera = getattr(gallery, "current", None) if gallery is not None else None
+        # 28 OCT: the tower marks the car the game is showing (the wire),
+        # never only the one Hoover asked for
+        camera = w.spectator_car_idx
         if camera is None:
-            camera = w.spectator_car_idx
+            camera = getattr(gallery, "current", None) if gallery is not None else None
         rows = []
         for c in w.cars:
             if not c.seen or c.position <= 0 or c.result_status in (0, 1):
