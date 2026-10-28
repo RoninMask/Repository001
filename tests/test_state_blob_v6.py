@@ -357,7 +357,7 @@ class BlobOnReplay(unittest.TestCase):
 
     def test_second_session_reads_tonight(self):
         self.assertFalse(any(r["blob"]["stakes"].get("tonight") for r in self.rows1))
-        if "TruthLock" in os.path.basename(V4_FILE):
+        if "Gold" in os.path.basename(V4_FILE):
             # Truth Lock H2: a replay of the same capture is not an earlier
             # session tonight (21 OCT: rerun 1 read back by rerun 2)
             self.assertFalse(any(r["blob"]["stakes"].get("tonight") for r in self.rows))

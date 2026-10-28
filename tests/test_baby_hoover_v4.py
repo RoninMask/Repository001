@@ -104,7 +104,7 @@ class TestByteIdentityOff(unittest.TestCase):
     state, script. (The manifest's tool/version fields are expected to differ.)"""
 
     def test_fixtures_identical(self):
-        if "TruthLock" in os.path.basename(V4_FILE):
+        if "Gold" in os.path.basename(V4_FILE):
             self.skipTest("Truth Lock changes race truth on purpose (RN-01, G2, RN-06 ...): "
                           "V3 byte parity no longer applies; the stories-off path goes (H5)")
         self.assertTrue(FIXTURES, "run tests/make_fixture_corpus.py first")

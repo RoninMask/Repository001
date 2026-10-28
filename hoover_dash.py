@@ -74,9 +74,9 @@ def find_tool(folder, override=None):
     if override:
         p = os.path.abspath(override)
         return p if os.path.isfile(p) else None
-    # Truth Lock H4: the Truth Lock build is the tool on this branch; Baby
+    # Baby Gold (Truth Lock H4): Baby Gold is the tool on this branch; Baby
     # (T11_F125_Baby_Hoover_V*.py) is the fallback, or pick it with --tool
-    tl = os.path.join(folder, "Hoover_Toddler_TruthLock.py")
+    tl = os.path.join(folder, "Baby_Hoover_Gold.py")
     if os.path.isfile(tl) and not os.environ.get("HOOVER_USE_BABY"):
         return tl
     best = None
@@ -484,7 +484,7 @@ def preflight(info, session, port):
     info.refresh()
     rows = []
     if not info.path:
-        rows.append(row("red", "Hoover tool", "No Hoover_Toddler_TruthLock.py or T11_F125_Baby_Hoover_V*.py next to the dashboard in %s" % HERE,
+        rows.append(row("red", "Hoover tool", "No Baby_Hoover_Gold.py or T11_F125_Baby_Hoover_V*.py next to the dashboard in %s" % HERE,
                         "Keep hoover_dash.py in the Hoover folder, next to the tool."))
         return rows
     tool_dir = os.path.dirname(info.path)

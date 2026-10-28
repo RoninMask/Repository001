@@ -1,7 +1,7 @@
-"""Truth Lock unit tests (28 OCT 26): the fixes that a template replay of the
+"""Baby Gold unit tests (Truth Lock fixes) (28 OCT 26): the fixes that a template replay of the
 21 OCT race cannot exercise on its own. Run against the Truth Lock file:
 
-    python -m pytest tests/test_truthlock.py
+    python -m pytest tests/test_baby_gold.py
 """
 import importlib.util
 import os
@@ -11,11 +11,11 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-TOOL = os.environ.get("HOOVER_TOOL") or os.path.join(REPO, "Hoover_Toddler_TruthLock.py")
+TOOL = os.environ.get("HOOVER_TOOL") or os.path.join(REPO, "Baby_Hoover_Gold.py")
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("hoover_truthlock", TOOL)
+    spec = importlib.util.spec_from_file_location("hoover_baby_gold", TOOL)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

@@ -10168,7 +10168,7 @@ class SpeechChannel:
 # Everything here runs only on request or with --speech on, so --speech none
 # stays byte-identical to V4.0.
 
-BUILD_PRODUCT = "Baby Hoover"
+BUILD_PRODUCT = "Baby Hoover Gold"
 BUILD_VERSION = "V5"
 BUILD_DATE = "14OCT26"
 SETTINGS_ENV = "HOOVER_SETTINGS"
