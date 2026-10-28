@@ -5785,6 +5785,8 @@ class V3Booth:
         self.max_age = cl.get("max_age_s", {"default": 12.0})
         self.fresh_cap_s = cl.get("fresh_cap_s")          # 28 OCT; None = off
         self.must_floor_s = cl.get("must_floor_s")        # 28 OCT; None = off
+        self.must_fresh_cap_s = cl.get("must_fresh_cap_s")   # 28 OCT; None = off
+        self.must_fresh_kinds = tuple(cl.get("must_fresh_kinds") or ())
         # V8 passages: how long the rest of a passage may wait past the
         # previous sentence's end before its tail is dropped.
         self.passage_max_wait = (config.get("v3", "writer", "passage_max_wait_s",
@@ -6000,7 +6002,13 @@ class V3Booth:
         # fresh_cap_s; must-calls (incidents, flags, the finish) keep at least
         # must_floor_s so a busy channel cannot lose them. Both off when unset.
         if getattr(claim, "hard", False):
-            if self.must_floor_s is not None:
+            # a must-call about the racing itself (a battle settled, a human's
+            # move) is only news for a few seconds; incidents, flags,
+            # retirements, penalties and the finish are owed whenever they air
+            k = claim.kind or ""
+            if self.must_fresh_cap_s is not None and any(k.startswith(x) for x in self.must_fresh_kinds):
+                age = min(age, self.must_fresh_cap_s)
+            elif self.must_floor_s is not None:
                 age = max(age, self.must_floor_s)
         elif self.fresh_cap_s is not None and claim.max_age_key in ("story", "story_relate"):
             age = min(age, self.fresh_cap_s)

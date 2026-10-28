@@ -374,17 +374,22 @@
     },
     "claims": {
       "max_age_s": {
-        "default": 12.0,
-        "pass": 8.0,
-        "lead_change": 6.0,
+        "default": 6.0,
+        "pass": 4.0,
+        "lead_change": 4.0,
         "state": 20.0,
         "retirement": 30.0,
         "penalty": 30.0,
         "result": 60.0,
-        "story": 16.0,
-        "story_relate": 24.0
+        "story": 5.0,
+        "story_relate": 8.0
       },
-      "final_order_guard_s": 30.0
+      "final_order_guard_s": 30.0,
+      "fresh_cap_s": 5.0,
+      "must_floor_s": 20.0,
+      "must_fresh_cap_s": 7.0,
+      "must_fresh_kinds": ["S_BAT", "S_HUM", "S_STR", "S_POS", "S_LEAD"],
+      "_v28oct": "28 OCT (Monaco test, calls 10 s late): a late call is worse than none. Story lines live fresh_cap_s; must-calls about the racing (must_fresh_kinds) must_fresh_cap_s; other must-calls (incidents, flags, retirements, penalties, the finish) at least must_floor_s."
     },
     "pacing": {
       "min_gap_s": 1.2,
@@ -781,9 +786,10 @@
       "interjection_min_intensity": 0.8,
       "interjection_min_gap_s": 120.0,
       "sentences_prestart": 8,
-      "sentences_lull": 8,
-      "sentences_green": 5,
-      "sentences_neutralised": 6,
+      "sentences_lull": 2,
+      "sentences_green": 1,
+      "sentences_neutralised": 2,
+      "_v28oct": "28 OCT (WP21 D1 option C, early): one sentence while cars race; two in a lull or under the safety car.",
       "prediction_min_feasibility": 0.8
     },
     "tether": {
@@ -804,9 +810,10 @@
     "dwell": {
       "_about": "V8.3 fix 4 (09 OCT): once a story beat airs the booth stays on that story for dwell_s unless it closes or has nothing queued for idle_release_s; Interrupt rows and the hard race-state kinds break in at once, other must-calls after must_after_s; a story that held the booth for min_for_bridge_s hands the next story a previous_story so the writer can turn from it; a story released less than bridge_window_s ago still hands over",
       "enabled": true,
-      "dwell_s": 45.0,
-      "idle_release_s": 20.0,
-      "must_after_s": 12.0,
+      "dwell_s": 15.0,
+      "idle_release_s": 6.0,
+      "must_after_s": 3.0,
+      "_v28oct": "28 OCT: dwell 45 -> 15 s, idle release 20 -> 6, must-calls break in after 3 s (was 12), battle lock 90 -> 30 s, quiet release 20 -> 8: the booth stayed on one story while fresh calls waited.",
       "min_for_bridge_s": 6.0,
       "bridge_window_s": 20.0,
       "human_bonus": 5.0,
@@ -825,10 +832,10 @@
           "BAT-05",
           "LEAD-02"
         ],
-        "lock_max_s": 90.0,
+        "lock_max_s": 30.0,
         "ai_only_frac": 0.5,
         "renew_s": 25.0,
-        "release_quiet_s": 20.0,
+        "release_quiet_s": 8.0,
         "release_gap_s": 2.0
       },
       "_v9_21": "20 OCT: dwell 40 -> 45 s (half for a story with no human in it), idle release 15 -> 20, must-calls break in after 12 s (a story line lives 16 s, so 20 s let every pass elsewhere expire on the replay) and then as an aside (one per 30 s, camera stays), on-screen bonus 6 -> 12; the battle lock renews the focus by 25 s on every phase change while the pair is inside 2 s, up to 90 s (45 for AI only), and stops renewing after 20 s without a phase or on a stalemate"
