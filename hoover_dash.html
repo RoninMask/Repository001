@@ -574,7 +574,7 @@ $("#biolock").onclick = async () => {
 };
 $("#bioclose").onclick = () => $("#biomodal").classList.remove("on");
 $("#biomodal").onclick = e => { if (e.target.id === "biomodal") $("#biomodal").classList.remove("on"); };
-const SEATNAME = {LEAD:"Lead", ANALYST:"Analyst", HOST:"Host", STRATEGIST:"Strategist", REPORTER:"Reporter", EXPERT:"Expert"};
+const SEATNAME = {LEAD:"Lead", ANALYST:"Analyst", HOST:"Host", STRATEGIST:"Strategist", REPORTER:"Reporter", EXPERT:"Expert", ENGINEER:"Race engineer"};
 function paintTeam(){
   if (!PEOPLE.available) { $("#teamtable").innerHTML = `<div class="note bad">${esc(PEOPLE.error || "hoover_people.py is not beside the dashboard")}</div>`; return; }
   const opts = s => (PEOPLE.seats||[]).map(x => `<option value="${x}"${x===s?" selected":""}>${SEATNAME[x]||x}</option>`).join("");

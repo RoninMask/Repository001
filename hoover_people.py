@@ -27,7 +27,7 @@ import shutil
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK_NAME = "hoover_people.json"
 DEFAULT_NAME = "hoover_people.default.json"
-SEATS = ("LEAD", "ANALYST", "HOST", "STRATEGIST", "REPORTER", "EXPERT")
+SEATS = ("LEAD", "ANALYST", "HOST", "STRATEGIST", "REPORTER", "EXPERT", "ENGINEER")
 MAX_BIO = 6000
 
 
@@ -59,6 +59,18 @@ def load(folder=HERE):
         return {"team": [], "bios": {}}, "%s: %s" % (WORK_NAME, e)
     doc.setdefault("team", [])
     doc.setdefault("bios", {})
+    # a team member added to the repo's default later (Wolfgang, 28 OCT)
+    # joins the PC's copy once; one the PC removed stays removed
+    try:
+        with open(os.path.join(folder, DEFAULT_NAME), "r", encoding="utf-8") as f:
+            dflt = json.load(f)
+        have = {m.get("id") for m in doc["team"]}
+        gone = set(doc.get("removed") or [])
+        for m in dflt.get("team") or []:
+            if m.get("id") not in have and m.get("id") not in gone:
+                doc["team"].append(dict(m))
+    except Exception:
+        pass
     return doc, None
 
 
