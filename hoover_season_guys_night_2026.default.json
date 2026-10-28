@@ -1,0 +1,117 @@
+{
+  "schema": "hoover_season_v1",
+  "_about": "Season file for Guys Night 2026 (the regular league). Not a charity league: no charities; teams are the game's own unless you add league teams on the Season page. People from the league roster (28 OCT); check spellings and race numbers on the Season page.",
+  "league": {
+    "id": "guys_night",
+    "name": "Guys Night",
+    "season": "2026"
+  },
+  "grid_mode": "standard",
+  "name_mode": "last",
+  "ticker_separator": "  ◆  ",
+  "code_overrides": {
+    "p_alex": "ACA",
+    "p_dustin": "CAN",
+    "p_evan_c": "ECA",
+    "p_sholly": "SHO"
+  },
+  "people": [
+    {
+      "id": "p_alex",
+      "first": "Alex",
+      "last": "Canedy",
+      "spoken": "Alex Kannedy",
+      "spoken_first": "Alex",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "PuRe R3Z",
+      "race_number": 13,
+      "adult": true
+    },
+    {
+      "id": "p_mike",
+      "first": "Mike",
+      "last": "Lababera",
+      "spoken": "Mike Lababera",
+      "spoken_first": "Mike",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "VaLoR",
+      "race_number": 21,
+      "adult": true
+    },
+    {
+      "id": "p_dustin",
+      "first": "Dustin",
+      "last": "Canedy",
+      "spoken": "Dustin Kannedy",
+      "spoken_first": "Dustin",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Ronin0700VII",
+      "race_number": 77,
+      "adult": true
+    },
+    {
+      "id": "p_cade",
+      "first": "Cade",
+      "last": "Osterman",
+      "spoken": "Cade Osterman",
+      "spoken_first": "Cade",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Faze Noob3146",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_alan",
+      "first": "Alan",
+      "last": "Meadows",
+      "spoken": "Alan Meadows",
+      "spoken_first": "Alan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Raider968Raider",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_evan_c",
+      "first": "Evan",
+      "last": "Canedy",
+      "spoken": "Evan Kannedy",
+      "spoken_first": "Evan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "ECxR6",
+      "race_number": null,
+      "adult": true
+    },
+    {
+      "id": "p_sholly",
+      "first": "Evan",
+      "last": "Sholly",
+      "spoken": "Evan Sholly",
+      "spoken_first": "Evan",
+      "roles": [
+        "driver"
+      ],
+      "gamertag": "Shockin05",
+      "race_number": null,
+      "adult": true
+    }
+  ],
+  "charities": [],
+  "teams": [],
+  "deal": {
+    "event": null,
+    "assignments": {}
+  }
+}

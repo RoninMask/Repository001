@@ -1110,6 +1110,9 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   #sc{display:none;height:calc(22px*var(--fs));line-height:calc(22px*var(--fs));background:var(--gold);color:#181c25;font-weight:700;font-size:calc(11px*var(--fs));
       letter-spacing:.14em;text-align:center;text-transform:uppercase}
   #sc.on{display:block}
+  #testrun{display:none;height:calc(22px*var(--fs));line-height:calc(22px*var(--fs));background:#7B3FE4;color:#fff;font-weight:800;
+      font-size:calc(11px*var(--fs));letter-spacing:.2em;text-align:center;text-transform:uppercase}
+  #testrun.on{display:block}
   #rows{position:relative;background:rgba(16,19,26,.86);border-radius:0 0 6px 6px;overflow:visible}
   .row{position:absolute;left:0;right:0;height:var(--row);display:flex;align-items:center;
        transition:transform .5s cubic-bezier(.2,.7,.2,1), background .3s;border-bottom:1px solid rgba(255,255,255,.05);box-sizing:border-box}
@@ -1163,7 +1166,7 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   .row.camopen .team::before,.row.camopen .charity::before{content:"\00b7";margin-right:12px;opacity:.5}
 </style></head><body>
 <div id="tower"><div id="head"><div><div id="session">Waiting</div><div id="sub">for Hoover</div></div><div id="lap"></div></div>
-<div id="sc">Safety car</div>
+<div id="testrun"></div><div id="sc">Safety car</div>
 <div id="cols"><div class="pos">P</div><div class="bar"></div><div class="cell name">Name</div><div class="cell team">Team</div><div class="cell charity">Charity</div><div class="spacer"></div><div class="tyre">Tyre</div><div class="num lapt last">Last</div><div class="num lapt best">Best</div><div class="num gap">Gap</div></div>
 <div id="rows"></div></div>
 <script>
@@ -1176,6 +1179,8 @@ TOWER_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Hoover 
   function fmtTime(s){s=Math.max(0,s|0);return Math.floor(s/60)+":"+String(s%%60).padStart(2,"0");}
   function render(d){
     const S=d.settings.tower, C=S.columns, on=d.settings.surfaces.tower;
+    { const ev=d.event||{}, tb=document.getElementById("testrun");     // 28 OCT: a test run says so on screen
+      if(tb){ const t=ev.status==="test"; tb.classList.toggle("on",t); tb.textContent=t?("Test run"+(ev.test_run?" "+ev.test_run:"")):""; } }
     const fs=Number(S.font_scale||1.3); root.setProperty("--fs",String(fs)); root.setProperty("--w",S.width+"px"); root.setProperty("--row",S.row_height+"px");
     // one column open: 62%% of the base width; all three open (after the flag): 48%% each
     const wideOne=Math.round(S.width*0.62), wideAll=Math.round(S.width*0.48);

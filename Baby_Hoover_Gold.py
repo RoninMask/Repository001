@@ -18427,6 +18427,13 @@ class BabyHooverV3:
         # one hoover_season_*.json beside the tool (or the --league one).
         self.season = None
         self.event_stamp = self._event_stamp(args)
+        if self.event_stamp.get("status") == "test":
+            try:
+                self.event_stamp["test_run"] = self._test_run_number(
+                    getattr(args, "out", None) or os.path.join(here, "hoover_v3_out"), self.event_stamp.get("date"))
+            except Exception:
+                self.event_stamp["test_run"] = 1
+            self._log("[event] TEST RUN %s: nothing goes into the season's records" % self.event_stamp["test_run"])
         season_arg = getattr(args, "season", None)
         season_path = None
         if season_arg and season_arg.lower() != "off" and _season_mod is not None:
@@ -18588,6 +18595,31 @@ class BabyHooverV3:
                 "date": getattr(args, "event_date", None) or getattr(args, "night_id", None)
                 or datetime.now().strftime("%Y-%m-%d"),
                 "status": status, "night_label": label}
+
+    def _unrecorded(self):
+        """28 OCT: a test or friendly run writes nothing to the season's
+        records (archive, race-day export); its run folder is still written."""
+        return (getattr(self, "event_stamp", None) or {}).get("status") in ("test", "friendly")
+
+    def _test_run_number(self, out_root, date):
+        """28 OCT: TEST RUN n -- this run's number among today's test runs,
+        counted from the manifests already in the output folder."""
+        n = 0
+        try:
+            for d in os.listdir(out_root):
+                mp = os.path.join(out_root, d, d + "_manifest.json")
+                if not os.path.isfile(mp):
+                    continue
+                try:
+                    with open(mp, "r", encoding="utf-8") as f:
+                        ev = (json.load(f) or {}).get("event") or {}
+                except Exception:
+                    continue
+                if ev.get("status") == "test" and ev.get("date") == date:
+                    n = max(n, int(ev.get("test_run") or 0))
+        except Exception:
+            pass
+        return n + 1
 
     def _make_writer(self):
         """Part L: build the writer for --writer. template is the current path;
@@ -19321,7 +19353,7 @@ class BabyHooverV3:
                 with open(p + "_blobs.jsonl", "w", encoding="utf-8") as f:
                     for row in self.booth.blob_log:
                         f.write(json.dumps(row, sort_keys=True, default=str) + "\n")
-            if self.archive is not None:
+            if self.archive is not None and not self._unrecorded():
                 self._archive_session(t, manifest)
             with open(p + "_stories.jsonl", "w", encoding="utf-8") as f:
                 for ev in self.stories.store.events:
@@ -19329,7 +19361,7 @@ class BabyHooverV3:
             with open(p + "_story_timeline.txt", "w", encoding="utf-8") as f:
                 f.write("\n".join(self.stories.timeline_lines()) + "\n")
         # V9: the race-day record for the league system (JSON + CSV)
-        if getattr(self, "season", None) is not None:
+        if getattr(self, "season", None) is not None and not self._unrecorded():
             n_rows = write_raceday_record(self, p, manifest)
             if n_rows is not None:
                 manifest["raceday_rows"] = n_rows
@@ -19737,7 +19769,7 @@ def main():
                     help="on: the booth names from the season file; off (default for the 21st): "
                          "the roster's Real/Gamertag switch names the booth, the season file dresses the screen")
     ap.add_argument("--league", default=None, help="league id (picks the season file, stamps the record)")
-    ap.add_argument("--event-status", choices=["friendly", "practice", "official", "championship"],
+    ap.add_argument("--event-status", choices=["test", "friendly", "practice", "official", "championship"],
                     default=None, help="what tonight counts for (stamped on every record)")
     ap.add_argument("--event-date", default=None, help="event date YYYY-MM-DD (default: today)")
     ap.add_argument("--publish", type=int, default=None,
