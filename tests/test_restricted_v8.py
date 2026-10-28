@@ -3,7 +3,7 @@
 """
 import glob, importlib.util, os, unittest
 HERE = os.path.dirname(os.path.abspath(__file__)); REPO = os.path.dirname(HERE)
-V4_FILE = sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V4_*.py")))[-1]
+V4_FILE = os.environ.get("HOOVER_TOOL") or sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V4_*.py")))[-1]
 spec = importlib.util.spec_from_file_location("bh_restricted", V4_FILE); v = importlib.util.module_from_spec(spec); spec.loader.exec_module(v)
 
 

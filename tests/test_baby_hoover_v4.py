@@ -28,7 +28,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
 V3_FILE = sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V3_*.py")))[-1]
-V4_FILE = sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V4_*.py")))[-1]
+V4_FILE = os.environ.get("HOOVER_TOOL") or sorted(glob.glob(os.path.join(REPO, "T11_F125_Baby_Hoover_V4_*.py")))[-1]
 FIXTURES = sorted(glob.glob(os.path.join(HERE, "fixture_corpus", "*", "*.bin")))
 
 
