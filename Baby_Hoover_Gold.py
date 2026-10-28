@@ -4079,6 +4079,8 @@ class RaceModel:
         self.formation_t = t
         self.formation_source = why
         self.lap_offset = 1
+        self._grid_stopped_t = None          # 28 OCT: the launch start
+        self._formation_released_t = None
         self._set_state(t, "formation", why)
         fcfg = self.v3.get("formation", {}) or {}
         if not fcfg.get("voiced", True):
@@ -4109,6 +4111,31 @@ class RaceModel:
             return
         if self.state != "formation" or self.formation_t is None:
             return
+        # 28 OCT: the launch. After the formation lap the field stops on the
+        # grid, then leaves it together. Start lights, when the game sends
+        # them, are still the start (the STLG/LGOT path); with no lights
+        # within launch_wait_s of the field stopping, the launch is the start:
+        # most of the running field from standstill to launch_kph inside
+        # launch_window_s, the leader within metres of the line.
+        running = [c for c in self.w.cars if c.seen and c.position > 0 and c.result_status in (0, 2)]
+        if running and (t - self.formation_t) >= float(fcfg.get("grid_min_s", 45.0)):
+            sp = [self.speeds.get(c.idx, 0) or 0 for c in running]
+            stopped = sum(1 for v in sp if v < 5.0) >= max(1, int(0.8 * len(sp)))
+            lead = next((c for c in running if c.position == 1), None)
+            near_line = lead is not None and abs(lead.lap_distance or 0.0) <= float(fcfg.get("grid_line_m", 120.0))
+            if stopped and near_line and getattr(self, "_grid_stopped_t", None) is None:
+                self._grid_stopped_t = t
+                self.log(">>> field stopped on the grid at %.3f" % t)
+            gst = getattr(self, "_grid_stopped_t", None)
+            rel = getattr(self, "_formation_released_t", None)
+            launched = sum(1 for v in sp if v >= float(fcfg.get("launch_kph", 40.0))) >= max(1, int(0.5 * len(sp)))
+            if (gst is not None or rel is not None) and launched and not self.saw_stlg:
+                self.log(">>> START from the launch (no start lights): field away at %.3f%s"
+                         % (t, " after the formation release" if rel is not None else ""))
+                self.anchor_source = "launch"
+                self._on_lgot(t)
+                self.anchor_source = "launch"
+                return
         if not self._formation_grid_done and (t - self.formation_t) >= float(fcfg.get("grid_after_s", 14.0)):
             self._formation_grid_done = True
             self._formation_grid_line(t)
@@ -4183,6 +4210,15 @@ class RaceModel:
         if sc_type == 3:
             # formation safety car: the formation lap (V9.23: now voiced once,
             # through _enter_formation, whichever signal arrives first).
+            if event_type == 3 and self.state == "formation" and self.anchor_t is None:
+                # 28 OCT (Monaco test): "formation lap over, resume" -- the
+                # field is on the grid for the start. On 21 OCT the start
+                # lights followed; on 28 OCT the game sent none and no second
+                # lights out, so the start must also come from the field
+                # launching (_formation_tick).
+                self._formation_released_t = t
+                self.log(">>> formation lap over (SCAR type 3 resume) at %.3f: waiting for lights or the launch" % t)
+                return
             if self.state in self._DONE_STATES:
                 self._new_race(t, "formation lap")
             if self.state == "pre_start":
@@ -5729,6 +5765,8 @@ class V3Booth:
                      or 2.6)
         cl = (config.get("v3", "claims", default={}) or {})
         self.max_age = cl.get("max_age_s", {"default": 12.0})
+        self.fresh_cap_s = cl.get("fresh_cap_s")          # 28 OCT; None = off
+        self.must_floor_s = cl.get("must_floor_s")        # 28 OCT; None = off
         # V8 passages: how long the rest of a passage may wait past the
         # previous sentence's end before its tail is dropped.
         self.passage_max_wait = (config.get("v3", "writer", "passage_max_wait_s",
@@ -5938,6 +5976,19 @@ class V3Booth:
                 self.writer.submit(self._line_request(c, past=False, t=t))
 
     def _max_age_for(self, claim):
+        age = self._max_age_base(claim)
+        # 28 OCT (Monaco test: calls 10 s late, up to 44 s): a late call is
+        # worse than no call. Story lines that are not must-calls live at most
+        # fresh_cap_s; must-calls (incidents, flags, the finish) keep at least
+        # must_floor_s so a busy channel cannot lose them. Both off when unset.
+        if getattr(claim, "hard", False):
+            if self.must_floor_s is not None:
+                age = max(age, self.must_floor_s)
+        elif self.fresh_cap_s is not None and claim.max_age_key in ("story", "story_relate"):
+            age = min(age, self.fresh_cap_s)
+        return age
+
+    def _max_age_base(self, claim):
         ov = getattr(claim, "max_age_override", None)
         if ov is not None:
             return ov
