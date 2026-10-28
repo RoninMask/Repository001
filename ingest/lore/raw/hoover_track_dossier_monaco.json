@@ -1,0 +1,341 @@
+{
+  "track_id": "monaco",
+  "circuit_name": "Circuit de Monaco",
+  "version": "1.0.0",
+  "date_compiled": "2026-10-28",
+  "_about": "Mike's Item 10 dossier, 28 OCT 26, checked against the Monaco timing data and the race records. Sources swapped to the pages that carry each fact where the dossier named a site without a link.",
+  "layout": {
+    "year_introduced": 2015,
+    "total_corners": 19,
+    "length_km": 3.337,
+    "lap_record": {
+      "time": "1:12.909",
+      "driver": "Lewis Hamilton",
+      "team": "Mercedes",
+      "year": 2021,
+      "source": "https://en.wikipedia.org/wiki/2021_Monaco_Grand_Prix"
+    },
+    "pit_loss_seconds": 18.94
+  },
+  "facts": [
+    {
+      "id": "mon_hist_01",
+      "category": "history",
+      "corner": null,
+      "year": 1929,
+      "fits": [
+        "calm",
+        "intro",
+        "grid"
+      ],
+      "text": "Antony Noghès founded the Monaco Grand Prix in nineteen twenty-nine with the Automobile Club de Monaco, turning the narrow harbour streets of Monte Carlo into Formula One's crown jewel.",
+      "source": "https://en.wikipedia.org/wiki/Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_02",
+      "category": "history",
+      "corner": null,
+      "year": 1929,
+      "fits": [
+        "calm",
+        "intro",
+        "trivia"
+      ],
+      "text": "William Grover-Williams won the first Monaco Grand Prix in nineteen twenty-nine, driving a dark green Bugatti Type thirty-five B over one hundred laps of the principality.",
+      "source": "https://en.wikipedia.org/wiki/1929_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_03",
+      "category": "history",
+      "corner": null,
+      "year": 1993,
+      "fits": [
+        "calm",
+        "podium",
+        "lead"
+      ],
+      "text": "Ayrton Senna is the King of Monaco: six wins between nineteen eighty-seven and nineteen ninety-three, the last five in a row for McLaren.",
+      "source": "https://en.wikipedia.org/wiki/Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_04",
+      "category": "history",
+      "corner": null,
+      "year": 1969,
+      "fits": [
+        "calm",
+        "trivia"
+      ],
+      "text": "Graham Hill earned the name Mister Monaco with five wins in the nineteen sixties, a mark Michael Schumacher later matched across the nineties and early two thousands.",
+      "source": "https://en.wikipedia.org/wiki/Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_05",
+      "category": "history",
+      "corner": null,
+      "year": 2021,
+      "fits": [
+        "calm",
+        "fastest_lap"
+      ],
+      "text": "Lewis Hamilton holds the Monaco race lap record from twenty twenty-one, one minute twelve point nine zero nine, just under one hundred and sixty-five kilometres per hour.",
+      "source": "https://en.wikipedia.org/wiki/2021_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_06",
+      "category": "history",
+      "corner": null,
+      "year": 1996,
+      "fits": [
+        "chaos",
+        "dnf",
+        "weather",
+        "sc"
+      ],
+      "text": "In the wet nineteen ninety-six race, Olivier Panis started fourteenth and gave Ligier its last ever win, on a day when only three cars crossed the finish line.",
+      "source": "https://en.wikipedia.org/wiki/1996_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_hist_07",
+      "category": "history",
+      "corner": null,
+      "year": 2024,
+      "fits": [
+        "calm",
+        "lead",
+        "podium"
+      ],
+      "text": "Charles Leclerc broke his home-race curse in twenty twenty-four, winning from pole for Ferrari, the first Monégasque driver to win at home since Louis Chiron in nineteen thirty-one.",
+      "source": "https://en.wikipedia.org/wiki/2024_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_geom_01",
+      "category": "circuit",
+      "corner": null,
+      "year": 2015,
+      "fits": [
+        "calm",
+        "intro",
+        "cruising"
+      ],
+      "text": "At three point three three seven kilometres, Monaco is the shortest track on the Formula One calendar, and the slowest lap of the season.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_02",
+      "category": "circuit",
+      "corner": 1,
+      "year": null,
+      "fits": [
+        "lap1",
+        "braking",
+        "damage"
+      ],
+      "text": "Sainte Dévote, turn one, is named after the little chapel behind the barriers, where the whole field funnels from close to three hundred kilometres per hour into one tight right.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_03",
+      "category": "circuit",
+      "corner": 2,
+      "year": null,
+      "fits": [
+        "calm",
+        "sector1"
+      ],
+      "text": "Beau Rivage is not a braking corner at all, but a steep uphill climb where the barriers pinch in as the cars surge toward Massenet and Casino Square.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_04",
+      "category": "circuit",
+      "corner": 3,
+      "year": null,
+      "fits": [
+        "calm",
+        "sector1",
+        "damage"
+      ],
+      "text": "Through Massenet and Casino Square the drivers climb a long blind left, then crest the hill past the Hôtel de Paris before the drop to Mirabeau.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_05",
+      "category": "circuit",
+      "corner": 5,
+      "year": null,
+      "fits": [
+        "braking",
+        "battle"
+      ],
+      "text": "Mirabeau Haute drops sharply downhill over cambered street asphalt, and the smallest front lock-up slides the car nose-first toward the barrier.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_06",
+      "category": "circuit",
+      "corner": 6,
+      "year": null,
+      "fits": [
+        "braking",
+        "battle",
+        "damage"
+      ],
+      "text": "The Grand Hotel Hairpin is the slowest corner in Formula One, under fifty kilometres per hour, and the teams fit special steering racks just to make the turn.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_07",
+      "category": "circuit",
+      "corner": 8,
+      "year": 1988,
+      "fits": [
+        "braking",
+        "sector2",
+        "damage"
+      ],
+      "text": "Portier sets up the whole run through the tunnel, and it is where Ayrton Senna hit the barrier in nineteen eighty-eight while leading by nearly a minute.",
+      "source": "https://en.wikipedia.org/wiki/1988_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_geom_08",
+      "category": "circuit",
+      "corner": 9,
+      "year": null,
+      "fits": [
+        "fast",
+        "sector2"
+      ],
+      "text": "The tunnel is the fastest part of the lap, close to two hundred and ninety kilometres per hour, and the drivers burst from artificial light into the glare at the braking point.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_09",
+      "category": "circuit",
+      "corner": 10,
+      "year": null,
+      "fits": [
+        "chicane",
+        "battle",
+        "damage"
+      ],
+      "text": "The Nouvelle Chicane is the only real heavy-braking overtaking spot in Monte Carlo, and with full damage on, a cut kerb here can break a front wing or a track rod.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_10",
+      "category": "circuit",
+      "corner": 12,
+      "year": null,
+      "fits": [
+        "medium",
+        "sector3",
+        "damage"
+      ],
+      "text": "Tabac takes its name from the old tobacconist on the harbour corner, and it asks for full commitment at close to two hundred kilometres per hour with no runoff on the exit.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_11",
+      "category": "circuit",
+      "corner": 14,
+      "year": 1973,
+      "fits": [
+        "chicane",
+        "sector3",
+        "damage"
+      ],
+      "text": "The Swimming Pool section arrived in nineteen seventy-three, wrapped around the Rainier the Third pool, and it is the great wing-breaker when a driver brushes the inside barrier.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_geom_12",
+      "category": "circuit",
+      "corner": 18,
+      "year": 2006,
+      "fits": [
+        "braking",
+        "pit",
+        "damage"
+      ],
+      "text": "La Rascasse wraps right around the harbour bar it is named after, and it is where Michael Schumacher famously parked his Ferrari in qualifying in two thousand and six.",
+      "source": "https://en.wikipedia.org/wiki/2006_Monaco_Grand_Prix"
+    },
+    {
+      "id": "mon_geom_13",
+      "category": "circuit",
+      "corner": 19,
+      "year": null,
+      "fits": [
+        "braking",
+        "sector3"
+      ],
+      "text": "Antony Noghès, the last corner, is named after the race's founder, and it fires the cars onto the pit straight and into the only DRS zone on the lap.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_strat_01",
+      "category": "strategy",
+      "corner": null,
+      "year": null,
+      "fits": [
+        "battle",
+        "train",
+        "pitwall"
+      ],
+      "text": "Overtaking research from the Technical University of Munich puts the pace you need to pass at Monaco at more than three and a half seconds a lap.",
+      "source": "White Paper 17 section 12 (TUM overtaking fit)"
+    },
+    {
+      "id": "mon_strat_02",
+      "category": "strategy",
+      "corner": null,
+      "year": 2024,
+      "fits": [
+        "calm",
+        "train"
+      ],
+      "text": "In the entire twenty twenty-four Monaco Grand Prix, only seventeen on-track passes were recorded, making track position worth more than pure speed.",
+      "source": "White Paper 17 section 12 (TUM overtaking fit)"
+    },
+    {
+      "id": "mon_strat_03",
+      "category": "strategy",
+      "corner": null,
+      "year": 2025,
+      "fits": [
+        "sc",
+        "vsc",
+        "pitwall"
+      ],
+      "text": "With barriers on every metre, the odds of a Safety Car here are better than two in five, and a stop under it costs about seven seconds less than a green-flag stop.",
+      "source": "https://www.formula1.com/en/racing/2025/monaco"
+    },
+    {
+      "id": "mon_strat_04",
+      "category": "strategy",
+      "corner": null,
+      "year": null,
+      "fits": [
+        "pit",
+        "pitwall",
+        "battle"
+      ],
+      "text": "At Monte Carlo a fresh tyre is worth little if it comes out stuck behind a slower car, so staying out in clean air for the overcut often beats the early undercut.",
+      "source": "https://en.wikipedia.org/wiki/Circuit_de_Monaco"
+    },
+    {
+      "id": "mon_strat_05",
+      "category": "strategy",
+      "corner": null,
+      "year": null,
+      "fits": [
+        "damage",
+        "pit",
+        "chaos"
+      ],
+      "text": "Under full damage rules, knocking a front-wing endplate off at Sainte Dévote or the Swimming Pool adds an eight-second nose change on top of the pit loss.",
+      "source": "White Paper 17 sections 8 and 12"
+    }
+  ]
+}

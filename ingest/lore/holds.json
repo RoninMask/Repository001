@@ -9,5 +9,7 @@
   "ABU_T02_01": "Turns 2-3 are not uphill; Yas Marina is flat",
   "F1_RACE_DIRTY_AIR": "the 10-15 degree figure has no checkable source",
   "F1_RACE_SOFT": "the three-to-five-tenths figure has no checkable source",
-  "ABU_T07_01": "second DRS zone placement disagrees with hoover_tracks.json (turn eight to Marsa Corner)"
+  "ABU_T07_01": "second DRS zone placement disagrees with hoover_tracks.json (turn eight to Marsa Corner)",
+  "mon_strat_02": "the 2024 race finished almost in grid order after the lap-one red flag; seventeen passes needs a source for which race it counts",
+  "mon_strat_05": "the eight-second nose change is a guess for F1 25; time one in today's capture first"
 }

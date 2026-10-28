@@ -1,0 +1,30 @@
+# Monaco (Circuit de Monaco), F1 25 track id 5, post-2015 19-turn layout, 3337 m.
+# published_dist_m: median of the F1 live-timing corner markers (via MultiViewer/FastF1, archived by TracingInsights)
+#   over ten sessions, 2024 and 2025 Monaco GP (FP1-3, qualifying, race); per-corner spread 16-33 m; scaled x1.0136
+#   from the telemetry lap length (3292 m) to the official 3337 m.
+# ref_apex_m: where the speed minimum sits on Norris's 2025 pole lap, same scaling; given only where one clean minimum
+#   sits within 60 m of the marker. calibrate_track.py matches the game's speed minima to these and moves dist_m.
+# Names and notes: Mike's Item 10 dossier (28 OCT 26), checked against the timing data. Two changes from it: its
+#   distances ran 100-200 m short from turn two to turn sixteen, so the timing medians are used; and La Rascasse is
+#   turn eighteen (the slow right at 2899 m, about 65 km/h), not turn seventeen, which is the unnamed left kink before it.
+# Directions (left/right) taken from the x/y trace. Unnamed turns are spelled out. Not yet calibrated: no F1 25 Monaco capture.
+turn,name,kind,published_dist_m,ref_apex_m,approach_m,exit_m,note
+1,Sainte Devote,braking,188,186,200,100,right-hander at the end of the pit straight; the lap-one funnel and the first place a front wing goes
+2,Beau Rivage,fast,583,,,,flat-out uphill right kink; side by side here the barriers come in fast
+3,Massenet,medium,752,791,,,long blind uphill left before Casino Square
+4,Casino,medium,878,896,,,right-hander across Casino Square and over the crest toward Mirabeau
+5,Mirabeau Haute,braking,1105,1121,200,100,downhill right; a lock-up runs straight on to the escape road
+6,the Grand Hotel Hairpin,braking,1230,1245,200,100,the slowest corner in Formula One; a left hairpin at under fifty km/h
+7,Mirabeau Bas,braking,1313,,150,80,tight downhill right toward the sea
+8,Portier,braking,1403,1403,200,100,right-hander onto the seafront and into the tunnel; exit speed here decides the run to the chicane
+9,the tunnel,fast,1739,,,,flat-out right-hand curve in the tunnel; the fastest part of the lap
+10,the Nouvelle Chicane,braking,2070,2106,200,100,the big stop out of the tunnel; the one real overtaking spot
+11,the Nouvelle Chicane exit,chicane,2123,,150,80,the right-hand exit of the chicane; cut the kerb and the suspension pays
+12,Tabac,medium,2356,2356,,,quick left along the harbour with the barrier right on the exit
+13,Louis Chiron,fast,2512,,,,fast left into the Swimming Pool
+14,the Swimming Pool,chicane,2547,,150,80,the right-hand flick of the first pool chicane; touch the inside barrier and the front-right goes
+15,the second Swimming Pool chicane,braking,2682,,200,100,the stop into the second pool chicane over the high kerbs
+16,the Swimming Pool exit,chicane,2704,,150,80,the exit of the pool onto the short run to La Rascasse
+17,turn seventeen,fast,2776,,100,60,the left kink before La Rascasse
+18,La Rascasse,braking,2899,2916,200,100,slow right-hander around the harbour bar; pit entry splits off here
+19,Antony Noghes,braking,2990,,150,80,the last right-hander onto the pit straight and the DRS zone
