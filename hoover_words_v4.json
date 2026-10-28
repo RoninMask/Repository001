@@ -683,11 +683,31 @@
       "variants": [
         {
           "speaker": "LEAD",
-          "present": "{a} finishes {pos}."
+          "when": {
+            "provisional": true
+          },
+          "present": "{a} home {pos} on the road, provisional until the stewards are done."
         },
         {
           "speaker": "LEAD",
-          "present": "{pos} for {a}."
+          "when": {
+            "provisional": true
+          },
+          "present": "{a} crosses the line {pos} for now."
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{a} finishes {pos}.",
+          "not_when": {
+            "provisional": true
+          }
+        },
+        {
+          "speaker": "LEAD",
+          "present": "{pos} for {a}.",
+          "not_when": {
+            "provisional": true
+          }
         },
         {
           "speaker": "LEAD",
@@ -6661,6 +6681,42 @@
             "quiet": true
           },
           "present": "{a} is still stopped out there. That is the session over for him unless the car gets going."
+        }
+      ]
+    },
+    "S_RC_01": {
+      "_about": "Truth Lock RC-01 (28 OCT 26): yellow flags from the marshal zones.",
+      "variants": [
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "sector_known": true
+          },
+          "present": "Yellow flags out in {where}."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "sector_known": true
+          },
+          "present": "Waved yellows in {where}, they have to lift through there."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out",
+            "several": true
+          },
+          "present": "Yellow flags in more than one place around the lap."
+        },
+        {
+          "speaker": "LEAD",
+          "when": {
+            "beat": "out"
+          },
+          "present": "Yellow flags are out."
         }
       ]
     }

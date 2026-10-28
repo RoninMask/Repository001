@@ -2510,13 +2510,13 @@
   },
   "RC-01": {
    "anchor": "relate",
-   "base": 25,
+   "base": 60,
    "build": "V3-P1",
    "camera": "none",
    "cause_required": "partial",
    "cluster": false,
    "decay_per_lap": 0.3,
-   "energy": 2,
+   "energy": 3,
    "group": "Race control",
    "hsub": 1,
    "humor": "lull-only",
@@ -2524,8 +2524,8 @@
    "idle_frac": null,
    "idle_laps": null,
    "min_race": "any",
-   "must_call": null,
-   "override": "Normal",
+   "must_call": "yes",
+   "override": "Interrupt",
    "register": "fact",
    "revisit": "none",
    "single_party": false,
@@ -2533,7 +2533,8 @@
    "story": "Yellow flag",
    "valence": "neutral",
    "voice": "lead",
-   "voice_default": "LEAD"
+   "voice_default": "LEAD",
+   "speak_after_close": true
   },
   "RC-02": {
    "anchor": "all",

@@ -75,6 +75,7 @@ import binascii
 import bisect
 import collections
 import concurrent.futures
+import copy
 import csv
 import hashlib
 import json
@@ -1293,6 +1294,22 @@ TRACK_NAMES = {
 }
 
 
+def udp_dup_key(data):
+    """Truth Lock RN-09. The duplicate key for the UDP guard: packet id,
+    session UID, frame and player car -- plus, for event packets, the four
+    letter event code. Without the code, two different events in one frame
+    look like one: on 21 OCT the DRS-enabled event (DRSE) arrived in the same
+    frame as the resume (RSUM) and was dropped as its duplicate, so "DRS is
+    disabled" stood all race. Live and replay use the same key."""
+    pid = data[6]
+    uid = int.from_bytes(data[7:15], "little")
+    frame = int.from_bytes(data[19:23], "little")
+    pcar = data[27]
+    if pid == 3 and len(data) >= OFF_E_CODE + 4:
+        return (pid, uid, frame, pcar, bytes(data[OFF_E_CODE:OFF_E_CODE + 4]))
+    return (pid, uid, frame, pcar)
+
+
 class ReplayReader:
     def __init__(self, path):
         self.path = path
@@ -1877,6 +1894,18 @@ class ExtState:
                 return
             setattr(self, attr, res)
             self.decoded[pid] += 1
+            if pid == PID_CARSTATUS and self.drs_enabled is not True:
+                # Truth Lock RN-09: DRS state is read from the wire every
+                # packet. Any car allowed DRS means DRS is enabled, whatever a
+                # missed DRSE or a stray DRSD said earlier.
+                try:
+                    if any(r and r.get("drs_allowed") for r in res):
+                        if self.drs_enabled is False:
+                            self.log("RN-09 DRS state re-read from Car Status: enabled "
+                                     "(was disabled: %s)" % self.drs_disabled_reason)
+                        self.drs_enabled, self.drs_disabled_reason = True, None
+                except Exception:
+                    pass
             return
         if pid == PID_SESSION:
             res = decode_session_ext_v5(payload)
@@ -1941,13 +1970,21 @@ class ExtState:
     # "soft tyres" or "no damage". Readers go through car_field(); it returns
     # None for a restricted car whatever the store holds. Lap Data and the
     # classification are public and are not gated here.
-    PRIVATE_STORES = ("status", "motion", "damage", "inputs", "tyre_sets")
+    PRIVATE_STORES = ("status", "damage", "tyre_sets")
+    PUBLIC_STORES = ("motion", "inputs")
 
     def car_field(self, store, idx, key=None):
         """The per-car record (or one field of it) from a private store, or
         None when the car is restricted, the store is empty, or the index is
         out of range."""
-        if store not in self.PRIVATE_STORES or self.restricted(idx):
+        # Truth Lock PRIV (Mike & Gemini 23 OCT): motion and inputs are public
+        # for every car in the spec; only the restricted stores are gated, and
+        # only once Participants has said the car is restricted (telemetry
+        # flag explicitly 0). An unknown flag is not a restriction.
+        if store in self.PUBLIC_STORES:
+            if idx is None or not (0 <= idx < MAX_CARS):
+                return None
+        elif store not in self.PRIVATE_STORES or self.restricted(idx):
             return None
         data = getattr(self, store, None)
         if data is None:
@@ -2405,13 +2442,26 @@ class Archive:
     def pair_record(self, a, b, tonight=True):
         """How many times two drivers have fought for a place tonight (from
         stored battle arcs) and who finished ahead in each race."""
+        # Truth Lock RN-11 (21 OCT: "seventh time tonight" on lap one): a
+        # fight is counted once per RACE session, never per story arc (one
+        # battle opens several arcs), never from practice or qualifying, and a
+        # capture replayed more than once counts once.
         fights = 0
         ahead = {a: 0, b: 0}
+        seen_caps = set()
         for nid, label, s in self._sessions(tonight):
+            if s.get("session_kind") not in (None, "RACE"):
+                continue
+            cap = s.get("capture_sha256")
+            if cap:
+                if cap in seen_caps:
+                    continue
+                seen_caps.add(cap)
             for arc in s.get("arcs", []):
                 ps = set(arc.get("participants") or [])
                 if a in ps and b in ps and arc.get("type") in ("BAT-01", "LEAD-03"):
                     fights += 1
+                    break
             posn = {row.get("key"): row.get("position") for row in s.get("classification", [])}
             if posn.get(a) and posn.get(b):
                 ahead[a if posn[a] < posn[b] else b] += 1
@@ -3222,10 +3272,14 @@ def build_state_blob_v6(claim, model, ctx, t=None, speaker=None, word_budget=0,
                 pr = ctx.archive.pair_record(ka, kb, tonight=True)
                 if pr["fights"]:
                     stakes["pair"] = pr
-                    allow(_num_word(pr["fights"] + 1))
-                    note("the %s time tonight these two have fought for a place" %
-                         _ordinal_word(pr["fights"] + 1), "stakes", rec.id if rec else None,
-                         ("means", "feel"), False, 0.8)
+                    if pr["fights"] == 1:
+                        note("these two fought for a place in an earlier race tonight too",
+                             "stakes", rec.id if rec else None, ("means", "feel"), False, 0.8)
+                    else:
+                        allow(_num_word(pr["fights"]))
+                        note("these two have fought for a place in %s earlier races tonight" %
+                             _num_word(pr["fights"]), "stakes", rec.id if rec else None,
+                             ("means", "feel"), False, 0.8)
             stakes["night_label"] = ctx.archive.label
         if ctx.tracks is not None:
             tf = ctx.tracks.facts(world.track_id)
@@ -3534,6 +3588,18 @@ class RaceModel:
         self.car_state = {}           # idx -> lifecycle string
         self.retire_signals = defaultdict(list)   # idx -> [(t, kind)]
         self.retired_at = {}
+        # Truth Lock RN-01 (28 OCT): a retirement signal before lights out, or
+        # an RTMT with reason 0 ("invalid"), is provisional. On 21 OCT the game
+        # marked five cars disqualified on the formation lap and set them back
+        # to active 7 s before the start; Baby latched them retired for the
+        # whole race and dropped 93 claims, the winner call among them.
+        # Provisional retirements are cleared when the result status returns
+        # to active and promoted at lights out if it has not. A confirmed
+        # retirement is undone if the status returns to active and the car
+        # keeps moving (Law 1: nothing latches without a wire unlock).
+        self.provisional_retire = {}  # idx -> (t, kind)
+        self.unretired = []           # [{t_unix, car, why}] for the manifest
+        self._retire_dist = {}        # idx -> lap distance when retired
         self.finish_pos = {}
         self.finish_t = {}
         self.disqualified = set()
@@ -3667,6 +3733,8 @@ class RaceModel:
         self.restart_resets.append(round(t, 6))
         n_ret = len(self.retired_at)
         self.retired_at = {}
+        self.provisional_retire = {}     # Truth Lock RN-01
+        self._retire_dist = {}
         self.retire_signals = defaultdict(list)
         self.car_state = {}
         self.finish_pos = {}
@@ -3785,6 +3853,9 @@ class RaceModel:
             return False                         # V9.23: never said after the lights
         if s == "start_sequence":
             return kind == "LIGHTS_ON"           # V8.3: one line as the lights come on
+        if s == "formation" and kind is not None and self.formation_fill_on() \
+                and kind in self.formation_fill_kinds():
+            return True                          # Truth Lock RN-10
         if s in ("pre_start", "formation"):
             return content_class == CLASS_STATE and self._start_only()
         if s in ("green", "final_lap"):
@@ -3820,6 +3891,20 @@ class RaceModel:
         if s == "closed":
             return False
         return False
+
+    # Truth Lock RN-10 (Dustin 21 OCT: the formation lap is announced and
+    # explained, then filled with grid, lore, interview and charity material).
+    # On 21 OCT it went 97 s silent after the grid line: the state gate and the
+    # lull engine both stopped at "formation".
+    _FORMATION_FILL = ("LULL_LORE", "LULL_INTERVIEW", "LULL_WEATHER",
+                       "S_CHARITY_CARD", "S_LULL_SPONSOR", "S_LULL_STATS", "S_SF_01")
+
+    def formation_fill_on(self):
+        return bool((self.v3.get("formation", {}) or {}).get("fill", True))
+
+    def formation_fill_kinds(self):
+        return tuple((self.v3.get("formation", {}) or {}).get("fill_kinds")
+                     or self._FORMATION_FILL)
 
     def _start_only(self):
         # pre_start/formation allow only the start state call; the model only
@@ -3914,7 +3999,11 @@ class RaceModel:
             if a is not None and b is not None:
                 self.colls.append((t, a, b))
         elif code == "RTMT":
-            self._retire_signal(t, info.get("car"), "RTMT")
+            # Truth Lock RN-01: reason 0 is "invalid" -- the formation-lap
+            # disqualifications of 21 OCT all carried it. Unconfirmed until
+            # the result status agrees.
+            kind = "RTMT0" if info.get("reason") == 0 else "RTMT"
+            self._retire_signal(t, info.get("car"), kind)
         elif code == "SPTP":
             self._on_sptp(t, info)
         elif code == "RCWN":
@@ -4093,23 +4182,25 @@ class RaceModel:
             # except (V9.23) within restart_window_s of a safety car or VSC
             # period ending, when it is the green flag: the restart call.
             self.log("SCAR type 0 event 3 recorded (not voiced) at %.3f" % t)
-            if self.state in ("safety_car", "vsc"):
-                self._set_state(t, "green", "SCAR resume")
             pend = getattr(self, "_sc_restart_pending", None)
+            if self.state in ("safety_car", "vsc"):
+                if pend is None and sccfg.get("green_call", True):
+                    # Truth Lock G2: a neutralisation entered from the session
+                    # status has no "returned" event pending; the resume is
+                    # still the green flag
+                    self._sc_green(t, {"t": t, "sc_type": 2 if self.state == "vsc" else 1}, prov)
+                    return
+                self._set_state(t, "green", "SCAR resume")
+                self._sc_need_clear = True      # Truth Lock G2
             if pend is not None and (t - pend["t"]) <= float(sccfg.get("restart_window_s", 60.0)) \
                     and sccfg.get("green_call", True):
                 self._sc_restart_pending = None
                 self._sc_green(t, pend, prov)
             return
         if event_type == 0 and sc_type in (1, 2):
-            new = "safety_car" if sc_type == 1 else "vsc"
-            self._set_state(t, new, "SCAR type %s" % sc_type)
-            kind = "SAFETY_CAR" if sc_type == 1 else "VSC"
-            self._sc_restart_pending = None
-            self._sc_returning_said = False
-            self.emit(Claim(kind, CLASS_STATE, [], [], t,
-                            facts={"sc_type": sc_type}, provenance=prov,
-                            priority=88.0, hard=True))
+            if self.state in ("safety_car", "vsc"):
+                return    # Truth Lock G2: already neutralised (from the session status)
+            self._sc_deploy(t, sc_type, "SCAR type %s" % sc_type, prov)
         elif event_type == 1 and sc_type in (1, 2):
             # V9.23: the safety car is coming in this lap -- the restart is
             # on the way (VSC: ending)
@@ -4144,9 +4235,58 @@ class RaceModel:
                                     speaker="LEAD", max_age_key="state"))
                     self.log(">>> SAFETY CAR RETURNED (type %s): restart pending" % sc_type)
 
+    def _sc_deploy(self, t, sc_type, why, prov):
+        new = "safety_car" if sc_type == 1 else "vsc"
+        self._set_state(t, new, why)
+        kind = "SAFETY_CAR" if sc_type == 1 else "VSC"
+        self._sc_restart_pending = None
+        self._sc_returning_said = False
+        self.emit(Claim(kind, CLASS_STATE, [], [], t,
+                        facts={"sc_type": sc_type}, provenance=prov,
+                        priority=88.0, hard=True))
+
+    def _sc_from_session(self, t):
+        """Truth Lock G2 (Mike 23 OCT, Paper 14 10.4): the session packet's
+        safety car status is the primary source; SCAR events are the backup.
+        On 21 OCT the lap-one VSC sat on the wire from +43.1 s to +128.5 s and
+        no "deployed" event ever came, so Baby stayed green for 85 s. The
+        status must hold for sustain_s before it moves the state."""
+        sccfg = self.v3.get("safety_car", {}) or {}
+        if not sccfg.get("from_session_status", True):
+            return
+        st = getattr(self.w, "safety_car", 0)
+        sus = float(sccfg.get("session_sustain_s", 1.0))
+        cur = getattr(self, "_sess_sc", None)
+        if st == 0:
+            # the status has cleared since the last neutralisation ended: a
+            # new 1 or 2 may now start one. After a green flag called from the
+            # resume event, the status lags by a second or so; that tail must
+            # not re-enter the VSC and call a second green flag (21 OCT replay).
+            self._sc_need_clear = False
+        if cur is None or cur[0] != st:
+            self._sess_sc = (st, t)
+            return
+        held = t - cur[1]
+        if st in (1, 2) and self.state in ("green", "final_lap") and held >= sus \
+                and not getattr(self, "_sc_need_clear", False):
+            self._sc_deploy(t, st, "session status %s" % st,
+                            [{"packet_id": PID_SESSION, "t_unix": round(t, 3)}])
+            self.sc_from_session = getattr(self, "sc_from_session", []) + [
+                {"t_unix": round(t, 6), "t_rec": self._t_rec(t), "to": "safety_car" if st == 1 else "vsc"}]
+        elif st == 0 and self.state in ("safety_car", "vsc") \
+                and held >= float(sccfg.get("session_clear_s", 2.0)):
+            pend = getattr(self, "_sc_restart_pending", None)
+            if pend is None:
+                pend = {"t": t, "sc_type": 2 if self.state == "vsc" else 1}
+            self._sc_restart_pending = None
+            self._sc_green(t, pend, [{"packet_id": PID_SESSION, "t_unix": round(t, 3)}])
+            self.sc_from_session = getattr(self, "sc_from_session", []) + [
+                {"t_unix": round(t, 6), "t_rec": self._t_rec(t), "to": "green"}]
+
     def _sc_green(self, t, pend, prov):
         """V9.23: the green flag after a safety car or VSC: called like a
         start -- the leader, the car behind him, the laps left."""
+        self._sc_need_clear = True          # Truth Lock G2
         if self.state in ("safety_car", "vsc"):
             self._set_state(t, "green", "green flag")
         li = self.leader_idx
@@ -4277,21 +4417,74 @@ class RaceModel:
         return None
 
     # ---- retirement / lifecycle --------------------------------------------
+    def _pre_lights(self):
+        """Truth Lock RN-01: before lights out (no anchor yet) every
+        retirement signal is provisional. A model already racing (green,
+        neutralised, stopped) is past the lights even if no anchor was taken."""
+        return self.anchor_t is None and self.state in (
+            "pre_start", "formation", "start_sequence", "unknown", None)
+
     def _retire_signal(self, t, idx, kind):
         if idx is None or not (0 <= idx < MAX_CARS):
             return
-        self.retire_signals[idx].append((t, kind))
         if idx in self.retired_at:
+            self.retire_signals[idx].append((t, kind))
             return
+        if self._pre_lights() or kind == "RTMT0":
+            if idx not in self.provisional_retire:
+                self.provisional_retire[idx] = (t, kind)
+                self.log("RN-01 provisional retirement car %d (%s) at %.3f: "
+                         "held until the result status confirms it"
+                         % (idx, kind, t))
+            return
+        self.provisional_retire.pop(idx, None)
+        self.retire_signals[idx].append((t, kind))
         # merge window: the first signal opens it; resolve one lifecycle change
         first_t = self.retire_signals[idx][0][0]
         self.retired_at[idx] = first_t
         self.car_state[idx] = "retired"
+        self._retire_dist[idx] = float(self.w.cars[idx].lap_distance or 0.0)
         cause = self._contact_cause(t, idx)
         self.emit(Claim("RETIREMENT", CLASS_LIFECYCLE, [idx], [self._name(idx)],
                         first_t, facts={"cause": cause},
                         provenance=[{"code": kind, "t_unix": round(t, 6)}],
                         priority=60.0, demotable=True, max_age_key="retirement"))
+
+    # Truth Lock RN-01: how far a "retired" car must travel, with an active
+    # result status, before the retirement is undone.
+    UNRETIRE_DISTANCE_M = 50.0
+
+    def _lifecycle_recheck(self, t, c, rs):
+        """Truth Lock RN-01. Re-read every car's result status every tick.
+        Provisional retirements clear when the status is active again and are
+        promoted once the lights are out and the status still says retired.
+        A confirmed retirement is undone when the status is active again and
+        the car has moved on: the game reversed it."""
+        idx = c.idx
+        prov = self.provisional_retire.get(idx)
+        if prov is not None:
+            if rs == RESULT_ACTIVE:
+                del self.provisional_retire[idx]
+                self.unretired.append({"t_unix": round(t, 6), "car": idx,
+                                       "why": "provisional cleared: status active (%s)" % prov[1]})
+                self.log("RN-01 provisional retirement of car %d cleared at %.3f: "
+                         "result status back to active" % (idx, t))
+            elif not self._pre_lights() and rs in RESULT_RETIRED_SET_V3:
+                del self.provisional_retire[idx]
+                self._retire_signal(t, idx, prov[1] if prov[1] != "RTMT0" else "RTMT")
+            return
+        if idx in self.retired_at and rs == RESULT_ACTIVE \
+                and idx not in self.finish_t and idx not in self.disqualified:
+            moved = abs(float(c.lap_distance or 0.0) - self._retire_dist.get(idx, 0.0))
+            if moved >= self.UNRETIRE_DISTANCE_M:
+                del self.retired_at[idx]
+                self.retire_signals.pop(idx, None)
+                self._retire_dist.pop(idx, None)
+                self.car_state[idx] = "running"
+                self.unretired.append({"t_unix": round(t, 6), "car": idx,
+                                       "why": "status active and moved %.0f m" % moved})
+                self.log("RN-01 car %d un-retired at %.3f: status active, moved %.0f m"
+                         % (idx, t, moved))
 
     # ---- per-observation (reads decoded World) -----------------------------
     def observe(self, t):
@@ -4304,6 +4497,8 @@ class RaceModel:
         self._maybe_session_change(t)      # V9.24
         self._maybe_fresh_grid(t)
         self._formation_tick(t)            # V9.23
+        if self.anchor_t is not None:
+            self._sc_from_session(t)       # Truth Lock G2
         pend = getattr(self, "_sc_restart_pending", None)
         if pend is not None and self.state in ("safety_car", "vsc") \
                 and (t - pend["t"]) >= float((self.v3.get("safety_car", {}) or {}).get("green_fallback_s", 25.0)):
@@ -4321,6 +4516,7 @@ class RaceModel:
                 leader = c.idx
             # lifecycle from result/pit status
             rs = c.result_status
+            self._lifecycle_recheck(t, c, rs)        # Truth Lock RN-01
             if rs in RESULT_RETIRED_SET_V3 and c.idx not in self.retired_at:
                 self._retire_signal(t, c.idx, "result_status")
             if c.idx not in self.retired_at and c.idx not in self.finish_t:
@@ -4339,6 +4535,12 @@ class RaceModel:
                 self.finish_t[c.idx] = t
                 self.finish_pos[c.idx] = c.position
                 self.car_state[c.idx] = "finished"
+                if self.leader_finish_t is not None:      # Truth Lock T1: banner trace
+                    fw = self.finish_watch(t)
+                    self.finish_log = getattr(self, "finish_log", []) + [{
+                        "t_unix": round(t, 3), "home": fw.get("home"), "total": fw.get("total"),
+                        "humans_home": fw.get("humans_home"), "longest_s": fw.get("longest_s"),
+                        "results_final": fw.get("results_final")}]
                 # A2: a leader finish needs ALL of -- result status 3, P1 in
                 # the latest lap data, race state green/final_lap, and the
                 # race distance actually done (completed laps >= total laps
@@ -4743,13 +4945,68 @@ class RaceModel:
         self.emit(Claim("WINNER", CLASS_RESULT, [idx], [self._name(idx)], t,
                         facts=facts, priority=95.0, hard=True, max_age_key="result"))
 
+    def _still_running(self):
+        return [c for c in self.w.cars if c.seen and c.position > 0
+                and c.idx not in self.finish_t
+                and c.idx not in self.retired_at
+                and c.result_status in (RESULT_ACTIVE, 0)]
+
+    def finish_watch(self, t):
+        """Truth Lock T1 (Dustin 27 OCT): the finish banner. Who is still
+        running, about how long until each takes the flag (the rest of his
+        current lap at his last lap time), how many are home, and whether the
+        results are final, provisional or still being decided."""
+        if self.leader_finish_t is None:
+            return {"active": False}
+        tl = 0
+        ext = getattr(self.w, "ext", None)
+        if ext is not None:
+            tl = (getattr(ext, "session", None) or {}).get("track_length_m") or 0
+        running = []
+        for c in self._still_running():
+            eta = None
+            lap_s = (c.last_lap_ms or 0) / 1000.0
+            if lap_s > 0 and tl > 0:
+                frac = min(1.0, max(0.0, float(c.lap_distance or 0.0) / float(tl)))
+                eta = round(max(0.0, (1.0 - frac) * lap_s), 1)
+            running.append({"car": c.idx, "name": c.spoken, "human": c.is_human,
+                            "position": c.position, "eta_s": eta})
+        home = [i for i in self.finish_t]
+        final = self.final_classification is not None
+        etas = [r["eta_s"] for r in running if r["eta_s"] is not None]
+        return {"active": True, "home": len(home),
+                "total": len(home) + len(running),
+                "humans_home": sum(1 for i in home if self.w.cars[i].is_human),
+                "humans_total": sum(1 for i in home if self.w.cars[i].is_human)
+                                + sum(1 for r in running if r["human"]),
+                "running": sorted(running, key=lambda r: r["position"]),
+                "longest_s": max(etas) if etas else None,
+                "results_final": final,
+                "results_provisional": (not final) and self.state == "classified",
+                "stop_safe": self.state == "classified"}
+
     def _maybe_end_states(self, t):
         if self.state == "finishing":
-            running = [c for c in self.w.cars if c.seen and c.position > 0
-                       and c.idx not in self.finish_t
-                       and c.idx not in self.retired_at]
-            if not running and self.final_classification is None:
-                pass  # await Final Classification
+            running = self._still_running()
+            fin = self.v3.get("finish", {}) or {}
+            if self.finish_t:
+                last_cross = max(self.finish_t.values())
+            else:
+                last_cross = self.leader_finish_t
+            # Truth Lock T1: classified on Final Classification (on_finalclass),
+            # or once every running car has finished, or after
+            # timeout_after_last_s from the last car to cross the line -- never
+            # counted from P1. Without the packet the result is provisional.
+            timeout = float(fin.get("timeout_after_last_s", 60.0))
+            why = None
+            if not running:
+                why = "every running car finished (provisional until Final Classification)"
+            elif last_cross is not None and t - last_cross >= timeout:
+                why = "%.0f s after the last car crossed the line (provisional)" % timeout
+            if why and self.final_classification is None:
+                self.classified_provisional = True
+                self.unfinished_at_close = [c.idx for c in running]
+                self._set_state(t, "classified", why)
         # human results after leader finish
         if self.leader_finish_t is not None:
             for c in self.w.cars:
@@ -4765,9 +5022,13 @@ class RaceModel:
                     if pos is not None and pos in self.result_aired_pos.values():
                         continue
                     self.result_aired_pos[c.idx] = pos
+                    # Truth Lock RN-11 (21 OCT: Alex called fourteenth, then a
+                    # penalty made him thirteenth): until the classification
+                    # a finishing place is called as provisional
+                    prov = self.final_classification is None
                     self.emit(Claim("RESULT", CLASS_RESULT, [c.idx],
                                     [self._name(c.idx)], self.finish_t[c.idx],
-                                    facts={"position": pos},
+                                    facts={"position": pos, "provisional": prov},
                                     priority=40.0, max_age_key="result"))
 
     def on_finalclass(self, t, fc):
@@ -4793,6 +5054,7 @@ class RaceModel:
             self.result_aired_pos.clear()
             return
         self.final_classification = fc
+        self.classified_provisional = False      # Truth Lock T1
         self.final_classification_kind = getattr(self.w, "session_kind", "RACE") or "RACE"   # V9.24
         self.final_classification_t = t
         if first_t is None:
@@ -5349,6 +5611,11 @@ class WordsFile:
         for v in entry["variants"]:
             when = v.get("when")
             if when and any(facts_view.get(k) != val for k, val in when.items()):
+                continue
+            # Truth Lock: "not_when" skips a variant when the view matches
+            # (Baby ignores the key, so the shared words file stays Baby-safe)
+            nw = v.get("not_when")
+            if nw and all(facts_view.get(k) == val for k, val in nw.items()):
                 continue
             if any(ctx.get(ph) is None
                    for ph in _PLACEHOLDER_RE.findall(v["present"])):
@@ -5959,8 +6226,11 @@ class V3Booth:
                 return "drop:name_collision"
         if claim.kind.startswith(STORY_KIND_PREFIX):
             return self._validate_story(claim, t)
-        # retired-subject guard (except its own retirement/result claim)
-        if claim.kind not in ("RETIREMENT", "RESULT", "RACE_END"):
+        # retired-subject guard (except its own retirement/result claim).
+        # Truth Lock RN-02: the winner is called on the leader's flag
+        # whatever the retired set says -- on 21 OCT a stale retirement
+        # dropped Cade's winner call.
+        if claim.kind not in ("RETIREMENT", "RESULT", "RACE_END", "WINNER"):
             for idx in claim.subjects:
                 if m.is_retired(idx) and not (
                         claim.kind == "CONTESTED"
@@ -6250,6 +6520,7 @@ class V3Booth:
         elif k in ("RESULT", "CORRECTION"):
             pos = f.get("position")
             ctx["pos"] = _ordinal(pos) if pos else None
+            fv["provisional"] = bool(f.get("provisional"))
         elif k == "LULL_HUMAN":
             pos = f.get("pos")
             ctx["pos"] = _ordinal(pos) if pos else None
@@ -6422,6 +6693,23 @@ class V3Booth:
     def _is_impact(c):
         return c.kind == "S_INC_07" and c.hard
 
+    _G4_URGENT = ("PENALTY", "RETIREMENT", "S_RC_05", "S_INC_01", "S_INC_05",
+                  "S_INC_06", "S_INC_07", "S_REL_02")
+
+    def _g4_adjust(self, c):
+        """Truth Lock G4: continuation sentences are demoted; human incidents
+        and penalties are promoted, so a waiting one wins the next boundary."""
+        g4 = self.cfg.get("v3", "g4", default=None) or {}
+        if not g4.get("enabled", True):
+            return 0.0
+        if (c.facts or {}).get("continuation"):
+            return -float(g4.get("continuation_demote", 30.0))
+        if c.kind in self._G4_URGENT and any(
+                0 <= i < MAX_CARS and self.model.w.cars[i].is_human
+                for i in (c.subjects or []) if i is not None):
+            return float(g4.get("human_incident_boost", 20.0))
+        return 0.0
+
     def _preempt_for_state(self, t):
         """The 21 OCT race test: the safety car was called twelve seconds after
         it was deployed because a retirement passage was still playing. A
@@ -6450,6 +6738,8 @@ class V3Booth:
                 self.speech.hush()
             except Exception:
                 pass
+        if last is not None:
+            last["hushed_t_unix"] = round(t, 6)    # Truth Lock: the cut-in is on the record
         self.channel_busy_until = t
         self._last_air_end = t
         self.counter_preempts = getattr(self, "counter_preempts", 0) + 1
@@ -6540,8 +6830,9 @@ class V3Booth:
                 # V8.3: a model answer still in flight earns a short lead
                 # before the template is used instead (never past the
                 # claim's own deadline, which _validate enforces).
+                sub_t = max(c.t_create, getattr(self, "_late_submit", {}).get(c.claim_id, c.t_create))
                 if self.writer.answer_pending(c.claim_id) \
-                        and (t - c.t_create) < self.writer.lead_time_s(c.claim_id):
+                        and (t - sub_t) < self.writer.lead_time_s(c.claim_id):
                     self.counter_lead_holds = getattr(self, "counter_lead_holds", 0) + 1
                     continue
                 # V8.4 cycle 2: a line about the car on screen outranks an
@@ -6561,6 +6852,15 @@ class V3Booth:
                     pri = 1000.0 + c.priority
                 if best is not None and (self._is_snap(best) or self._is_impact(best)):
                     bp = 1000.0 + best.priority
+                # Truth Lock G4 (Mike 23 OCT anti-starvation): the rest of a
+                # passage yields, at its sentence boundary, to a human
+                # incident or penalty waiting behind it. On 21 OCT three
+                # yellow-flag penalties expired behind a five-sentence lead
+                # passage. The tail waits; passage_max_wait drops it if the
+                # cut-in runs long.
+                pri += self._g4_adjust(c)
+                if best is not None:
+                    bp += self._g4_adjust(best)
                 if best is None or (pri, -c.t_create) > (bp, -best.t_create):
                     best = c
             else:
@@ -6572,6 +6872,19 @@ class V3Booth:
                 # it now for a future slot -- wait until the wire clock reaches
                 # that slot, so _validate runs again at the real air time and a
                 # claim gone stale in the gap (a pass since reversed) is caught.
+                # Truth Lock W3: a claim chosen for air that never got a
+                # request (the submit gate held it back) gets one now and the
+                # lead hold from this moment. Baby aired it as a template
+                # fallback without ever asking the model ("not_submitted":
+                # 19 of 32 fallbacks on 21 OCT).
+                if self.writer.needs_blob and not self.writer.is_submitted(best.claim_id) \
+                        and not (best.facts or {}).get("continuation"):
+                    self.writer.submit(self._line_request(best, past=False, t=t))
+                    if not hasattr(self, "_late_submit"):
+                        self._late_submit = {}
+                    self._late_submit[best.claim_id] = t
+                    self.counter_late_submit = getattr(self, "counter_late_submit", 0) + 1
+                    continue
                 gap = self._pacing_gap(best)
                 earliest = (self._last_air_end + gap
                             if self._last_air_end is not None else t)
@@ -6969,9 +7282,24 @@ class V3Booth:
         w = self.model.w
         ts = self._ts
         tl = float(getattr(w, "time_left", 0) or 0)
-        # a new session: kind changed, or the clock jumped back up
-        if ts is None or ts["kind"] != kind or (ts["last_time_left"] is not None
-                                                 and tl > ts["last_time_left"] + 120):
+        # Truth Lock RN-03 (decision a, 27 OCT: session link ids decide
+        # sessions). The results screen changes the clock and lap values; on
+        # 21 OCT practice and qualifying re-opened after their results. A new
+        # session is a new kind or a new session link id. A clock that jumps
+        # back up only opens a session when no link id is on the wire and the
+        # current one has not ended.
+        link = getattr(w, "session_link", None)
+        new_link = (ts is not None and link is not None and ts.get("link") is not None
+                    and link != ts.get("link"))
+        jump = (ts is not None and ts["last_time_left"] is not None
+                and tl > ts["last_time_left"] + 120)
+        if jump and not new_link and ts["kind"] == kind and (
+                link is not None or ts.get("ended")):
+            if ts.get("ended") or self.model.state in ("finishing", "classified", "closed"):
+                self.ts_reopen_blocked = getattr(self, "ts_reopen_blocked", 0) + 1
+            ts["last_time_left"] = tl
+            jump = False
+        if ts is None or ts["kind"] != kind or new_link or jump:
             # V9.23 (21 OCT): once this session has been classified, a clock
             # that jumps back up with the same session kind is the game's
             # between-sessions countdown, not a new qualifying ("Qualifying
@@ -6981,6 +7309,9 @@ class V3Booth:
                 return False
             self._ts_reset(kind, t)
             ts = self._ts
+            ts["link"] = link
+        if ts.get("link") is None and link is not None:
+            ts["link"] = link
         ts["last_time_left"] = tl
         if self.model.state in ("finishing", "classified", "closed") and ts.get("ended"):
             return False
@@ -7375,7 +7706,8 @@ class V3Booth:
         # H3: the run-in to the chequered flag is state `final_lap`; it was
         # missing here, so the last laps -- the worst place to be silent -- got
         # no lull coverage. allows() already permits filler in final_lap.
-        if self.model.state not in ("green", "final_lap", "safety_car", "vsc"):
+        formation = self.model.state == "formation" and self.model.formation_fill_on()
+        if self.model.state not in ("green", "final_lap", "safety_car", "vsc") and not formation:
             return False
         # G1: once silence reaches the coverage floor, fire whatever material is
         # available -- bypass the per-minute cap and the per-kind cooldowns so
@@ -7434,6 +7766,8 @@ class V3Booth:
             claim = self.model.build_lull(t, avoid=avoid)
         if claim is None:
             return False
+        if formation and claim.kind not in self.model.formation_fill_kinds():
+            return False         # Truth Lock RN-10: material only on the formation lap
         # J3: a lull is the lowest-priority line the booth can say, so it is the
         # first thing the rolling-window budget refuses. Route it through the
         # same window-load check as every other line (it is never a hard
@@ -7926,6 +8260,15 @@ def _fmt_number(v):
     return str(int(round(v)))
 
 
+_TIMED_KINDS = ("PRACTICE", "QUALI", "TIMETRIAL")
+_RACE_ONLY_KEYS = ("gap", "gap_s", "places", "position", "swaps")
+# Truth Lock RN-04: words that only belong in a race, refused in a timed session
+# (config v3.writer.timed_banned_words replaces the list)
+_TIMED_BANNED = ("podium", "podiums", "victory", "win", "wins", "winning",
+                 "winner", "points", "overtake", "overtakes", "overtaking",
+                 "overtaken", "leads", "leader", "chequered", "checkered")
+
+
 def _blob_allowed_words(subs, numbers):
     """The spoken forms of every proper noun and every number in the blob,
     generated by the SAME speech-normalisation code the speech path uses (A41),
@@ -7957,9 +8300,19 @@ def build_state_blob(claim, model):
     already rounded to the precision we speak."""
     names = claim.names or []
     subs = []
+    # Truth Lock RN-04 (21 OCT practice: 18 of 20 model lines talked about
+    # podiums and race positions): a practice, qualifying or time-trial blob
+    # carries lap times and deltas, not race positions or gaps.
+    _w = getattr(model, "w", None)
+    s_kind = getattr(_w, "session_kind", None) if _w is not None else None
+    timed = s_kind in _TIMED_KINDS
     for i, idx in enumerate(claim.subjects):
         say = names[i] if i < len(names) else None
         pos = None
+        if timed:
+            subs.append({"role": _role_for(claim.kind, i), "say": say,
+                         "position": None, "car_index": idx})
+            continue
         try:
             pos = model.classified_pos(idx)
         except Exception:
@@ -7975,6 +8328,8 @@ def build_state_blob(claim, model):
         if isinstance(v, bool):
             continue
         if isinstance(v, (int, float)) and k in _NUMERIC_FACT_KEYS:
+            if timed and k in _RACE_ONLY_KEYS:
+                continue
             numbers[k] = _round_number(k, v)
     world = getattr(model, "w", None)
     track = (getattr(world, "track_name", None)
@@ -7982,6 +8337,12 @@ def build_state_blob(claim, model):
     laps_rem = numbers.get("remaining", numbers.get("laps_remaining"))
     session = {"track": track, "phase": getattr(model, "state", None),
                "laps_remaining": laps_rem}
+    if timed:
+        session["kind"] = s_kind
+        session["rule"] = ("This is %s, not a race. Talk about lap times, "
+                           "deltas and runs. No race positions, podiums, wins "
+                           "or points." % {"PRACTICE": "practice", "QUALI": "qualifying",
+                                           "TIMETRIAL": "a time trial"}[s_kind])
     blob = {
         "claim_kind": claim.kind,
         "outcome": claim.outcome or "CONFIRMED",
@@ -8039,6 +8400,21 @@ def build_state_blob(claim, model):
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 
 
+def _card_ord_pairs(top=60):
+    out = []
+    for n in range(1, top + 1):
+        try:
+            c, o = _num_word(n), _ordinal_word(n)
+        except Exception:
+            continue
+        if c and o:
+            out.append((str(c).lower(), str(o).lower()))
+    return out
+
+
+_CARD_ORD_PAIRS = _card_ord_pairs()
+
+
 def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
     """(ok, reason). A completion is rejected on any failing rule below. NEVER
     repair a completion -- a patched hallucination is still a hallucination with
@@ -8054,6 +8430,14 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
         for part in str(w).split(" "):
             if part:
                 allowed.add(part.lower())
+    # Truth Lock W7: a number the blob gave is allowed in either form, so
+    # "thirteenth" passes when "thirteen" was given and the other way round.
+    # On 21 OCT the checker threw away good lines from both models for this.
+    for a, b in _CARD_ORD_PAIRS:
+        if a in allowed:
+            allowed.add(b)
+        elif b in allowed:
+            allowed.add(a)
     # V8.10: shared surnames -> the first names that may precede them
     never_alone = {}
     for sn, firsts in ((blob or {}).get("never_alone") or {}).items():
@@ -8079,6 +8463,14 @@ def check_completion(text, blob, word_budget=None, recent=(), cfg=None):
             return (False, "banned:%s" % (b.strip() or b))
 
     tokens = _WORD_RE.findall(text)
+    if ((blob or {}).get("session") or {}).get("kind") in _TIMED_KINDS:
+        tb = _TIMED_BANNED
+        if cfg is not None:
+            tb = cfg.get("v3", "writer", "timed_banned_words", default=None) or tb
+        tbl = {w.lower() for w in tb}
+        for tok in tokens:
+            if tok.lower().strip("'") in tbl:
+                return (False, "race_word_in_timed:%s" % tok.lower())
     # V8.5 (OK run 12:43): the local model invented faces, crowds and
     # feelings ("delight etched on his face"). Whole-word bans from the
     # config catch invented colour the number check cannot.
@@ -8417,6 +8809,11 @@ class ModelWriter(Writer):
         self.temperature = mc.get("temperature", 0.4)
         self.stop = mc.get("stop_sequences", ["\n"])
         self.max_workers = mc.get("max_workers", 2)
+        if self.backend == "ollama":
+            # Truth Lock W2: a local model answers one request at a time; two
+            # workers made the second request wait in Ollama's queue and
+            # doubled its time. max_workers_local overrides (default 1).
+            self.max_workers = int(mc.get("max_workers_local", 1))
         self.min_timeout = mc.get("min_socket_timeout_s", 0.2)
         self.fast_timeout = mc.get("fast_mode_timeout_s", 5.0)
         # The socket timeout is how long the SOCKET waits for the server, kept
@@ -8526,8 +8923,13 @@ class ModelWriter(Writer):
         lc = self.cfg.get("v3", "writer", default={}) or {}
         if p.get("sentences", 1) > 1:
             return float(lc.get("lead_passage_s", 3.5))
-        key = "lead_local_s" if self.backend == "ollama" else "lead_cloud_s"
-        return float(lc.get(key, 0.6 if self.backend == "ollama" else 2.2))
+        # Truth Lock W1: one wait for both lanes. Baby gave the local model
+        # 0.6 s (1.0 in config) against the cloud's 2.2 s (3.0), so local
+        # lines that took the same time as cloud lines were thrown away.
+        # lead_line_s sets both; else the longer of the two lane keys.
+        if "lead_line_s" in lc:
+            return float(lc["lead_line_s"])
+        return max(float(lc.get("lead_local_s", 2.2)), float(lc.get("lead_cloud_s", 2.2)))
 
     # -- resolution, at air --------------------------------------------------
     def write_line(self, request):
@@ -8624,6 +9026,34 @@ class ModelWriter(Writer):
                 out.append((speaker, line))
         return out
 
+    def _w7_request(self, request):
+        """Truth Lock W7: every car on track is an allowed name (the checker
+        rejected "Norris" and "Leclerc" on 21 OCT for naming AI cars that were
+        really there). The request's blob is copied, never changed in place."""
+        wr = self.cfg.get("v3", "writer", default={}) or {}
+        if not wr.get("allow_track_names", True) or request.blob is None:
+            return request
+        try:
+            cars = self.booth.model.w.cars
+        except Exception:
+            return request
+        names = set()
+        for c in cars:
+            if c.seen and c.position > 0:
+                for nm in (c.spoken, c.name, getattr(c, "spoken_full", None)):
+                    if nm:
+                        names.add(str(nm))
+        if not names:
+            return request
+        blob = dict(request.blob)
+        blob["allowed_words"] = list(blob.get("allowed_words") or []) + sorted(names)
+        try:
+            r2 = copy.copy(request)
+            r2.blob = blob
+            return r2
+        except Exception:
+            return request
+
     def _accept_or_fallback(self, request, text, cache_hit, stamps, latency_ms):
         text = (text or "").strip()
         n = self._sentences_for(request)
@@ -8632,6 +9062,7 @@ class ModelWriter(Writer):
             # V8 passage: check sentence by sentence; keep the leading run that
             # passes (a passage is cut at its first bad sentence so what airs
             # stays coherent); the first sentence failing is a full fallback.
+            request = self._w7_request(request)    # Truth Lock W7
             parts = self._parse_passage(text, request)[:n]
             kept = []
             first_reason = None
@@ -8668,6 +9099,7 @@ class ModelWriter(Writer):
         # single sentence (the fast lane): a stray speaker tag or quotes are
         # stripped, and digits are said as words (the speech layer would do
         # that anyway) so the number licence is checked on the words.
+        request = self._w7_request(request)        # Truth Lock W7
         parts = self._parse_passage(text, request)
         if parts:
             text = parts[0][1]
@@ -8844,7 +9276,11 @@ class ModelWriter(Writer):
                 "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": user_message}],
                 "options": {"temperature": self.temperature,
-                            "num_predict": max_tokens},
+                            "num_predict": max_tokens,
+                            # Truth Lock W5: Baby never set the context size, so
+                            # Ollama's default could cut a long prompt.
+                            "num_ctx": int(self.cfg.get("v3", self.section, "num_ctx",
+                                                        default=4096) or 4096)},
             }
             if stops:
                 payload["options"]["stop"] = stops
@@ -8900,7 +9336,14 @@ class ModelWriter(Writer):
                     body = ""
                 body = " ".join(body.split())[:400]
                 raise RuntimeError("api status %d: %s" % (resp.status, body))
-            return self._extract(data, self.backend)
+            timing = {}
+            text = self._extract(data, self.backend, timing)
+            if timing:
+                with getattr(self, "_timing_lock", threading.Lock()):
+                    self.ollama_timing = getattr(self, "ollama_timing", [])
+                    if len(self.ollama_timing) < 2000:
+                        self.ollama_timing.append(timing)
+            return text
         except Exception:
             self._drop_conn()               # reconnect on the next line
             raise
@@ -8915,10 +9358,18 @@ class ModelWriter(Writer):
             self._local.conn = None
 
     @staticmethod
-    def _extract(data, backend="anthropic"):
+    def _extract(data, backend="anthropic", timing=None):
         doc = json.loads(data.decode("utf-8"))
         if backend == "ollama":
             msg = doc.get("message") or {}
+            # Truth Lock W6: keep Ollama's own timing figures (tokens read and
+            # written, and how long each took); Baby threw them away.
+            if timing is not None:
+                for k in ("prompt_eval_count", "prompt_eval_duration",
+                          "eval_count", "eval_duration", "load_duration",
+                          "total_duration"):
+                    if k in doc:
+                        timing[k] = doc[k]
             return (msg.get("content") or "").strip()
         parts = doc.get("content") or []
         for part in parts:
@@ -8943,6 +9394,7 @@ class ModelWriter(Writer):
             "passages": c.get("passages", 0),
             "passage_sentences": c.get("passage_sentences", 0),
             "passage_sentences_dropped": c.get("passage_sentence_dropped", 0),
+            "ollama_timing": list(getattr(self, "ollama_timing", []))[:500],   # Truth Lock W6
             "dropped_by_reason": {k.split(":", 1)[1]: v
                                   for k, v in c.items()
                                   if k.startswith("drop:")},
@@ -11468,6 +11920,7 @@ class V3Gallery:
     # ---- the tick ----------------------------------------------------------
     def observe(self, t):
         m = self.model
+        self.flush_cut(t)                   # Truth Lock RN-06: settled cuts go on air
         if self._first_seen_t is None and any(
                 c.seen and c.position > 0 for c in m.w.cars):
             self._first_seen_t = t
@@ -11772,6 +12225,46 @@ class V3Gallery:
             self._cut(t, idx, layer, reason, "")
 
     def _cut(self, t, idx, layer, reason, score):
+        """Truth Lock RN-06: a cut is decided, then settles for flash_settle_s
+        before any key is pressed. On 21 OCT 19 of 100 race cuts lasted under
+        0.2 s: the default layer pressed its key for an AI car and the
+        protected layer overrode it a tick later. Now a later decision inside
+        the settle window replaces the pending one, and only the winner is
+        actuated. 0 turns the settle off (Baby behaviour)."""
+        settle = getattr(self, "flash_settle_s", None)
+        if settle is None:
+            settle = float((self.cfg_cam_v10() or {}).get("flash_settle_s", 0.3))
+            self.flash_settle_s = settle
+        if settle <= 0:
+            return self._commit_cut(t, idx, layer, reason, score)
+        p = getattr(self, "_pending_cut", None)
+        if p is not None and p["idx"] == idx:
+            p.update({"layer": layer, "reason": reason, "score": score})
+            return
+        if p is not None:
+            self.flash_suppressed = getattr(self, "flash_suppressed", 0) + 1
+        self._pending_cut = {"t": t, "idx": idx, "layer": layer,
+                             "reason": reason, "score": score}
+
+    def cfg_cam_v10(self):
+        try:
+            return (self.model.v3.get("camera", {}) or {})
+        except Exception:
+            return {}
+
+    def flush_cut(self, t, force=False):
+        """Truth Lock RN-06: actuate a pending cut once it has settled."""
+        p = getattr(self, "_pending_cut", None)
+        if p is None:
+            return
+        settle = getattr(self, "flash_settle_s", 0.3) or 0.0
+        if force or (t - p["t"]) >= settle:
+            self._pending_cut = None
+            cur_reason = self.cuts[-1]["reason"] if self.cuts else None
+            if p["idx"] != self.current or cur_reason != p["reason"]:
+                self._commit_cut(t, p["idx"], p["layer"], p["reason"], p["score"])
+
+    def _commit_cut(self, t, idx, layer, reason, score):
         car = self.model.w.cars[idx]
         if self.cuts and self.cuts[-1]["_end"] is None:
             self.cuts[-1]["_end"] = t
@@ -11801,6 +12294,7 @@ class V3Gallery:
         self._actuate(car)
 
     def close(self, t):
+        self.flush_cut(t, force=True)       # Truth Lock RN-06
         if self.cuts and self.cuts[-1]["_end"] is None:
             self.cuts[-1]["_end"] = t
             self.cuts[-1]["held_s"] = round(t - self.cuts[-1]["_t"], 2)
@@ -13291,15 +13785,24 @@ class StoryEngine:
         cfg = self.scfg.e("lull", {}) or {}
         if not cfg.get("enabled", True):
             return None
-        if self.model.state not in ("green", "final_lap", "safety_car", "vsc"):
+        # Truth Lock RN-10: the formation lap is filled with grid material --
+        # interview, charity and lore cards -- in its own rotation
+        formation = (self.model.state == "formation"
+                     and getattr(self.model, "formation_fill_on", lambda: False)())
+        if self.model.state not in ("green", "final_lap", "safety_car", "vsc") and not formation:
             return None
         rotation = list(cfg.get("rotation", ["revisit", "human_race", "stats"]))
+        if formation:
+            rotation = list(cfg.get("formation_rotation", ["interview", "charity", "lore"]))
+            self._lull_rot_f = getattr(self, "_lull_rot_f", 0) % len(rotation)
         cool = cfg.get("cooldown_s", {}) or {}
-        order = rotation[self._lull_rot:] + rotation[:self._lull_rot]
+        rot = self._lull_rot_f if formation else self._lull_rot
+        order = rotation[rot:] + rotation[:rot]
         if forced:
             order = sorted(rotation, key=lambda k: self._lull_item_t.get(k, -1e9))
         for item in order:
-            if item in ("human_race", "stats", "interview", "lore") and not self.lull_active:
+            if item in ("human_race", "stats", "interview", "lore") and not self.lull_active \
+                    and not formation:
                 continue
             last = self._lull_item_t.get(item)
             cd = cool.get(item, 90.0)
@@ -13312,7 +13815,10 @@ class StoryEngine:
             if claim is None:
                 continue
             self._lull_item_t[item] = t
-            self._lull_rot = (rotation.index(item) + 1) % len(rotation)
+            if formation:
+                self._lull_rot_f = (rotation.index(item) + 1) % len(rotation)
+            else:
+                self._lull_rot = (rotation.index(item) + 1) % len(rotation)
             claim.max_age_override = cfg.get("max_age_s", 12.0)
             self.claims_out_lull += 1
             return claim
@@ -15576,7 +16082,10 @@ class P_INC_07(StoryProcessor):
                 continue
             if c.pit_status or m.is_retired(c.idx) or c.idx in m.finish_t:
                 continue
-            if t - self._last.get(c.idx, -1e9) < cooldown:
+            # Truth Lock RN-05: a practice or qualifying car that parks is not
+            # crashing again every 20 s; the cooldown there is a minute.
+            cd = max(cooldown, float(self.p("cooldown_quiet_s", 60.0))) if quiet else cooldown
+            if t - self._last.get(c.idx, -1e9) < cd:
                 continue
             if any(r.row_id in ("INC-01", "INC-06") and c.idx in r.participants
                    and (t - r.opened_t) < 3.0 for r in eng.store.live.values()):
@@ -15593,6 +16102,16 @@ class P_INC_07(StoryProcessor):
             still = all(v <= stopped_kph for (tt, v) in h if tt >= t - stopped_s) \
                 and (t - h[0][0]) >= stopped_s and recent_fast
             if not (fast_drop or jump or still):
+                continue
+            # Truth Lock RN-05: an impact needs the car to have been really
+            # moving just before: above moving_kph within moving_window_s of the
+            # stop. On 21 OCT five of sixteen practice impacts fired on cars
+            # already parked (0 -> 0 kph) and Evan was "into the wall" six times.
+            mv_kph = float(self.p("moving_kph", 80.0))
+            mv_win = float(self.p("moving_window_s", 3.0))
+            reach = mv_win + (stopped_s if still and not (fast_drop or jump) else 0.0)
+            if not any(v > mv_kph for (tt, v) in h if t - reach <= tt <= t):
+                self.parked_skipped = getattr(self, "parked_skipped", 0) + 1
                 continue
             how = "fast_drop" if fast_drop else ("damage" if jump else "stopped")
             self._last[c.idx] = t
@@ -15815,15 +16334,71 @@ class P_REL_01(StoryProcessor):
 
 @story_processor
 class P_RC_01(StoryProcessor):
+    """Truth Lock RC-01 (28 OCT): yellow flags. Baby registered this story
+    dormant because the V3 parser did not read the marshal zones; the V5
+    extended decoder did, and nothing used them. On 21 OCT the lap-one yellow
+    was never called, then Alex's penalty "for ignoring the yellows" aired
+    with no yellow ever mentioned. Now: any marshal zone showing yellow (flag
+    3) while racing opens the story with one call, sector named when the
+    zone's position is known; the story closes when every zone has been clear
+    for clear_s. Neutralised running (SC, VSC) is the safety-car story's."""
     ID = "RC-01"
 
     def __init__(self, engine):
         StoryProcessor.__init__(self, engine)
-        engine.log("[stories] RC-01 registered dormant: marshal-zone flags are not "
-                   "decoded by the V3 parser (Session packet m_marshalZones)")
+        self._clear_since = None
+
+    def _sector_of(self, ext, start_frac):
+        sess = getattr(ext, "session", None) or {}
+        tl = sess.get("track_length_m") or 0
+        s2 = sess.get("sector2_start_m") or 0
+        s3 = sess.get("sector3_start_m") or 0
+        if not (tl > 0 and s2 > 0 and s3 > s2) or start_frac is None or start_frac < 0:
+            return None
+        d = start_frac * tl
+        return 1 if d < s2 else (2 if d < s3 else 3)
 
     def observe(self, t):
-        return
+        eng = self.eng
+        m = eng.model
+        if m.anchor_t is None or m.state not in ("green", "final_lap"):
+            return
+        ext = getattr(eng.w, "ext", None)
+        sess = getattr(ext, "session", None) if ext is not None else None
+        if not sess:
+            return
+        yellow = [(f, fl) for (f, fl) in (sess.get("marshal_zones") or []) if fl == 3]
+        live = self.live()
+        rec = live[0] if live else None
+        if yellow:
+            self._clear_since = None
+            if rec is None:
+                sectors = sorted({x for x in (self._sector_of(ext, f) for f, _ in yellow) if x})
+                rec = self.open(t, [], fields={"zones": len(yellow), "sectors": sectors},
+                                phase="out")
+                rec.humans = []
+                ctx = {}
+                view = {"sector_known": len(sectors) == 1, "several": len(yellow) > 1}
+                if len(sectors) == 1:
+                    # {where} is an existing story placeholder, so the shared
+                    # words file still loads in Baby
+                    ctx["where"] = "sector %s" % _num_word(sectors[0])
+                # a must-call (21 OCT: the beat waited behind the dwell and
+                # died with its story); a yellow back within recall_s of the
+                # last call is the same incident and is not called again
+                last = getattr(self, "_last_call_t", None)
+                if last is None or t - last >= self.p("recall_s", 45.0):
+                    self._last_call_t = t
+                    self.beat(t, rec, "transition", "out", ctx=ctx, view=view,
+                              speaker="LEAD", must=True)
+                eng.log("[stories] RC-01 YELLOW: %d zone(s) yellow, sectors %s"
+                        % (len(yellow), sectors or "?"))
+        elif rec is not None:
+            if self._clear_since is None:
+                self._clear_since = t
+            elif t - self._clear_since >= self.p("clear_s", 5.0):
+                self.close(t, rec, "clear")
+                self._clear_since = None
 
 
 @story_processor
@@ -16064,16 +16639,33 @@ class P_SF_01(StoryProcessor):
     def __init__(self, engine):
         StoryProcessor.__init__(self, engine)
         self._named = set()
+        self._last_intro_t = None
 
     def observe(self, t):
         eng = self.eng
-        if eng.model.state not in ("pre_start", "formation"):
+        m = eng.model
+        if m.state not in ("pre_start", "formation"):
             return
-        for h in eng.humans():
+        # Truth Lock RN-10 (21 OCT: all six grid intros opened in one tick
+        # behind the formation calls and expired unsaid; 92 s of silence
+        # followed). On the formation lap the intros come one at a time,
+        # intro_every_s apart, starting intro_after_s into the lap, in grid
+        # order, so each one airs and the lap is filled to the lights.
+        paced = m.state == "formation"
+        if paced:
+            since = t - (getattr(m, "formation_t", None) or m.state_since or t)
+            if since < self.p("intro_after_s", 24.0):
+                return
+            if self._last_intro_t is not None and \
+                    (t - self._last_intro_t) < self.p("intro_every_s", 12.0):
+                return
+        order = sorted(eng.humans(), key=lambda i: (eng.w.cars[i].grid or eng.pos(i) or 99))
+        for h in order:
             c = eng.w.cars[h]
             if h in self._named or not c.name_resolved:
                 continue
             self._named.add(h)
+            self._last_intro_t = t
             # 09 OCT: the grid intro carries the driver's interview headline
             # (one unused fact, then spent for the session)
             mat = eng.material()
@@ -16088,6 +16680,8 @@ class P_SF_01(StoryProcessor):
             self.beat(t, rec, "transition", "on_grid", ctx=ctx,
                       view={"hook": bool(hook)})
             self.close(t, rec, "on_grid")
+            if paced:
+                break
 
 
 @story_processor
@@ -17434,7 +18028,12 @@ class SnapshotPublisher:
             "lights_out": bool(lights and now - lights < 8.0) if isinstance(lights, (int, float)) else False,
             "final_lap": state == "final_lap",
             "chequered": w.chequered_t is not None,
-            "podium": state in ("classified", "finishing", "closed"),
+            # Truth Lock RN-02: "podium" turned true the instant P1 crossed
+            # the line ("finishing"), and the overlay read it as classified and
+            # locked the results 20 s later with P3 to P5 still on track. It
+            # now means classified only.
+            "podium": state in ("classified", "closed"),
+            "finishing": state == "finishing",
             "safety_car": int(w.safety_car or 0),
             "new_fastest": bool(self.fastest_set_t and now - self.fastest_set_t < 6.0),
         }
@@ -17457,6 +18056,8 @@ class SnapshotPublisher:
             "lap": leader_lap, "total_laps": w.total_laps, "time_left": w.time_left,
             "tower_state": self._tower_state(w, model, is_race, leader_lap),
             "moments": moments,
+            "finish_watch": (model.finish_watch(now) if hasattr(model, "finish_watch")
+                             and model is not None else {"active": False}),    # Truth Lock T1
             "camera_idx": camera,
             "fastest_idx": self.fastest_idx, "fastest_ms": self.fastest_ms,
             "event": ev,
@@ -17631,6 +18232,12 @@ class BabyHooverV3:
             self.archive = Archive(apath, night_id=getattr(args, "night_id", None),
                                    label=getattr(args, "night_label", None) or "practice",
                                    log=self._log)
+            # Truth Lock H2 (21 OCT: rerun 1 was read back as "the previous
+            # race tonight" by rerun 2): a replay reads the archive but never
+            # writes it, unless --archive names a file on purpose
+            if getattr(args, "replay", None) and not getattr(args, "archive", None):
+                self.archive.path = None
+                self._log("[archive] replay: %s is read, not written (H2)" % apath)
             tpath = getattr(args, "tracks", None) or os.path.join(here_, TRACKS_FILE_NAME)
             dpath = getattr(args, "dossier", None) or os.path.join(here_, DOSSIER_FILE_NAME)
             rpath = getattr(args, "rules", None) or os.path.join(here_, RULES_FILE_NAME)
@@ -17697,8 +18304,13 @@ class BabyHooverV3:
         if choice == "template":
             return TemplateWriter(self.booth)
         if choice == "local":
-            return ModelWriter(self.booth, self.config, self.args, self._log,
-                               section="local")
+            # Truth Lock W4: local goes through the same hybrid router as the
+            # cloud, so formation, lights, start and results stay on their
+            # templates. Baby called the model for every claim in --writer
+            # local and it invented passes on the formation lap.
+            local = ModelWriter(self.booth, self.config, self.args, self._log,
+                                section="local")
+            return HybridWriter(self.booth, self.config, None, local)
         if choice == "model":
             return ModelWriter(self.booth, self.config, self.args, self._log)
         # hybrid (V8): cloud lane + local lane + template. Either model lane may
@@ -17903,7 +18515,7 @@ class BabyHooverV3:
                         pcar = data[27]
                         g["session_uids"][str(uid)] = g["session_uids"].get(str(uid), 0) + 1
                         g["player_cars"][str(pcar)] = g["player_cars"].get(str(pcar), 0) + 1
-                        key = (pid, uid, frame, pcar)
+                        key = udp_dup_key(data)    # Truth Lock RN-09
                         lt = seen.get(key)
                         if lt is not None and (t - lt) < 1.0:
                             dup = True
@@ -17971,7 +18583,24 @@ class BabyHooverV3:
         rs_mode = getattr(self.args, "replay_source", "spectator") or "spectator"
         rs_seen255 = False
         rs_dropped = {}
+        # Truth Lock (live = replay, Paper 18 Law 3): the replay drops the
+        # same duplicates the live guard drops, with the same key. A capture
+        # holds every datagram, repeats included; Baby fed them all on replay
+        # and none of them live, so a replay could not reproduce a live night.
+        udp_cfg = self.config.get("v3", "udp", default={}) or {}
+        rp_dedupe = bool(udp_cfg.get("replay_dedupe", True))
+        rp_seen = {}
+        rp_dups = 0
         for t, payload in reader.records():
+            if rp_dedupe and len(payload) >= 29:
+                k = udp_dup_key(payload)
+                lt = rp_seen.get(k)
+                rp_seen[k] = t
+                if len(rp_seen) > 20000:
+                    rp_seen = {kk: v for kk, v in rp_seen.items() if v >= t - 2.0}
+                if lt is not None and (t - lt) < 1.0:
+                    rp_dups += 1
+                    continue
             if rs_mode == "spectator" and len(payload) >= HEADER_SIZE:
                 pcar = payload[27]
                 pid = payload[6]
@@ -18009,6 +18638,9 @@ class BabyHooverV3:
             self._feed(t, payload)
             prev_arrival = t
             last_t = t
+        self.replay_duplicates_dropped = rp_dups
+        if rp_dups:
+            self._log("[replay] %d duplicate datagrams dropped (same key as the live guard)" % rp_dups)
         if rs_dropped:
             self.udp_guard = {"replay_source": rs_mode,
                               "dropped_by_player_car": {str(k): v for k, v in rs_dropped.items()}}
@@ -18287,6 +18919,15 @@ class BabyHooverV3:
                        if m.anchor_t is not None else None),
             "restarts": m.restarts,
             "restart_resets": list(getattr(m, "restart_resets", [])),
+            "safety_car_from_session": list(getattr(m, "sc_from_session", [])),
+            "finish_truth_lock": {
+                "log": list(getattr(m, "finish_log", [])),
+                "classified_provisional": bool(getattr(m, "classified_provisional", False)),
+                "unfinished_at_close": list(getattr(m, "unfinished_at_close", []))},
+            "lifecycle_truth_lock": {
+                "unretired": list(getattr(m, "unretired", [])),
+                "provisional_at_end": {str(k): v[1] for k, v in getattr(m, "provisional_retire", {}).items()},
+                "retired_at_end": sorted(getattr(m, "retired_at", {}).keys())},
             "new_races": list(getattr(m, "new_races", [])),
             "leader_finish": ({"t_unix": round(m.leader_finish_t, 6),
                                "car_idx": m.road_winner}
