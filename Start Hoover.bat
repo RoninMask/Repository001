@@ -10,6 +10,8 @@ cd /d "%~dp0"
 
 rem The ONE line to change when a new version renames the tool file:
 set "HOOVER_TOOL=T11_F125_Baby_Hoover_V4_05OCT26.py"
+rem Truth Lock H4: the Truth Lock build runs when it is here; set HOOVER_USE_BABY=1 to run Baby
+if exist "Hoover_Toddler_TruthLock.py" if not defined HOOVER_USE_BABY set "HOOVER_TOOL=Hoover_Toddler_TruthLock.py"
 
 set "PY="
 where python >nul 2>nul && set "PY=python"
