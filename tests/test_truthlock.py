@@ -40,6 +40,11 @@ class DuplicateKeyRN09(unittest.TestCase):
         b = M.udp_dup_key(_event_packet("RSUM"))
         self.assertNotEqual(a, b)
 
+    def test_two_penalties_in_one_frame_are_not_duplicates(self):
+        a = _event_packet("PENA")
+        b = a[:-12] + bytes([1]) + bytes(11)
+        self.assertNotEqual(M.udp_dup_key(a), M.udp_dup_key(b))
+
     def test_a_repeat_of_the_same_event_is_a_duplicate(self):
         self.assertEqual(M.udp_dup_key(_event_packet("DRSE")),
                          M.udp_dup_key(_event_packet("DRSE")))

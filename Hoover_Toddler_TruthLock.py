@@ -1301,13 +1301,19 @@ def udp_dup_key(data):
     look like one: on 21 OCT the DRS-enabled event (DRSE) arrived in the same
     frame as the resume (RSUM) and was dropped as its duplicate, so "DRS is
     disabled" stood all race. Live and replay use the same key."""
+    # 28 OCT (synthetic practice replay: 1,439 good packets dropped): two
+    # packets of one kind can share a frame -- several events, session
+    # history per car -- so the frame is not enough even with the event code.
+    # A duplicate is the same datagram twice: the key carries a digest of the
+    # whole datagram as well.
     pid = data[6]
     uid = int.from_bytes(data[7:15], "little")
     frame = int.from_bytes(data[19:23], "little")
     pcar = data[27]
+    dig = hashlib.blake2b(bytes(data), digest_size=8).digest()
     if pid == 3 and len(data) >= OFF_E_CODE + 4:
-        return (pid, uid, frame, pcar, bytes(data[OFF_E_CODE:OFF_E_CODE + 4]))
-    return (pid, uid, frame, pcar)
+        return (pid, uid, frame, pcar, bytes(data[OFF_E_CODE:OFF_E_CODE + 4]), dig)
+    return (pid, uid, frame, pcar, dig)
 
 
 class ReplayReader:
@@ -2410,6 +2416,12 @@ class Archive:
             if not tonight_only and night.get("label") != "official":
                 continue
             for s in night.get("sessions", []):
+                # Truth Lock H2: a replay of a capture is not an earlier
+                # session tonight (21 OCT: rerun 1 read back as "the previous
+                # race tonight" by rerun 2)
+                ex = getattr(self, "exclude_capture", None)
+                if ex and s.get("capture_sha256") == ex:
+                    continue
                 out.append((nid, night.get("label"), s))
         return out
 
@@ -18235,6 +18247,15 @@ class BabyHooverV3:
             # Truth Lock H2 (21 OCT: rerun 1 was read back as "the previous
             # race tonight" by rerun 2): a replay reads the archive but never
             # writes it, unless --archive names a file on purpose
+            if getattr(args, "replay", None):
+                try:
+                    h_ = hashlib.sha256()
+                    with open(args.replay, "rb") as f_:
+                        for chunk in iter(lambda: f_.read(1 << 20), b""):
+                            h_.update(chunk)
+                    self.archive.exclude_capture = h_.hexdigest()
+                except Exception:
+                    pass
             if getattr(args, "replay", None) and not getattr(args, "archive", None):
                 self.archive.path = None
                 self._log("[archive] replay: %s is read, not written (H2)" % apath)
