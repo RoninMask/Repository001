@@ -37,6 +37,14 @@ main{flex:1;min-width:0;padding:18px 22px 220px}
 section{display:none}section.on{display:block}
 h2{margin:0 0 12px;font-size:18px}
 h3{margin:0 0 8px;font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.biolink{color:var(--dim);font-size:12px;text-decoration:none;white-space:nowrap}
+.biolink.has{color:var(--text)} .biolink.has::before{content:"● ";color:var(--accent,#1DE9D6)} .biolink.lock::after{content:" 🔒"}
+#biomodal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:50}
+#biomodal.on{display:flex}
+#biomodal .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;width:min(720px,92vw)}
+#biomodal textarea{width:100%;box-sizing:border-box;height:46vh;background:var(--bg,#111);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;font:inherit;font-size:13px}
+#teamtable input{width:100%;box-sizing:border-box;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:13px}
+#teamtable td{padding:4px 6px;vertical-align:middle} #teamtable th{text-align:left;padding:4px 6px;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .btn{cursor:pointer;border:1px solid var(--line);background:var(--panel2);padding:7px 13px;border-radius:7px;font-weight:600}
@@ -193,6 +201,14 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
       </div>
     </div>
     <div class="note" id="evnote" style="margin-top:6px">Loading…</div>
+  </div>
+  <div class="card" id="teamcard">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Booth team</h3>
+      <div class="row"><button class="btn" id="btnteamreload">Reload</button><button class="btn accent" id="btnteamsave">Save team</button></div>
+    </div>
+    <div class="note" style="margin-top:6px">Pick who is on air. The <b>Lead</b> and <b>Analyst</b> who are on are the two voices Hoover speaks with (read when Hoover starts, so save before Start). The other seats are kept for Toddler. <b>Bio</b> opens the backstory: paste it in, save, lock it if you want it kept as is.</div>
+    <div id="teamtable" style="margin-top:10px"><div class="note">Loading…</div></div>
   </div>
   <div class="card">
     <div class="row" style="justify-content:space-between"><h3 style="margin:0">This PC</h3>
@@ -473,6 +489,14 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
     <div class="note" style="margin-top:8px">The dashboard re-reads the tool by itself after a pull: new options appear on the Session page, and the version above changes. Do this from standby, never during a race.</div>
   </div>
 </section>
+<div id="biomodal"><div class="box">
+  <div class="row" style="justify-content:space-between"><h3 style="margin:0" id="biotitle">Bio</h3><span class="note" id="biometa"></span></div>
+  <textarea id="biotext" placeholder="Paste the backstory here. Plain text; as long as you like (up to 6000 characters)."></textarea>
+  <div class="row" style="justify-content:space-between;margin-top:8px">
+    <button class="btn" id="biolock">Lock</button>
+    <div class="row"><button class="btn" id="bioclose">Close</button><button class="btn accent" id="biosave">Save bio</button></div>
+  </div>
+</div></div>
 </main>
 </div>
 
@@ -515,6 +539,67 @@ async function evLoad(){ try{ evShow(await api("/api/event")); }catch(e){} }
 async function evSave(){ try{ const d = await api("/api/event", {charity:$("#ev_charity").checked, sponsors:$("#ev_sponsors").checked});
   evShow(d); toast(d.ok ? "Saved: " + esc(d.summary||"") : "Not saved: " + esc(d.msg||"")); }catch(e){ toast("Not saved"); } }
 $("#ev_charity").onchange = evSave; $("#ev_sponsors").onchange = evSave; evLoad();
+
+// ---------- 28 OCT: bios and the booth team (hoover_people.json)
+let PEOPLE = {team:[], bios:{}, seats:[]};
+let BIO = null;   // {kind, id, label}
+function bioRec(kind, id){ return kind === "driver" ? (PEOPLE.bios||{})[id] || {} : (PEOPLE.team||[]).find(m => m.id === id) || {}; }
+function bioLink(kind, id, label){
+  if (!id) return "";
+  const r = bioRec(kind, id); const cls = "biolink" + ((r.bio||"").trim() ? " has" : "") + (r.locked ? " lock" : "");
+  return `<a href="#" class="${cls}" data-kind="${kind}" data-id="${esc(id)}" data-label="${esc(label||id)}">Bio</a>`;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest("a.biolink"); if (!a) return;
+  e.preventDefault(); bioOpen(a.dataset.kind, a.dataset.id, a.dataset.label);
+});
+function bioOpen(kind, id, label){
+  BIO = {kind, id, label}; const r = bioRec(kind, id);
+  $("#biotitle").textContent = "Bio: " + label; $("#biotext").value = r.bio || "";
+  $("#biotext").readOnly = !!r.locked; $("#biolock").textContent = r.locked ? "Unlock" : "Lock";
+  $("#biosave").disabled = !!r.locked;
+  $("#biometa").textContent = (r.locked ? "Locked. " : "") + (r.updated ? "Saved " + r.updated.replace("T"," ") : "Nothing saved yet");
+  $("#biomodal").classList.add("on"); if (!r.locked) $("#biotext").focus();
+}
+async function bioPost(body){
+  const d = await api("/api/people/bio", Object.assign({kind: BIO.kind, id: BIO.id}, body));
+  if (!d.ok) { toast("<b>Not saved:</b> " + esc(d.msg||"")); return false; }
+  PEOPLE = d; paintTeam(); paintNames(); bioOpen(BIO.kind, BIO.id, BIO.label); return true;
+}
+$("#biosave").onclick = async () => { if (await bioPost({text: $("#biotext").value})) toast("Bio saved: " + esc(BIO.label)); };
+$("#biolock").onclick = async () => {
+  const r = bioRec(BIO.kind, BIO.id);
+  if (r.locked) { await bioPost({locked: false}); toast("Unlocked: " + esc(BIO.label)); }
+  else { await bioPost({text: $("#biotext").value, locked: true}); toast("Saved and locked: " + esc(BIO.label)); }
+};
+$("#bioclose").onclick = () => $("#biomodal").classList.remove("on");
+$("#biomodal").onclick = e => { if (e.target.id === "biomodal") $("#biomodal").classList.remove("on"); };
+const SEATNAME = {LEAD:"Lead", ANALYST:"Analyst", HOST:"Host", STRATEGIST:"Strategist", REPORTER:"Reporter", EXPERT:"Expert"};
+function paintTeam(){
+  if (!PEOPLE.available) { $("#teamtable").innerHTML = `<div class="note bad">${esc(PEOPLE.error || "hoover_people.py is not beside the dashboard")}</div>`; return; }
+  const opts = s => (PEOPLE.seats||[]).map(x => `<option value="${x}"${x===s?" selected":""}>${SEATNAME[x]||x}</option>`).join("");
+  $("#teamtable").innerHTML = (PEOPLE.error ? `<div class="note bad">${esc(PEOPLE.error)}</div>` : "") +
+    `<table><tr><th>On</th><th>Seat</th><th>Name</th><th>Role</th><th>Voice id</th><th></th></tr>` +
+    (PEOPLE.team||[]).map((m,i) => `<tr data-i="${i}">
+      <td><label class="switch"><input type="checkbox" data-k="on"${m.on?" checked":""}><i></i></label></td>
+      <td><select data-k="seat">${opts(m.seat)}</select></td>
+      <td><input data-k="name" value="${esc(m.name)}"></td>
+      <td><input data-k="role" value="${esc(m.role)}"></td>
+      <td><input data-k="voice_id" class="mono" value="${esc(m.voice_id)}" placeholder="ElevenLabs voice id"></td>
+      <td>${bioLink("team", m.id, m.name)}</td></tr>`).join("") + `</table>`;
+}
+async function loadPeople(){ try { PEOPLE = await api("/api/people"); } catch(e) {} paintTeam(); if (NAMES) paintNames(); }
+async function saveTeam(){
+  const team = (PEOPLE.team||[]).map((m,i) => {
+    const tr = $(`#teamtable tr[data-i="${i}"]`); const o = {id: m.id};
+    tr.querySelectorAll("[data-k]").forEach(el => o[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value);
+    return o;
+  });
+  const d = await api("/api/people/team", {team});
+  if (d.ok) { PEOPLE = d; paintTeam(); toast("<b>Team saved.</b> Hoover uses the Lead and Analyst voices at its next start."); }
+  else toast("<b>Not saved:</b> " + esc(d.msg||""), 9000);
+}
+$("#btnteamsave").onclick = saveTeam; $("#btnteamreload").onclick = loadPeople; loadPeople();
 
 // ---------- tabs
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -813,10 +898,10 @@ function paintNames(){
   if (!NAMES || !NAMES.ok) { $("#namestable").innerHTML = `<div class="note bad">${esc((NAMES||{}).msg || "Could not read the roster")}</div>`; return; }
   const mode = namesMode();
   const rc = mode === "real" ? "" : "dimcol", tc = mode === "gamertag" ? "" : "dimcol";
-  $("#namestable").innerHTML = `<table><tr><th>Gamertag</th><th>No.</th><th class="${rc}">Real: everyday</th><th class="${rc}">Real: full</th><th class="${tc}">Gamertag: everyday</th><th class="${tc}">Gamertag: full</th></tr>` +
+  $("#namestable").innerHTML = `<table><tr><th>Gamertag</th><th>No.</th><th class="${rc}">Real: everyday</th><th class="${rc}">Real: full</th><th class="${tc}">Gamertag: everyday</th><th class="${tc}">Gamertag: full</th><th></th></tr>` +
     NAMES.drivers.map((d,i) => `<tr data-i="${i}"><td class="mono">${esc(d.handle)}</td><td class="n">${d.race_number ?? '<span class="bad">–</span>'}</td>
       <td class="${rc}"><input data-k="real_short" value="${esc(d.real_short)}"></td><td class="${rc}"><input data-k="real_full" value="${esc(d.real_full)}"></td>
-      <td class="${tc}"><input data-k="tag_short" value="${esc(d.tag_short)}"></td><td class="${tc}"><input data-k="tag_full" value="${esc(d.tag_full)}"></td></tr>`).join("") + `</table>`;
+      <td class="${tc}"><input data-k="tag_short" value="${esc(d.tag_short)}"></td><td class="${tc}"><input data-k="tag_full" value="${esc(d.tag_full)}"></td><td>${bioLink("driver", d.driver_id, d.real_full || d.handle)}</td></tr>`).join("") + `</table>`;
   const on = mode === "real" ? "real names" : "gamertags";
   $("#namesnote").innerHTML = `On air now: <b>${on}</b>. The highlighted columns are what the booth will say.`;
 }

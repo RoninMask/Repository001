@@ -829,6 +829,19 @@ class OverlayProc:
         return True
 
 
+def _people_doc(tool_dir):
+    """28 OCT 26: bios and the booth team for the Pre-flight page."""
+    try:
+        if tool_dir not in sys.path:
+            sys.path.insert(0, tool_dir)
+        import hoover_people as hp
+        doc, err = hp.load(tool_dir)
+        return {"available": True, "team": doc.get("team") or [], "bios": doc.get("bios") or {},
+                "seats": list(hp.SEATS), "error": err}
+    except Exception as e:
+        return {"available": False, "team": [], "bios": {}, "seats": [], "error": str(e)}
+
+
 def _event_doc(tool_dir):
     """28 OCT 26: the event switches for the Pre-flight page."""
     try:
@@ -960,6 +973,8 @@ def make_handler(app):
             # ---- V1.1: season, overlays, event ------------------------------
             if u.path == "/api/event":
                 return self._send(200, _event_doc(app.tool_dir()))
+            if u.path == "/api/people":
+                return self._send(200, _people_doc(app.tool_dir()))
             if u.path == "/api/season":
                 path = app.season_path(q.get("file"))
                 doc = _read_json(path, None) if path else None
@@ -1097,6 +1112,19 @@ def make_handler(app):
                 finally:
                     app.listen_lock.release()
             # ---- V1.1: season, overlays -------------------------------------
+            if u.path in ("/api/people/bio", "/api/people/team"):
+                try:
+                    d = app.tool_dir()
+                    if d not in sys.path:
+                        sys.path.insert(0, d)
+                    import hoover_people as hp
+                    if u.path.endswith("/bio"):
+                        hp.set_bio(d, b.get("kind"), b.get("id"), text=b.get("text"), locked=b.get("locked"))
+                    else:
+                        hp.save_team(d, b.get("team"))
+                except Exception as e:
+                    return self._send(400, {"ok": False, "msg": str(e)})
+                return self._send(200, dict(_people_doc(app.tool_dir()), ok=True))
             if u.path == "/api/event":
                 try:
                     d = app.tool_dir()

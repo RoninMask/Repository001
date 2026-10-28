@@ -45,3 +45,7 @@ hoover_event.json.tmp
 # T13 bench results are the PC's own
 hoover_bench_out/
 *.bak
+
+# 28 OCT: bios and the booth team are the PC's own; the repo ships hoover_people.default.json
+hoover_people.json
+hoover_people.json.tmp

@@ -1,0 +1,12 @@
+{
+  "_about": "Bios and the booth team. The dashboard's Pre-flight page edits the PC's copy (hoover_people.json). The LEAD and ANALYST members who are on are Baby Gold's two voices (read at start); the other seats wait for Toddler. Bios are stored, not yet spoken. A locked bio is read-only until unlocked.",
+  "team": [
+    {"id": "jon", "seat": "LEAD", "name": "Jon", "role": "Lead commentator", "voice_id": "vSSoxe4a93eFSPtJHjAA", "on": true, "bio": "", "locked": false},
+    {"id": "graham", "seat": "ANALYST", "name": "Graham Ashford", "role": "Analyst: old, retired, calm ex-driver; his memories come only from his backstory", "voice_id": "FYwp3S5jehvq7iBY7msF", "on": true, "bio": "", "locked": false},
+    {"id": "helen", "seat": "HOST", "name": "Helen Whitlock", "role": "Broadcast host: pre-show, post-show, maybe between sessions (Baby's analyst voice on 21 OCT)", "voice_id": "prJYBPOxu8LDMrZfACbo", "on": true, "bio": "", "locked": false},
+    {"id": "kat", "seat": "STRATEGIST", "name": "Kat Mercer", "role": "Strategist: called in by name for a short piece, then handed back", "voice_id": "sLi4NdIMT2bmK1jbYJJ3", "on": true, "bio": "", "locked": false},
+    {"id": "sienna", "seat": "REPORTER", "name": "Sienna Vale", "role": "Personal reporter: the drivers' interviews", "voice_id": "", "on": true, "bio": "", "locked": false},
+    {"id": "matteo", "seat": "EXPERT", "name": "Matteo", "role": "Young race engineer and broadcaster, out of the car after an AI-related injury; sharp, opinionated, never hedges", "voice_id": "vMAjK5UzTaLwUoL9Zp6u", "on": true, "bio": "", "locked": false}
+  ],
+  "bios": {}
+}

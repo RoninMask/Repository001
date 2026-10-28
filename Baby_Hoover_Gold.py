@@ -9693,7 +9693,18 @@ class SpeechChannel:
                                "https://api.elevenlabs.io/v1/text-to-speech")
         self.output_format = rc.get("output_format", "pcm_24000")
         self.sample_rate = rc.get("sample_rate_hz", 24000)
-        self.voices = rc.get("voices", {}) or {}
+        self.voices = dict(rc.get("voices", {}) or {})
+        # 28 OCT: the booth team (hoover_people.json, the dashboard's Booth
+        # team card): the Lead and Analyst who are on speak with their voices
+        try:
+            import hoover_people as _hp
+            team = _hp.booth_voices(os.path.dirname(os.path.abspath(__file__)))
+            if team:
+                self.voices.update(team)
+                self.log("[speech] booth team voices: %s" % ", ".join(
+                    "%s %s" % (k, v) for k, v in sorted(team.items())))
+        except Exception:
+            pass
         self.char_budget = rc.get("character_budget", 25000)
         self.degraded_threshold = rc.get("degraded_threshold", 5)
         self.req_timeout = rc.get("request_timeout_s", 10.0)
