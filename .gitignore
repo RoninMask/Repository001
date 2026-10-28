@@ -41,3 +41,7 @@ results/
 # 28 OCT: the event switches are the PC's own; the repo ships hoover_event.default.json
 hoover_event.json
 hoover_event.json.tmp
+
+# T13 bench results are the PC's own
+hoover_bench_out/
+*.bak
