@@ -412,6 +412,42 @@ def names_write(tool_dir, body):
     if not doc:
         return {"ok": False, "msg": "%s not found" % ROSTER_NAME}
     mode = "gamertag" if (body.get("on_air") == "gamertag") else "real"
+    # 28 OCT: "Add driver" -- a new human (no driver_id yet) becomes a roster
+    # entry here, matched in game by gamertag (and race number when given).
+    drivers = doc.setdefault("drivers", [])
+    have_tags = {((d.get("match") or {}).get("handle") or "").lower() for d in drivers}
+    have_ids = {d.get("driver_id") for d in drivers}
+    for r in (body.get("drivers") or []):
+        if r.get("driver_id"):
+            continue
+        tag = (r.get("handle") or "").strip()
+        if not tag:
+            return {"ok": False, "msg": "a new driver needs his gamertag exactly as the game shows it"}
+        if tag.lower() in have_tags:
+            return {"ok": False, "msg": "%s is already on the list" % tag}
+        num = r.get("race_number")
+        try:
+            num = int(num) if str(num or "").strip() else None
+        except (TypeError, ValueError):
+            return {"ok": False, "msg": "%s: race number must be a number" % tag}
+        base = "d_" + (re.sub(r"[^a-z0-9]+", "_", tag.lower()).strip("_") or "driver")
+        did, k = base, 2
+        while did in have_ids:
+            did, k = "%s_%d" % (base, k), k + 1
+        have_ids.add(did)
+        have_tags.add(tag.lower())
+        drivers.append({"driver_id": did, "match": {"handle": tag, "network_id": None, "race_number": num},
+                        "level": "A", "spoken": {}, "participation": "human", "team": None,
+                        "real_name": (r.get("real_short") or "").strip() or None, "platform": None,
+                        "_added": "dashboard Names card, " + time.strftime("%Y-%m-%d")})
+        r["driver_id"] = did
+    humans = sum(1 for d in drivers if d.get("participation") == "human")
+    if humans > 20:
+        return {"ok": False, "msg": "%d humans: a league holds at most 20" % humans}
+    nums = [((d.get("match") or {}).get("race_number")) for d in drivers if d.get("participation") == "human"]
+    dup = sorted({n for n in nums if n is not None and nums.count(n) > 1})
+    if dup:
+        return {"ok": False, "msg": "race number %s is used by two drivers; they must be unique" % dup[0]}
     edits = {r.get("driver_id"): r for r in (body.get("drivers") or [])}
     seen = {}
     for d in doc.get("drivers", []):

@@ -235,6 +235,7 @@ main select,#seasonfile,#featfile,#radiodriver{background:#0f1318;border:1px sol
           <input type="radio" name="onair" value="real" id="onair_real"><label for="onair_real">Real names</label>
           <input type="radio" name="onair" value="gamertag" id="onair_tag"><label for="onair_tag">Gamertags</label>
         </div>
+        <button class="btn" id="btnaddname">Add driver</button>
         <button class="btn" id="btnnamesreload">Reload</button>
         <button class="btn accent" id="btnnamessave">Save names</button>
       </div>
@@ -899,7 +900,7 @@ function paintNames(){
   const mode = namesMode();
   const rc = mode === "real" ? "" : "dimcol", tc = mode === "gamertag" ? "" : "dimcol";
   $("#namestable").innerHTML = `<table><tr><th>Gamertag</th><th>No.</th><th class="${rc}">Real: everyday</th><th class="${rc}">Real: full</th><th class="${tc}">Gamertag: everyday</th><th class="${tc}">Gamertag: full</th><th></th></tr>` +
-    NAMES.drivers.map((d,i) => `<tr data-i="${i}"><td class="mono">${esc(d.handle)}</td><td class="n">${d.race_number ?? '<span class="bad">–</span>'}</td>
+    NAMES.drivers.map((d,i) => `<tr data-i="${i}">${d.driver_id ? `<td class="mono">${esc(d.handle)}</td><td class="n">${d.race_number ?? '<span class="bad">–</span>'}</td>` : `<td><input data-k="handle" placeholder="gamertag, exactly" value="${esc(d.handle||"")}"></td><td><input data-k="race_number" placeholder="No." style="width:52px" value="${esc(d.race_number??"")}"></td>`}
       <td class="${rc}"><input data-k="real_short" value="${esc(d.real_short)}"></td><td class="${rc}"><input data-k="real_full" value="${esc(d.real_full)}"></td>
       <td class="${tc}"><input data-k="tag_short" value="${esc(d.tag_short)}"></td><td class="${tc}"><input data-k="tag_full" value="${esc(d.tag_full)}"></td><td>${bioLink("driver", d.driver_id, d.real_full || d.handle)}</td></tr>`).join("") + `</table>`;
   const on = mode === "real" ? "real names" : "gamertags";
@@ -923,6 +924,15 @@ async function saveNames(){
 }
 document.querySelectorAll("input[name=onair]").forEach(r => r.onchange = () => { paintNames(); $("#namesnote").innerHTML += ` <span class="bad">Not saved yet: press Save names.</span>`; });
 $("#btnnamesreload").onclick = loadNames;
+// 28 OCT: a new human driver (up to 20 in a league); saved with Save names
+$("#btnaddname").onclick = () => {
+  if (!NAMES || !NAMES.ok) return;
+  NAMES.drivers.forEach((d,i) => { const tr = $(`#namestable tr[data-i="${i}"]`); if (tr) tr.querySelectorAll("input[data-k]").forEach(inp => d[inp.dataset.k] = inp.value); });
+  if (NAMES.drivers.length >= 20) { toast("A league holds at most 20 human drivers."); return; }
+  NAMES.drivers.push({driver_id: "", handle: "", race_number: "", real_short: "", real_full: "", tag_short: "", tag_full: ""});
+  paintNames();
+  $("#namesnote").innerHTML += ` <span class="bad">New driver: fill in his gamertag exactly as the game shows it, both everyday names, then Save names.</span>`;
+};
 $("#btnnamessave").onclick = saveNames;
 
 async function runChecks(){
