@@ -18433,7 +18433,7 @@ class BabyHooverV3:
                     getattr(args, "out", None) or os.path.join(here, "hoover_v3_out"), self.event_stamp.get("date"))
             except Exception:
                 self.event_stamp["test_run"] = 1
-            self._log("[event] TEST RUN %s: nothing goes into the season's records" % self.event_stamp["test_run"])
+            self._log("[event] TEST RUN %s: everything is recorded, labelled test (never season record)" % self.event_stamp["test_run"])
         season_arg = getattr(args, "season", None)
         season_path = None
         if season_arg and season_arg.lower() != "off" and _season_mod is not None:
@@ -18519,8 +18519,18 @@ class BabyHooverV3:
         if self.stories is not None:
             here_ = os.path.dirname(os.path.abspath(__file__))
             apath = getattr(args, "archive", None) or os.path.join(here_, ARCHIVE_FILE_NAME)
-            self.archive = Archive(apath, night_id=getattr(args, "night_id", None),
-                                   label=getattr(args, "night_label", None) or "practice",
+            # 28 OCT (Dustin): a test run is recorded in full, under its own
+            # "<date> test" night labelled test -- it reads back as tonight's
+            # earlier test races, and never counts as season record (only
+            # official nights do)
+            _st = (getattr(self, "event_stamp", None) or {}).get("status")
+            _nid = getattr(args, "night_id", None)
+            if _st == "test":
+                _nid = "%s test" % (_nid or (self.event_stamp or {}).get("date")
+                                    or datetime.now().strftime("%Y-%m-%d"))
+            self.archive = Archive(apath, night_id=_nid,
+                                   label=("test" if _st == "test" else
+                                          getattr(args, "night_label", None) or "practice"),
                                    log=self._log)
             # Truth Lock H2 (21 OCT: rerun 1 was read back as "the previous
             # race tonight" by rerun 2): a replay reads the archive but never
@@ -18597,9 +18607,11 @@ class BabyHooverV3:
                 "status": status, "night_label": label}
 
     def _unrecorded(self):
-        """28 OCT: a test or friendly run writes nothing to the season's
-        records (archive, race-day export); its run folder is still written."""
-        return (getattr(self, "event_stamp", None) or {}).get("status") in ("test", "friendly")
+        """28 OCT (revised same day, Dustin: "full capability, just labelled
+        different"): every run is recorded -- archive, race-day record, run
+        folder, capture. A test run's records carry status test; the archive
+        counts only official nights as season record. Kept as a hook."""
+        return False
 
     def _test_run_number(self, out_root, date):
         """28 OCT: TEST RUN n -- this run's number among today's test runs,
